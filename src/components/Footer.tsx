@@ -10,6 +10,7 @@ import {
   ShieldAlert,
   Sparkles
 } from 'lucide-react';
+import { buildWhatsAppUrl } from '../utils/whatsappShare';
 
 export const Footer: React.FC = () => {
   const { settings, setCurrentView } = useCatalog();
@@ -20,9 +21,10 @@ export const Footer: React.FC = () => {
     window.scrollTo({ top: 0, behavior: 'smooth' });
   };
 
-  const whatsappUrl = `https://wa.me/${settings.whatsappNumber}?text=${encodeURIComponent(
+  const whatsappUrl = buildWhatsAppUrl(
+    settings.whatsappNumber,
     'Olá! Gostaria de falar com o atendimento da PodWave sobre o catálogo.'
-  )}`;
+  );
 
   return (
     <footer className="border-t border-[#8423DA]/25 bg-[#05060D] text-[#A5A5B8] pt-14 pb-10">
@@ -44,7 +46,7 @@ export const Footer: React.FC = () => {
                 {settings.storeName}
               </span>
               <p className="text-[11px] uppercase tracking-wider text-[#A5A5B8] font-bold">
-                Catálogo Digital &bull; São Luís - MA
+                Catálogo Digital &bull; Toda a Região
               </p>
             </div>
           </div>
@@ -73,23 +75,23 @@ export const Footer: React.FC = () => {
           </div>
         </div>
 
-        {/* 4 Informational Columns matching user screenshot */}
+        {/* 4 Informational Columns with Project Neon Cyan styling */}
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-8">
           {/* Col 1: ÁREA DE ENTREGA */}
           <div className="space-y-2.5">
-            <h4 className="font-heading font-black text-xs uppercase tracking-wider text-[#FACC15] flex items-center gap-1.5">
-              <Truck className="w-4 h-4 text-[#FACC15]" />
+            <h4 className="font-heading font-black text-xs uppercase tracking-wider text-[#00DFFF] flex items-center gap-1.5">
+              <Truck className="w-4 h-4 text-[#00DFFF]" />
               <span>ÁREA DE ENTREGA</span>
             </h4>
             <p className="text-xs text-[#A5A5B8] leading-relaxed">
-              Todo o catálogo de pods de São Luís em um lugar só | Entregamos em toda São Luís e região metropolitana com agilidade.
+              Todo o catálogo de pods em um lugar só | Entregamos em toda a região com agilidade e total segurança.
             </p>
           </div>
 
           {/* Col 2: ATENDIMENTO */}
           <div className="space-y-2.5">
-            <h4 className="font-heading font-black text-xs uppercase tracking-wider text-[#FACC15] flex items-center gap-1.5">
-              <Clock className="w-4 h-4 text-[#FACC15]" />
+            <h4 className="font-heading font-black text-xs uppercase tracking-wider text-[#00DFFF] flex items-center gap-1.5">
+              <Clock className="w-4 h-4 text-[#00DFFF]" />
               <span>ATENDIMENTO</span>
             </h4>
             <p className="text-xs text-[#A5A5B8] leading-relaxed">
@@ -102,8 +104,8 @@ export const Footer: React.FC = () => {
 
           {/* Col 3: FORMAS DE PAGAMENTO */}
           <div className="space-y-2.5">
-            <h4 className="font-heading font-black text-xs uppercase tracking-wider text-[#FACC15] flex items-center gap-1.5">
-              <CreditCard className="w-4 h-4 text-[#FACC15]" />
+            <h4 className="font-heading font-black text-xs uppercase tracking-wider text-[#00DFFF] flex items-center gap-1.5">
+              <CreditCard className="w-4 h-4 text-[#00DFFF]" />
               <span>FORMAS DE PAGAMENTO</span>
             </h4>
             <p className="text-xs text-[#A5A5B8] leading-relaxed">
@@ -113,8 +115,8 @@ export const Footer: React.FC = () => {
 
           {/* Col 4: TROCAS */}
           <div className="space-y-2.5">
-            <h4 className="font-heading font-black text-xs uppercase tracking-wider text-[#FACC15] flex items-center gap-1.5">
-              <RotateCcw className="w-4 h-4 text-[#FACC15]" />
+            <h4 className="font-heading font-black text-xs uppercase tracking-wider text-[#00DFFF] flex items-center gap-1.5">
+              <RotateCcw className="w-4 h-4 text-[#00DFFF]" />
               <span>TROCAS</span>
             </h4>
             <p className="text-xs text-[#A5A5B8] leading-relaxed">
@@ -129,7 +131,7 @@ export const Footer: React.FC = () => {
             onClick={openAdmin}
             className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#11152A] hover:bg-[#1C2245] border border-[#8423DA]/40 text-[#00DFFF] text-xs font-semibold transition-all cursor-pointer"
           >
-            <Sparkles className="w-3.5 h-3.5 text-[#FACC15]" />
+            <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
             <span>Acessar Painel Administrativo Demonstrativo (/admin)</span>
           </button>
         </div>
@@ -151,7 +153,7 @@ export const Footer: React.FC = () => {
             <p className="flex items-center gap-1.5">
               <span>Catálogo Digital Premium</span>
               <span className="text-[#00DFFF]">&bull;</span>
-              <span className="text-[#FACC15] font-bold">São Luís - Maranhão</span>
+              <span className="text-[#00DFFF] font-bold">Atendimento em Toda a Região</span>
             </p>
           </div>
         </div>

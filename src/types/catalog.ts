@@ -1,9 +1,42 @@
+export type AvailabilityStatus = 'disponivel' | 'ultimas_unidades' | 'esgotado' | 'nao_informado';
+
+export interface VariantAvailabilityInfo {
+  status: AvailabilityStatus;
+  label: string;
+  badgeLabel: string;
+  colorHex: string;
+  badgeBg: string;
+  badgeBorder: string;
+  badgeText: string;
+  icon: string;
+  quantityText: string;
+}
+
+export interface VariantHistoryEntry {
+  id: string;
+  timestamp: string;
+  modelId: string;
+  modelName: string;
+  brandName?: string;
+  flavorId: string;
+  flavorName: string;
+  flavorEmoji: string;
+  previousQuantity: number | null | undefined;
+  newQuantity: number | null | undefined;
+  updatedBy: string;
+  changeType: 'quick_edit' | 'bulk_edit' | 'threshold_change' | 'reset';
+  notes?: string;
+}
+
 export interface FlavorVariant {
   id: string;
   name: string;
   colorHex: string;
   iconEmoji: string;
   inStock: boolean;
+  demoQuantity?: number | null; // Demonstrative quantity per flavor
+  lowQuantityThreshold?: number; // Specific threshold for this flavor (default: 3)
+  updatedAt?: string; // ISO string of last edit
   customImage?: string;
 }
 
@@ -32,6 +65,7 @@ export interface ProductModel {
   description: string;
   category: string;
   active: boolean;
+  lowQuantityThreshold?: number; // Optional model-level threshold override
 }
 
 export interface Brand {
@@ -42,6 +76,7 @@ export interface Brand {
   featured: boolean;
   country?: string;
   description?: string;
+  cardColor?: string;
 }
 
 export interface BannerSlide {
@@ -105,6 +140,10 @@ export interface OrderForm {
   fullName: string;
   phoneWhatsapp: string;
   address: string;
+  bairro?: string;
+  city?: string;
+  numberAndComplement?: string;
+  referencePoint?: string;
   isPickup: boolean;
   paymentMethod: string;
   notes: string;

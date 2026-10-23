@@ -76,7 +76,7 @@ export const CartDrawer: React.FC = () => {
               <h2 className="font-heading text-lg font-extrabold tracking-tight">
                 Seu Carrinho
               </h2>
-              <span className="text-xs px-2 py-0.5 rounded-full bg-[#181C38] text-[#FACC15] font-bold">
+              <span className="text-xs px-2 py-0.5 rounded-full bg-[#181C38] text-[#00DFFF] font-bold">
                 {cart.reduce((a, b) => a + b.quantity, 0)} {cart.reduce((a, b) => a + b.quantity, 0) === 1 ? 'item' : 'itens'}
               </span>
             </div>

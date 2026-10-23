@@ -2,6 +2,7 @@ import React from 'react';
 import { useCatalog } from '../context/CatalogContext';
 import { ShoppingBag, MessageCircle } from 'lucide-react';
 import { PWAInstallButton } from './PWAInstallButton';
+import { buildWhatsAppUrl } from '../utils/whatsappShare';
 
 export const FloatingActions: React.FC = () => {
   const { totalCartItems, setIsCartOpen, settings } = useCatalog();
@@ -15,9 +16,10 @@ export const FloatingActions: React.FC = () => {
       </div>
       {/* Floating WhatsApp Action Button */}
       <a
-        href={`https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
+        href={buildWhatsAppUrl(
+          whatsappNumber,
           'Olá! Estou navegando no catálogo PodWave e gostaria de tirar uma dúvida ou fazer um pedido.'
-        )}`}
+        )}
         target="_blank"
         rel="noopener noreferrer"
         className="pointer-events-auto group flex items-center gap-2.5 px-4 py-3 rounded-full bg-[#25D366] hover:bg-[#20ba59] text-white shadow-[0_4px_25px_rgba(37,211,102,0.45)] hover:shadow-[0_6px_30px_rgba(37,211,102,0.65)] hover:scale-105 active:scale-95 transition-all duration-300"
@@ -38,7 +40,7 @@ export const FloatingActions: React.FC = () => {
       >
         <ShoppingBag className="w-6 h-6 group-hover:scale-110 transition-transform" />
         {totalCartItems > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 min-w-[24px] h-6 px-1.5 rounded-full bg-gradient-to-r from-[#FFE873] via-[#FACC15] to-[#EAB308] text-[#080811] text-xs font-black flex items-center justify-center shadow-lg border-2 border-[#080811] animate-bounce">
+          <span className="absolute -top-1.5 -right-1.5 min-w-[24px] h-6 px-1.5 rounded-full bg-gradient-to-r from-[#00DFFF] to-[#E53CF3] text-white text-xs font-black flex items-center justify-center shadow-lg border-2 border-[#080811] animate-bounce">
             {totalCartItems}
           </span>
         )}

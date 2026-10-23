@@ -1,0 +1,69 @@
+rules_version = '2';
+service cloud.firestore {
+  match /databases/{database}/documents {
+    // Default-deny catch-all (Global Safety Net)
+    match /{document=**} {
+      allow read, write: if false;
+    }
+
+    // Helper functions
+    function isSignedIn() {
+      return request.auth != null;
+    }
+
+    // Strict Owner check requiring custom claim 'owner == true'
+    function isOwner() {
+      return isSignedIn() && request.auth.token.owner == true;
+    }
+
+    // Test connection doc used for client connectivity test
+    match /test/connection {
+      allow read: if true;
+      allow write: if false;
+    }
+
+    // Public catalog collections: read by anyone, write ONLY by verified Owner
+    match /brands/{brandId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    match /models/{modelId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    match /banners/{bannerId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    match /coupons/{couponId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    match /storeSettings/{settingId} {
+      allow read: if true;
+      allow write: if isOwner();
+    }
+
+    // User profiles: strictly isolated to the authenticated owner of the document
+    match /users/{userId} {
+      allow read, write: if isSignedIn() && (request.auth.uid == userId || isOwner());
+    }
+
+    // Audit logs: strictly restricted to Owner; immutable records
+    match /auditLogs/{logId} {
+      allow read, create: if isOwner();
+      allow update, delete: if false;
+    }
+
+    // Orders: Users can read their own orders; Owner can manage all orders
+    match /orders/{orderId} {
+      allow create: if true;
+      allow read: if isOwner() || (isSignedIn() && resource.data.userId == request.auth.uid);
+      allow update, delete: if isOwner();
+    }
+  }
+}

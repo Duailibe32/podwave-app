@@ -1,11 +1,26 @@
 import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Brand, ProductModel, FlavorVariant, BannerSlide, StoreSettings, CartItem, Coupon, OrderForm } from '../types/catalog';
+import { Brand, ProductModel, FlavorVariant, BannerSlide, StoreSettings, CartItem, Coupon, OrderForm, VariantHistoryEntry } from '../types/catalog';
 import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, AVAILABLE_COUPONS } from '../data/initialData';
+import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
+import { openWhatsAppShare } from '../utils/whatsappShare';
+import { 
+  auth, 
+  googleProvider, 
+  signInWithPopup, 
+  signOut, 
+  User, 
+  onAuthStateChanged,
+  verifyOwnerPrivileges,
+  CONFIGURED_OWNER_UID,
+  logAuditEvent
+} from '../services/firebase';
 
 const STORAGE_KEY = 'podwave_catalog_state_v4';
 const CART_STORAGE_KEY = 'podwave_cart_state_v2';
 const THEME_KEY = 'podwave_theme_mode';
 const ADMIN_AUTH_KEY = 'podwave_admin_authenticated';
+const VARIANT_HISTORY_KEY = 'podwave_variant_history_v1';
+const OWNER_UID_KEY = 'podwave_configured_owner_uid';
 
 interface CatalogContextType {
   // Data
@@ -15,10 +30,29 @@ interface CatalogContextType {
   settings: StoreSettings;
   coupons: Coupon[];
 
-  // Auth for Admin Panel
+  // Auth for Admin Panel (OWNER Exclusive Protection)
   isAdminAuthenticated: boolean;
+  currentUser: User | null;
+  isOwner: boolean;
+  isAuthChecking: boolean;
+  authErrorMessage: string | null;
+  configuredOwnerUid: string;
+  setConfiguredOwnerUid: (uid: string) => void;
+  loginWithGoogle: () => Promise<boolean>;
   adminLogin: (username: string, pass: string) => boolean;
   adminLogout: () => void;
+
+  // Variant Availability & Inventory History
+  globalLowQuantityThreshold: number;
+  setGlobalLowQuantityThreshold: (val: number) => void;
+  variantHistory: VariantHistoryEntry[];
+  clearVariantHistory: () => void;
+  updateFlavorQuantity: (modelId: string, flavorId: string, quantity: number | null, notes?: string) => void;
+  updateFlavorThreshold: (modelId: string, flavorId: string, threshold: number) => void;
+  bulkUpdateVariants: (
+    variantKeys: { modelId: string; flavorId: string }[],
+    updates: { demoQuantity?: number | null; lowQuantityThreshold?: number }
+  ) => void;
 
   // View & Theme
   currentView: 'catalog' | 'admin';
@@ -69,7 +103,7 @@ interface CatalogContextType {
   setIsCheckoutOpen: (open: boolean) => void;
 
   // Checkout & WhatsApp
-  submitOrderViaWhatsapp: (form: OrderForm) => void;
+  submitOrderViaWhatsapp: (form: OrderForm, customMessage?: string) => void;
 
   // Admin Actions: Brands
   addBrand: (brand: Omit<Brand, 'id'>) => void;
@@ -107,6 +141,49 @@ interface CatalogContextType {
 const CatalogContext = createContext<CatalogContextType | undefined>(undefined);
 
 export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
+  // Configured Owner UID state
+  const [configuredOwnerUid, setConfiguredOwnerUidState] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem(OWNER_UID_KEY) || CONFIGURED_OWNER_UID || '';
+    }
+    return CONFIGURED_OWNER_UID || '';
+  });
+
+  const setConfiguredOwnerUid = (uid: string) => {
+    setConfiguredOwnerUidState(uid);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem(OWNER_UID_KEY, uid);
+    }
+  };
+
+  // Firebase Auth State & Owner Role verification
+  const [currentUser, setCurrentUser] = useState<User | null>(null);
+  const [isOwner, setIsOwner] = useState<boolean>(false);
+  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
+  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+
+  // Variant History State
+  const [variantHistory, setVariantHistory] = useState<VariantHistoryEntry[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(VARIANT_HISTORY_KEY);
+        if (stored) return JSON.parse(stored);
+      } catch {
+        // ignore
+      }
+    }
+    return [];
+  });
+
+  const clearVariantHistory = () => {
+    setVariantHistory([]);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(VARIANT_HISTORY_KEY);
+    }
+  };
+
+  const [globalLowQuantityThreshold, setGlobalLowQuantityThreshold] = useState<number>(3);
+
   // Admin Authentication State
   const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
@@ -115,12 +192,69 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return false;
   });
 
+  // Listen to Firebase auth state changes
+  useEffect(() => {
+    const unsubscribe = onAuthStateChanged(auth, async (user) => {
+      setIsAuthChecking(true);
+      setCurrentUser(user);
+      if (user) {
+        const check = await verifyOwnerPrivileges(user);
+        setIsOwner(check.isOwner);
+        if (check.isOwner) {
+          setIsAdminAuthenticated(true);
+          sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
+          setAuthErrorMessage(null);
+        } else {
+          // A common authenticated user is strictly blocked from /admin
+          setIsAdminAuthenticated(false);
+          sessionStorage.removeItem(ADMIN_AUTH_KEY);
+          setAuthErrorMessage(check.errorMessage || 'Conta sem privilégios de Proprietário (OWNER).');
+        }
+      } else {
+        setIsOwner(false);
+        // If not logged in via Firebase, check if local developer session is active
+        const localActive = sessionStorage.getItem(ADMIN_AUTH_KEY) === 'true';
+        setIsAdminAuthenticated(localActive);
+      }
+      setIsAuthChecking(false);
+    });
+
+    return () => unsubscribe();
+  }, [configuredOwnerUid]);
+
+  const loginWithGoogle = async (): Promise<boolean> => {
+    setAuthErrorMessage(null);
+    setIsAuthChecking(true);
+    try {
+      const result = await signInWithPopup(auth, googleProvider);
+      const check = await verifyOwnerPrivileges(result.user);
+      setIsOwner(check.isOwner);
+      if (check.isOwner) {
+        setIsAdminAuthenticated(true);
+        sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
+        setIsAuthChecking(false);
+        return true;
+      } else {
+        setIsAdminAuthenticated(false);
+        sessionStorage.removeItem(ADMIN_AUTH_KEY);
+        setAuthErrorMessage(check.errorMessage || 'Acesso negado: Somente a conta pessoal autorizada do Proprietário possui acesso ao painel.');
+        setIsAuthChecking(false);
+        return false;
+      }
+    } catch (err) {
+      setIsAuthChecking(false);
+      setAuthErrorMessage(err instanceof Error ? err.message : 'Falha ao autenticar com Google.');
+      return false;
+    }
+  };
+
   const adminLogin = (username: string, pass: string): boolean => {
     const validUser = username.trim().toLowerCase() === 'admin';
     const validPass = pass === '123';
 
     if (validUser && validPass) {
       setIsAdminAuthenticated(true);
+      setIsOwner(true);
       if (typeof window !== 'undefined') {
         sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
       }
@@ -131,8 +265,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const adminLogout = () => {
     setIsAdminAuthenticated(false);
+    setIsOwner(false);
+    setCurrentUser(null);
     if (typeof window !== 'undefined') {
       sessionStorage.removeItem(ADMIN_AUTH_KEY);
+    }
+    try {
+      signOut(auth);
+    } catch {
+      // ignore
     }
   };
 
@@ -146,33 +287,23 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return 'catalog';
   });
 
-  // Theme mode
-  const [theme, setTheme] = useState<'dark' | 'light'>('dark');
+  // Theme mode locked permanently to dark mode as requested
+  const theme = 'dark' as const;
 
   useEffect(() => {
-    const savedTheme = localStorage.getItem(THEME_KEY) as 'dark' | 'light' | null;
-    const initialTheme = savedTheme || 'dark';
-    setTheme(initialTheme);
-    if (initialTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-    } else {
-      document.documentElement.classList.add('light');
-      document.documentElement.classList.remove('dark');
+    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('light');
+    try {
+      localStorage.setItem(THEME_KEY, 'dark');
+    } catch {
+      // ignore
     }
   }, []);
 
   const toggleTheme = () => {
-    const nextTheme = theme === 'dark' ? 'light' : 'dark';
-    setTheme(nextTheme);
-    localStorage.setItem(THEME_KEY, nextTheme);
-    if (nextTheme === 'dark') {
-      document.documentElement.classList.add('dark');
-      document.documentElement.classList.remove('light');
-    } else {
-      document.documentElement.classList.add('light');
-      document.documentElement.classList.remove('dark');
-    }
+    // Theme is locked to dark mode
+    document.documentElement.classList.add('dark');
+    document.documentElement.classList.remove('light');
   };
 
   // State data
@@ -504,9 +635,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const freeShippingGoal = 250.0;
   const freeShippingRemaining = Math.max(0, freeShippingGoal - rawTotal);
 
-  // Submit via WhatsApp and increment coupon use count
-  const submitOrderViaWhatsapp = (form: OrderForm) => {
+  // Reference implementation for WhatsApp sharing with exact Unicode string
+  const submitOrderViaWhatsapp = (form: OrderForm, customMessage?: string) => {
     const phone = settings.whatsappNumber || '5586999014685';
+    const cleanPhone = phone.replace(/\D/g, '');
 
     // If coupon used, increment its count
     if (appliedCoupon) {
@@ -519,73 +651,19 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
     }
 
-    const now = new Date();
-    const formattedDate = now.toLocaleDateString('pt-BR');
-    const formattedTime = now.toLocaleTimeString('pt-BR', { hour: '2-digit', minute: '2-digit' });
-    const referenceId = `PW-${Math.floor(100000 + Math.random() * 900000)}`;
-
-    let message = `╭────────────────────╮\n`;
-    message += `       🌊 *PODWAVE*\n`;
-    message += `    *FICHA DE ATENDIMENTO*\n`;
-    message += `╰────────────────────╯\n\n`;
-
-    message += `🆔 *Referência:* ${referenceId}\n`;
-    message += `📅 *Data:* ${formattedDate}\n`;
-    message += `🕒 *Horário:* ${formattedTime}\n\n`;
-
-    message += `👤 *DADOS DO CLIENTE*\n`;
-    message += `━━━━━━━━━━━━━━━━━━\n`;
-    message += `*Nome:* ${form.fullName}\n`;
-    message += `📱 *WhatsApp:* ${form.phoneWhatsapp}\n\n`;
-
-    message += `📍 *LOCAL INFORMADO*\n`;
-    message += `━━━━━━━━━━━━━━━━━━\n`;
-    message += `*Endereço:* ${form.isPickup ? 'Retirada no local (sem frete)' : form.address || 'Não informado'}\n\n`;
-
-    message += `🗺️ *Localização GPS:*\n`;
-    message += `${form.gpsMapsUrl ? form.gpsMapsUrl : 'Não informada'}\n\n`;
-
-    message += `📦 *ITENS REGISTRADOS*\n`;
-    message += `━━━━━━━━━━━━━━━━━━\n`;
-    let itemCounter = 1;
-    cart.forEach((item) => {
-      const numStr = String(itemCounter).padStart(2, '0');
-      message += `*${numStr} | ${item.brandName ? item.brandName + ' ' : ''}${item.modelName}*\n`;
-      message += `${item.flavorEmoji || '🔹'} Variante: ${item.flavorName}\n`;
-      message += `Quantidade: ${item.quantity} unidade${item.quantity > 1 ? 's' : ''}\n\n`;
-      itemCounter++;
+    // Use the exact same Unicode string from the preview modal or generate using the unified formatter
+    const message = customMessage || formatAttendanceRecord({
+      referenceId: generateReferenceId(),
+      dateTimeBrasilia: getBrasiliaDateTime(),
+      form,
+      cart,
+      isUsbCableAdded,
+      cablePrice,
+      appliedCoupon,
     });
 
-    if (isUsbCableAdded) {
-      const numStr = String(itemCounter).padStart(2, '0');
-      message += `*${numStr} | ${USB_C_ADDON.name}*\n`;
-      message += `🔌 Comprimento: 1 metro\n`;
-      message += `Quantidade: 1 unidade\n\n`;
-      itemCounter++;
-    }
-
-    if (appliedCoupon) {
-      message += `🏷️ *Cupom Aplicado:* ${appliedCoupon.code} (-R$ ${discountAmount.toFixed(2).replace('.', ',')})\n`;
-      message += `💰 *Total com Desconto:* R$ ${cartTotal.toFixed(2).replace('.', ',')}\n\n`;
-    }
-
-    message += `💳 *PAGAMENTO INFORMADO*\n`;
-    message += `━━━━━━━━━━━━━━━━━━\n`;
-    message += `💠 *Forma:* ${form.paymentMethod}\n`;
-    message += `🎁 *Cartão fidelidade:* ${form.wantsLoyaltyCard ? 'Solicitado' : 'Não solicitado'}\n\n`;
-
-    message += `📝 *OBSERVAÇÕES*\n`;
-    message += `━━━━━━━━━━━━━━━━━━\n`;
-    message += `${form.notes?.trim() ? form.notes.trim() : 'Nenhuma observação adicional.'}\n\n`;
-
-    message += `✅ *REGISTRO GERADO*\n\n`;
-    message += `━━━━━━━━━━━━━━━━━━\n`;
-    message += `🌊 *PODWAVE* Mais que um vape é uma Onda.\n`;
-    message += `━━━━━━━━━━━━━━━━━━`;
-
-    const encoded = encodeURIComponent(message);
-    const whatsappUrl = `https://wa.me/${phone}?text=${encoded}`;
-    window.open(whatsappUrl, '_blank');
+    // Universal robust WhatsApp opening with NFC normalization, surrogate validation, and popup resilience
+    openWhatsAppShare(cleanPhone, message);
   };
 
   // Admin CRUD operations: Brands
@@ -674,6 +752,145 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       })
     );
+  };
+
+  // Dedicated Intelligent Variant Availability Actions
+  const updateFlavorQuantity = (modelId: string, flavorId: string, quantity: number | null, notes?: string) => {
+    let prevQty: number | null | undefined = null;
+    let targetFlavorName = '';
+    let targetFlavorEmoji = '🍇';
+    let targetModelName = '';
+    let targetBrandName = '';
+
+    setModels((prevModels) =>
+      prevModels.map((m) => {
+        if (m.id !== modelId) return m;
+        targetModelName = m.modelName;
+        targetBrandName = m.brandName;
+        return {
+          ...m,
+          flavors: m.flavors.map((f) => {
+            if (f.id !== flavorId) return f;
+            prevQty = f.demoQuantity;
+            targetFlavorName = f.name;
+            targetFlavorEmoji = f.iconEmoji;
+            return {
+              ...f,
+              demoQuantity: quantity,
+              inStock: quantity === null ? true : quantity > 0,
+              updatedAt: new Date().toISOString(),
+            };
+          }),
+        };
+      })
+    );
+
+    // Record in history log
+    const entry: VariantHistoryEntry = {
+      id: `vh-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      timestamp: new Date().toISOString(),
+      modelId,
+      modelName: targetModelName,
+      brandName: targetBrandName,
+      flavorId,
+      flavorName: targetFlavorName,
+      flavorEmoji: targetFlavorEmoji,
+      previousQuantity: prevQty,
+      newQuantity: quantity,
+      updatedBy: currentUser?.email || 'Proprietário (OWNER)',
+      changeType: 'quick_edit',
+      notes,
+    };
+
+    setVariantHistory((prev) => {
+      const next = [entry, ...prev].slice(0, 100);
+      try {
+        localStorage.setItem(VARIANT_HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+
+    logAuditEvent('UPDATE_VARIANT_QUANTITY', `${targetModelName} - ${targetFlavorName}`, `Alterado de ${prevQty ?? 'Não informado'} para ${quantity ?? 'Não informado'}`);
+  };
+
+  const updateFlavorThreshold = (modelId: string, flavorId: string, threshold: number) => {
+    setModels((prev) =>
+      prev.map((m) => {
+        if (m.id !== modelId) return m;
+        return {
+          ...m,
+          flavors: m.flavors.map((f) =>
+            f.id === flavorId
+              ? { ...f, lowQuantityThreshold: threshold, updatedAt: new Date().toISOString() }
+              : f
+          ),
+        };
+      })
+    );
+  };
+
+  const bulkUpdateVariants = (
+    variantKeys: { modelId: string; flavorId: string }[],
+    updates: { demoQuantity?: number | null; lowQuantityThreshold?: number }
+  ) => {
+    const keySet = new Set(variantKeys.map((k) => `${k.modelId}:::${k.flavorId}`));
+    const nowIso = new Date().toISOString();
+
+    setModels((prevModels) =>
+      prevModels.map((m) => {
+        return {
+          ...m,
+          flavors: m.flavors.map((f) => {
+            if (keySet.has(`${m.id}:::${f.id}`)) {
+              return {
+                ...f,
+                ...(updates.demoQuantity !== undefined
+                  ? {
+                      demoQuantity: updates.demoQuantity,
+                      inStock: updates.demoQuantity === null ? true : updates.demoQuantity > 0,
+                    }
+                  : {}),
+                ...(updates.lowQuantityThreshold !== undefined
+                  ? { lowQuantityThreshold: updates.lowQuantityThreshold }
+                  : {}),
+                updatedAt: nowIso,
+              };
+            }
+            return f;
+          }),
+        };
+      })
+    );
+
+    // Record bulk history entry
+    const entry: VariantHistoryEntry = {
+      id: `vh-bulk-${Date.now()}`,
+      timestamp: nowIso,
+      modelId: 'múltiplos',
+      modelName: `${variantKeys.length} variantes atualizadas`,
+      flavorId: 'bulk',
+      flavorName: 'Edição em Lote',
+      flavorEmoji: '⚡',
+      previousQuantity: null,
+      newQuantity: updates.demoQuantity,
+      updatedBy: currentUser?.email || 'Proprietário (OWNER)',
+      changeType: 'bulk_edit',
+      notes: `Atualizadas ${variantKeys.length} variantes selecionadas`,
+    };
+
+    setVariantHistory((prev) => {
+      const next = [entry, ...prev].slice(0, 100);
+      try {
+        localStorage.setItem(VARIANT_HISTORY_KEY, JSON.stringify(next));
+      } catch {
+        // ignore
+      }
+      return next;
+    });
+
+    logAuditEvent('BULK_UPDATE_VARIANTS', `${variantKeys.length} variantes`, `Edição em lote executada`);
   };
 
   // Admin CRUD operations: Coupons
@@ -770,8 +987,22 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         settings,
         coupons,
         isAdminAuthenticated,
+        currentUser,
+        isOwner,
+        isAuthChecking,
+        authErrorMessage,
+        configuredOwnerUid,
+        setConfiguredOwnerUid,
+        loginWithGoogle,
         adminLogin,
         adminLogout,
+        globalLowQuantityThreshold,
+        setGlobalLowQuantityThreshold,
+        variantHistory,
+        clearVariantHistory,
+        updateFlavorQuantity,
+        updateFlavorThreshold,
+        bulkUpdateVariants,
         currentView,
         setCurrentView,
         theme,

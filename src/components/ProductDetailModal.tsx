@@ -1,7 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../context/CatalogContext';
-import { Zap, X, ShieldAlert, Cpu, BatteryCharging, Droplets, Check, ShoppingBag } from 'lucide-react';
+import { Zap, X, ShieldAlert, Cpu, BatteryCharging, Droplets, Check, ShoppingBag, AlertTriangle, CheckCircle2, XCircle, HelpCircle, Layers } from 'lucide-react';
 import { FlavorVariant } from '../types/catalog';
+import { calculateVariantAvailability, calculateVariantsSummary } from '../utils/availability';
 
 export const ProductDetailModal: React.FC = () => {
   const {
@@ -52,6 +53,19 @@ export const ProductDetailModal: React.FC = () => {
     activeModalProduct.imageUrl,
     ...(activeModalProduct.additionalImages || []),
   ].filter((img, idx, arr): img is string => Boolean(img && img.trim()) && arr.indexOf(img) === idx);
+
+  // Compute live availability summary across all flavors for this model
+  const availabilitySummary = calculateVariantsSummary(
+    activeModalProduct.flavors,
+    activeModalProduct.lowQuantityThreshold
+  );
+
+  const selectedFlavorAvail = activeSelectedFlavor
+    ? calculateVariantAvailability(
+        activeSelectedFlavor.demoQuantity,
+        activeSelectedFlavor.lowQuantityThreshold ?? activeModalProduct.lowQuantityThreshold
+      )
+    : null;
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -124,7 +138,7 @@ export const ProductDetailModal: React.FC = () => {
                   Disponibilidade:
                 </span>
               </div>
-              <span className="text-emerald-400 font-bold text-[11px]">Pronta Entrega em São Luís</span>
+              <span className="text-emerald-400 font-bold text-[11px]">Pronta Entrega em Toda a Região</span>
             </div>
           </div>
 
@@ -153,11 +167,45 @@ export const ProductDetailModal: React.FC = () => {
               </p>
             </div>
 
-            {/* Interactive Flavor Selector */}
-            <div className="space-y-2 pt-2 border-t border-[#8423DA]/20 light:border-slate-200">
+            {/* Resumo de Disponibilidade do Modelo (Section 7) */}
+            <div className="p-3 rounded-2xl bg-[#141838]/90 light:bg-slate-100 border border-[#8423DA]/30 light:border-slate-300 space-y-2">
+              <div className="flex items-center justify-between">
+                <span className="text-[11px] font-black uppercase tracking-wider text-gray-300 light:text-slate-800 flex items-center gap-1.5">
+                  <Layers className="w-3.5 h-3.5 text-[#00DFFF]" /> Disponibilidade das Variantes
+                </span>
+                <span className="text-[10px] text-[#00DFFF] font-bold">
+                  {availabilitySummary.total} sabores cadastrados
+                </span>
+              </div>
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-1.5 text-[11px]">
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-emerald-500/10 border border-emerald-500/30 text-emerald-400">
+                  <CheckCircle2 className="w-3 h-3 shrink-0" />
+                  <span className="font-black">{availabilitySummary.disponivel}</span>
+                  <span className="text-[10px] text-emerald-300/80">disponíveis</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30 text-amber-400">
+                  <AlertTriangle className="w-3 h-3 shrink-0" />
+                  <span className="font-black">{availabilitySummary.ultimasUnidades}</span>
+                  <span className="text-[10px] text-amber-300/80">últimas un.</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-rose-500/10 border border-rose-500/30 text-rose-400">
+                  <XCircle className="w-3 h-3 shrink-0" />
+                  <span className="font-black">{availabilitySummary.esgotado}</span>
+                  <span className="text-[10px] text-rose-300/80">esgotados</span>
+                </div>
+                <div className="flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-500/10 border border-slate-500/30 text-slate-300">
+                  <HelpCircle className="w-3 h-3 shrink-0" />
+                  <span className="font-black">{availabilitySummary.naoInformado}</span>
+                  <span className="text-[10px] text-slate-400">sem info</span>
+                </div>
+              </div>
+            </div>
+
+            {/* Interactive Flavor Selector (Section 5 & 6) */}
+            <div className="space-y-2.5 pt-2 border-t border-[#8423DA]/20 light:border-slate-200">
               <div className="flex flex-wrap items-center justify-between gap-1">
                 <label className="text-xs font-bold text-gray-300 light:text-slate-800 flex items-center gap-1.5">
-                  <span>Sabores Disponíveis:</span>
+                  <span>Selecione o Sabor / Variante:</span>
                   <span className="text-[#00DFFF] font-semibold">
                     ({activeModalProduct.flavors.length} opções)
                   </span>
@@ -165,36 +213,76 @@ export const ProductDetailModal: React.FC = () => {
 
                 {activeSelectedFlavor && (
                   <span className="text-xs font-bold text-[#00DFFF] truncate max-w-full">
-                    Sabor: {activeSelectedFlavor.name}
+                    Ativo: {activeSelectedFlavor.iconEmoji} {activeSelectedFlavor.name}
                   </span>
                 )}
               </div>
 
-              {/* Flavor Pill Buttons */}
-              <div className="flex flex-wrap gap-1.5 sm:gap-2 max-w-full">
+              {/* Flavor Buttons with Status & Quantities */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 max-w-full">
                 {activeModalProduct.flavors.map((flavor) => {
                   const isSelected = activeSelectedFlavor?.id === flavor.id;
+                  const threshold = flavor.lowQuantityThreshold ?? activeModalProduct.lowQuantityThreshold ?? 3;
+                  const avail = calculateVariantAvailability(flavor.demoQuantity, threshold);
+
                   return (
                     <button
                       key={flavor.id}
                       onClick={() => handleFlavorSelect(flavor)}
-                      className={`flex items-center gap-1.5 px-2.5 py-1.5 sm:px-3 sm:py-2 rounded-xl text-[11px] sm:text-xs font-medium transition-all cursor-pointer border max-w-full truncate ${
+                      className={`flex items-center justify-between gap-2 p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer border text-left ${
                         isSelected
-                          ? 'bg-[#1D2248] light:bg-slate-200 border-[#00DFFF] text-white light:text-slate-900 shadow-[0_0_12px_rgba(0,223,255,0.4)] scale-102'
+                          ? 'bg-[#1D2248] light:bg-slate-200 border-[#00DFFF] text-white light:text-slate-900 shadow-[0_0_15px_rgba(0,223,255,0.35)] ring-1 ring-[#00DFFF]/50 scale-[1.01]'
                           : 'bg-[#121633] light:bg-slate-100 border-[#8423DA]/25 light:border-slate-300 text-gray-300 light:text-slate-700 hover:border-[#8423DA]/60'
                       }`}
                     >
-                      <span
-                        className="w-2.5 h-2.5 rounded-full shrink-0 shadow-sm"
-                        style={{ backgroundColor: flavor.colorHex }}
-                      />
-                      <span className="shrink-0">{flavor.iconEmoji}</span>
-                      <span className="truncate">{flavor.name}</span>
-                      {isSelected && <Check className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />}
+                      <div className="flex items-center gap-2 min-w-0">
+                        <span className="text-base shrink-0">{flavor.iconEmoji}</span>
+                        <div className="min-w-0">
+                          <p className="font-bold text-white light:text-slate-900 truncate text-[11px] sm:text-xs">
+                            {flavor.name}
+                          </p>
+                          <p className={`text-[10px] font-semibold ${avail.badgeText} flex items-center gap-1 mt-0.5`}>
+                            <span
+                              className="w-1.5 h-1.5 rounded-full shrink-0"
+                              style={{ backgroundColor: avail.colorHex }}
+                            />
+                            <span>{avail.quantityText}</span>
+                          </p>
+                        </div>
+                      </div>
+
+                      <div className="shrink-0 flex items-center gap-1">
+                        <span
+                          className={`px-1.5 py-0.5 rounded-md text-[9px] font-black uppercase border ${avail.badgeBg} ${avail.badgeBorder} ${avail.badgeText}`}
+                        >
+                          {avail.badgeLabel}
+                        </span>
+                        {isSelected && <Check className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />}
+                      </div>
                     </button>
                   );
                 })}
               </div>
+
+              {/* Selected Flavor Detail Box */}
+              {selectedFlavorAvail && activeSelectedFlavor && (
+                <div className={`mt-2 p-3 rounded-xl border flex items-center justify-between text-xs ${selectedFlavorAvail.badgeBg} ${selectedFlavorAvail.badgeBorder}`}>
+                  <div className="flex items-center gap-2">
+                    <span className="text-lg">{activeSelectedFlavor.iconEmoji}</span>
+                    <div>
+                      <p className="font-bold text-white light:text-slate-900 text-xs">
+                        {activeSelectedFlavor.name}
+                      </p>
+                      <p className={`text-[11px] font-medium ${selectedFlavorAvail.badgeText}`}>
+                        {selectedFlavorAvail.quantityText}
+                      </p>
+                    </div>
+                  </div>
+                  <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${selectedFlavorAvail.badgeBg} ${selectedFlavorAvail.badgeText} border ${selectedFlavorAvail.badgeBorder}`}>
+                    {selectedFlavorAvail.label}
+                  </span>
+                </div>
+              )}
             </div>
 
             {/* Technical Specifications Grid */}

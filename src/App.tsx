@@ -17,7 +17,7 @@ const AppContent: React.FC = () => {
   const { currentView } = useCatalog();
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#080811] light:bg-[#F4F6FC] text-white light:text-slate-900 transition-colors duration-200">
+    <div className="min-h-screen flex flex-col bg-[#080811] text-white">
       <Header />
 
       <main className="flex-grow">

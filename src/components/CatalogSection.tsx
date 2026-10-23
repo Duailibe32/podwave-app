@@ -114,24 +114,24 @@ export const CatalogSection: React.FC = () => {
   return (
     <section id="catalogo" className="py-12 sm:py-16 scroll-mt-20">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
-        {/* Title & Section Introduction */}
+        {/* Title & Section Introduction matching Image 2 */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
           <div>
             <div className="inline-flex items-center gap-1.5 text-xs font-bold uppercase tracking-wider text-[#00DFFF] mb-2">
               <Zap className="w-4 h-4 text-[#00DFFF] fill-[#00DFFF]" />
-              Catálogo Oficial &bull; Grade de Modelos
+              Catálogo Oficial PodWave
             </div>
-            <h2 className="font-heading text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white light:text-slate-900 tracking-tight">
-              Dispositivos em Destaque
+            <h2 className="font-heading text-2xl sm:text-3xl lg:text-4xl font-extrabold text-white tracking-tight">
+              Produtos em Destaque
             </h2>
-            <p className="text-sm text-[#A5A5B8] light:text-slate-600 mt-1">
-              Selecione o modelo para consultar sabores, capacidade e ficha técnica.
+            <p className="text-sm text-[#A5A5B8] mt-1">
+              Confira nossa seleção exclusiva dos pods mais procurados
             </p>
           </div>
 
           <div className="text-xs text-[#A5A5B8] flex items-center gap-2">
             <span>
-              Exibindo <strong className="text-white light:text-slate-900">{filteredModels.length}</strong> de{' '}
+              Exibindo <strong className="text-white">{filteredModels.length}</strong> de{' '}
               {models.filter((m) => m.active).length} modelos
             </span>
             {hasActiveFilters && (
@@ -146,7 +146,7 @@ export const CatalogSection: React.FC = () => {
         </div>
 
         {/* Filter Controls Bar */}
-        <div className="p-4 sm:p-5 rounded-2xl bg-[#0D1022] light:bg-white border border-[#8423DA]/25 light:border-slate-200 shadow-xl space-y-4">
+        <div className="p-4 sm:p-5 rounded-2xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl space-y-4">
           {/* Top row: Search input & Sort */}
           <div className="grid grid-cols-1 sm:grid-cols-12 gap-3">
             {/* Search */}
@@ -156,7 +156,7 @@ export const CatalogSection: React.FC = () => {
                 placeholder="Filtrar por nome de modelo, sabor ou marca..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/30 focus:border-[#00DFFF] text-white light:text-slate-900 text-xs sm:text-sm focus:outline-none"
+                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 focus:border-[#00DFFF] text-white text-xs sm:text-sm focus:outline-none"
               />
               <Search className="w-4 h-4 absolute left-3.5 top-3 text-gray-400" />
               {searchQuery && (

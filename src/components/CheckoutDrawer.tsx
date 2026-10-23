@@ -15,6 +15,8 @@ import {
   Check
 } from 'lucide-react';
 
+import { OrderRecordPreviewModal } from './OrderRecordPreviewModal';
+
 interface DemoCoupon {
   code: string;
   percentage: number;
@@ -24,7 +26,7 @@ interface DemoCoupon {
 
 const DEMO_CHECKOUT_COUPONS: DemoCoupon[] = [
   { code: 'PODWAVE10', percentage: 10, description: '10% OFF oficial PodWave' },
-  { code: 'SAOLUIS15', percentage: 15, description: '15% OFF especial São Luís' },
+  { code: 'PODWAVE15', percentage: 15, description: '15% OFF toda a região' },
   { code: 'TURBO20', percentage: 20, description: '20% OFF modo Turbo Puffs' },
   { code: 'VIP25', percentage: 25, description: '25% OFF cliente VIP exclusivo', minOrderValue: 120 },
   { code: 'PRIMEIRACOMPRA', percentage: 10, description: '10% OFF primeira compra' },
@@ -50,12 +52,17 @@ export const CheckoutDrawer: React.FC = () => {
   const [fullName, setFullName] = useState('');
   const [phoneWhatsapp, setPhoneWhatsapp] = useState('');
   const [address, setAddress] = useState('');
+  const [bairro, setBairro] = useState('');
+  const [city, setCity] = useState('');
+  const [numberAndComplement, setNumberAndComplement] = useState('');
+  const [referencePoint, setReferencePoint] = useState('');
   const [isPickup, setIsPickup] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [notes, setNotes] = useState('');
   const [wantsLoyaltyCard, setWantsLoyaltyCard] = useState(false);
   const [gpsMapsUrl, setGpsMapsUrl] = useState<string | undefined>(undefined);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [isPreviewOpen, setIsPreviewOpen] = useState(false);
 
   // Dynamic coupon input and validation
   const [couponCode, setCouponCode] = useState('');
@@ -121,6 +128,10 @@ export const CheckoutDrawer: React.FC = () => {
       fullName,
       phoneWhatsapp,
       address,
+      bairro: bairro.trim() || undefined,
+      city: city.trim() || undefined,
+      numberAndComplement: numberAndComplement.trim() || undefined,
+      referencePoint: referencePoint.trim() || undefined,
       isPickup,
       paymentMethod,
       notes,
@@ -213,20 +224,83 @@ export const CheckoutDrawer: React.FC = () => {
                 }}
               />
 
-              {/* Textarea for address */}
-              <div className="space-y-1">
-                <textarea
-                  rows={3}
-                  placeholder="Condomínio, rua, número, bairro, ponto de referência (você também pode colar o link do Google Maps aqui se desejar)"
-                  value={address}
-                  onChange={(e) => setAddress(e.target.value)}
-                  disabled={isPickup}
-                  className="w-full px-3.5 py-2.5 rounded-xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/30 text-white light:text-slate-900 text-xs focus:outline-none focus:border-[#00DFFF] disabled:opacity-40"
-                />
-              </div>
+              {/* Detailed Address inputs for administrative attendance record */}
+              {!isPickup && (
+                <div className="space-y-2.5 animate-in fade-in duration-200">
+                  <div>
+                    <label className="block text-[11px] text-gray-300 font-semibold mb-1">
+                      Rua / Avenida / Logradouro *
+                    </label>
+                    <input
+                      type="text"
+                      placeholder="Ex: Av. dos Holandeses, Rua das Palmeiras"
+                      value={address}
+                      onChange={(e) => setAddress(e.target.value)}
+                      required={!isPickup}
+                      className="w-full px-3.5 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
+                    />
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] text-gray-300 font-semibold mb-1">
+                        Número e Complemento
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: 104, Bloco B, Apt 302"
+                        value={numberAndComplement}
+                        onChange={(e) => setNumberAndComplement(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-gray-300 font-semibold mb-1">
+                        Bairro
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Calhau, Renascença, Cohama"
+                        value={bairro}
+                        onChange={(e) => setBairro(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-2.5">
+                    <div>
+                      <label className="block text-[11px] text-gray-300 font-semibold mb-1">
+                        Cidade
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Sua cidade"
+                        value={city}
+                        onChange={(e) => setCity(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[11px] text-gray-300 font-semibold mb-1">
+                        Ponto de Referência
+                      </label>
+                      <input
+                        type="text"
+                        placeholder="Ex: Próximo à praça ou farmácia"
+                        value={referencePoint}
+                        onChange={(e) => setReferencePoint(e.target.value)}
+                        className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
+                      />
+                    </div>
+                  </div>
+                </div>
+              )}
 
               {/* Checkbox: Retirar no local */}
-              <label className="p-3 rounded-xl bg-[#11152A] light:bg-slate-100 border border-[#8423DA]/25 flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-gray-200 light:text-slate-800">
+              <label className="p-3 rounded-xl bg-[#11152A] border border-[#8423DA]/25 flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-gray-200">
                 <input
                   type="checkbox"
                   checked={isPickup}
@@ -234,7 +308,7 @@ export const CheckoutDrawer: React.FC = () => {
                   className="w-4 h-4 rounded text-[#8423DA] focus:ring-[#00DFFF] cursor-pointer"
                 />
                 <Store className="w-4 h-4 text-[#00DFFF]" />
-                <span>🏪 Vou retirar o pedido no local (sem frete)</span>
+                <span>🏪 Vou retirar o pedido no local (sem taxa de entrega)</span>
               </label>
             </div>
 
@@ -302,7 +376,7 @@ export const CheckoutDrawer: React.FC = () => {
                   <Percent className="w-3.5 h-3.5 absolute left-3 top-3 text-gray-400" />
                   <input
                     type="text"
-                    placeholder="Digite o cupom (ex: SAOLUIS15)"
+                    placeholder="Digite o cupom (ex: PODWAVE15)"
                     value={couponCode}
                     onChange={(e) => {
                       setCouponCode(e.target.value.toUpperCase());
@@ -473,22 +547,54 @@ export const CheckoutDrawer: React.FC = () => {
               </div>
             </div>
 
-            {/* Green WhatsApp Submit Button matching user screenshot */}
-            <button
-              type="submit"
-              className="w-full py-4 px-6 rounded-2xl bg-[#10B981] hover:bg-[#059669] text-white font-heading font-black text-sm tracking-wide shadow-[0_0_25px_rgba(16,185,129,0.4)] transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-98"
-            >
-              <Send className="w-4 h-4" />
-              <span>Confirmar e Enviar no WhatsApp</span>
-            </button>
+            {/* Visualizar Registro / Ficha Administrativa (PodWave 2.0) */}
+            <div className="space-y-2 pt-1">
+              <button
+                type="button"
+                onClick={() => setIsPreviewOpen(true)}
+                className="w-full py-3 px-4 rounded-xl bg-[#141838] hover:bg-[#1a204a] text-[#00DFFF] hover:text-white border border-[#8423DA]/50 font-bold text-xs transition-all flex items-center justify-center gap-2 cursor-pointer shadow-md"
+              >
+                <span>📄 Visualizar Ficha / Registro Administrativo</span>
+              </button>
+
+              {/* Green WhatsApp Submit Button matching user screenshot */}
+              <button
+                type="submit"
+                className="w-full py-4 px-6 rounded-2xl bg-[#10B981] hover:bg-[#059669] text-white font-heading font-black text-sm tracking-wide shadow-[0_0_25px_rgba(16,185,129,0.4)] transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-98"
+              >
+                <Send className="w-4 h-4" />
+                <span>Confirmar e Enviar no WhatsApp</span>
+              </button>
+            </div>
 
             <p className="text-[10px] text-center text-[#A5A5B8] leading-tight">
               Ao confirmar, seu pedido será aberto pronto para envio direto no WhatsApp oficial{' '}
-              <strong className="text-white light:text-slate-900">{settings.supportPhone}</strong>.
+              <strong className="text-white">{settings.supportPhone}</strong>.
             </p>
           </form>
         </div>
       </div>
+
+      {/* MODAL: Visualizar Ficha de Atendimento & Copiar Registro */}
+      <OrderRecordPreviewModal
+        isOpen={isPreviewOpen}
+        onClose={() => setIsPreviewOpen(false)}
+        onEdit={() => setIsPreviewOpen(false)}
+        form={{
+          fullName,
+          phoneWhatsapp,
+          address,
+          bairro: bairro.trim() || undefined,
+          city: city.trim() || undefined,
+          numberAndComplement: numberAndComplement.trim() || undefined,
+          referencePoint: referencePoint.trim() || undefined,
+          isPickup,
+          paymentMethod,
+          notes,
+          wantsLoyaltyCard,
+          gpsMapsUrl,
+        }}
+      />
     </div>
   );
 };

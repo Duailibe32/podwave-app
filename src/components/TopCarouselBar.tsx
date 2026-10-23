@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../context/CatalogContext';
 import { MessageCircle, ExternalLink } from 'lucide-react';
+import { buildWhatsAppUrl } from '../utils/whatsappShare';
 
 export const TopCarouselBar: React.FC = () => {
   const { settings } = useCatalog();
@@ -22,7 +23,7 @@ export const TopCarouselBar: React.FC = () => {
     {
       id: 3,
       emoji: '⚡',
-      text: 'Entrega expressa em até 45 minutos em São Luís!',
+      text: 'Entrega expressa em até 45 minutos em toda a região!',
       highlight: true,
     },
     {
@@ -44,9 +45,10 @@ export const TopCarouselBar: React.FC = () => {
   }, [slides.length]);
 
   const activeSlide = slides[currentIndex];
-  const whatsappUrl = `https://wa.me/${whatsappNumber}?text=${encodeURIComponent(
+  const whatsappUrl = buildWhatsAppUrl(
+    whatsappNumber,
     'Olá! Estou no site e gostaria de falar com um atendente da PodWave.'
-  )}`;
+  );
 
   return (
     <div className="relative border-b border-[#00DFFF]/20 bg-[#070914] text-white py-2 px-3 sm:px-6 overflow-hidden">

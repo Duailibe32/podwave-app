@@ -1,0 +1,123 @@
+{
+  "entities": {
+    "Brand": {
+      "title": "Brand",
+      "description": "Marcas do catálogo da PodWave gerenciadas pelo proprietário",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "name": { "type": "string", "maxLength": 100 },
+        "logoUrl": { "type": "string", "maxLength": 500 },
+        "country": { "type": "string", "maxLength": 100 },
+        "description": { "type": "string", "maxLength": 500 },
+        "cardColor": { "type": "string", "maxLength": 50 }
+      },
+      "required": ["id", "name"]
+    },
+    "ProductModel": {
+      "title": "ProductModel",
+      "description": "Modelos de pods descartáveis e pods recarregáveis",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "brandId": { "type": "string" },
+        "brandName": { "type": "string", "maxLength": 100 },
+        "name": { "type": "string", "maxLength": 120 },
+        "puffCount": { "type": "number" },
+        "price": { "type": "number" },
+        "originalPrice": { "type": "number" },
+        "category": { "type": "string", "enum": ["disposable", "pod_system", "coil", "accessories"] },
+        "imageUrl": { "type": "string", "maxLength": 500 },
+        "isActive": { "type": "boolean" },
+        "isBestSeller": { "type": "boolean" },
+        "isNewRelease": { "type": "boolean" }
+      },
+      "required": ["id", "brandId", "brandName", "name", "price"]
+    },
+    "BannerSlide": {
+      "title": "BannerSlide",
+      "description": "Banners promocionais do carrossel principal da PodWave",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "title": { "type": "string", "maxLength": 120 },
+        "subtitle": { "type": "string", "maxLength": 200 },
+        "tag": { "type": "string", "maxLength": 60 },
+        "ctaText": { "type": "string", "maxLength": 60 },
+        "imageUrl": { "type": "string", "maxLength": 500 },
+        "themeColor": { "type": "string", "maxLength": 40 },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "title"]
+    },
+    "Coupon": {
+      "title": "Coupon",
+      "description": "Cupons de desconto gerenciados pelo proprietário",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "code": { "type": "string", "maxLength": 40 },
+        "discountType": { "type": "string", "enum": ["percentage", "fixed"] },
+        "discountValue": { "type": "number" },
+        "minOrderValue": { "type": "number" },
+        "active": { "type": "boolean" }
+      },
+      "required": ["id", "code", "discountType", "discountValue"]
+    },
+    "UserProfile": {
+      "title": "UserProfile",
+      "description": "Perfil do usuário comum ou proprietário autenticado",
+      "type": "object",
+      "properties": {
+        "uid": { "type": "string" },
+        "email": { "type": "string", "maxLength": 120 },
+        "displayName": { "type": "string", "maxLength": 120 },
+        "photoURL": { "type": "string", "maxLength": 500 },
+        "phone": { "type": "string", "maxLength": 30 },
+        "address": { "type": "string", "maxLength": 300 },
+        "createdAt": { "type": "string" }
+      },
+      "required": ["uid"]
+    },
+    "AuditLog": {
+      "title": "AuditLog",
+      "description": "Registros de auditoria de ações administrativas exclusivas do proprietário",
+      "type": "object",
+      "properties": {
+        "id": { "type": "string" },
+        "ownerUid": { "type": "string" },
+        "action": { "type": "string", "maxLength": 100 },
+        "entity": { "type": "string", "maxLength": 60 },
+        "details": { "type": "string", "maxLength": 1000 },
+        "timestamp": { "type": "string" }
+      },
+      "required": ["id", "ownerUid", "action", "timestamp"]
+    }
+  },
+  "firestore": {
+    "/brands/{brandId}": {
+      "schema": { "$ref": "#/entities/Brand" },
+      "description": "Catálogo de marcas PodWave com leitura pública e escrita exclusiva do proprietário"
+    },
+    "/models/{modelId}": {
+      "schema": { "$ref": "#/entities/ProductModel" },
+      "description": "Catálogo de modelos com leitura pública e escrita exclusiva do proprietário"
+    },
+    "/banners/{bannerId}": {
+      "schema": { "$ref": "#/entities/BannerSlide" },
+      "description": "Banners com leitura pública e escrita exclusiva do proprietário"
+    },
+    "/coupons/{couponId}": {
+      "schema": { "$ref": "#/entities/Coupon" },
+      "description": "Cupons de desconto com leitura pública e escrita exclusiva do proprietário"
+    },
+    "/users/{userId}": {
+      "schema": { "$ref": "#/entities/UserProfile" },
+      "description": "Dados do usuário restritos ao próprio usuário autenticado ou ao proprietário"
+    },
+    "/auditLogs/{logId}": {
+      "schema": { "$ref": "#/entities/AuditLog" },
+      "description": "Logs de auditoria restritos exclusivamente ao proprietário autorizado"
+    }
+  }
+}

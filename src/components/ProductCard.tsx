@@ -31,7 +31,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
   return (
     <div
       onClick={handleCardClick}
-      className="group relative flex flex-col justify-between h-full rounded-[24px] sm:rounded-[26px] p-3 sm:p-4 transition-all duration-300 cursor-pointer bg-[#0A0D1E] light:bg-white border border-[#1E2348] hover:border-[#00DFFF]/70 light:border-slate-200 light:hover:border-[#00DFFF] hover:shadow-[0_10px_35px_rgba(0,223,255,0.22)] hover:-translate-y-1.5 overflow-hidden w-full select-none"
+      className="group relative flex flex-col justify-between h-full rounded-[24px] sm:rounded-[26px] p-3 sm:p-4 transition-all duration-300 cursor-pointer bg-[#0A0D1E] border border-[#1E2348] hover:border-[#00DFFF]/70 hover:shadow-[0_10px_35px_rgba(0,223,255,0.22)] hover:-translate-y-1.5 overflow-hidden w-full select-none"
     >
       {/* Subtle neon gradient ambient background */}
       <div className="absolute inset-0 rounded-[24px] sm:rounded-[26px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-b from-[#00DFFF]/10 via-transparent to-[#9333EA]/10" />
@@ -41,19 +41,25 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         {/* Badges row with wrap so text never overflows the card on mobile */}
         <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2.5 w-full">
           {/* ⚡ Puffs Badge: Dark capsule with cyan bolt, white number, gray puffs text */}
-          <div className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[#0D1127] light:bg-slate-100 border border-[#232A58] light:border-slate-300 shadow-sm shrink-0">
+          <div className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[#0D1127] border border-[#232A58] shadow-sm shrink-0">
             <Zap className="w-3.5 h-3.5 text-[#00DFFF] fill-[#00DFFF] shrink-0" />
-            <span className="text-white light:text-slate-900 font-extrabold text-[11px] sm:text-xs tracking-tight">
+            <span className="text-white font-extrabold text-[11px] sm:text-xs tracking-tight">
               {rawPuffsNumber || product.puffsLabel}
             </span>
-            <span className="text-[#8E95B8] light:text-slate-500 font-medium text-[10px] sm:text-xs">
+            <span className="text-[#8E95B8] font-medium text-[10px] sm:text-xs">
               Puffs
             </span>
           </div>
 
-          {/* Top/New Badge (Purple gradient badge matching reference) */}
+          {/* Destaque / Top Badge matching Image 2 */}
           {product.badge && (
-            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-[#9333EA] to-[#A855F7] text-white text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-[0_0_10px_rgba(168,85,247,0.45)] shrink-0">
+            <div
+              className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[9px] sm:text-[10px] font-black tracking-wider uppercase shrink-0 shadow-md ${
+                product.badge.includes('Destaque')
+                  ? 'bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] shadow-[0_0_12px_rgba(0,223,255,0.45)]'
+                  : 'bg-gradient-to-r from-[#8423DA] to-[#E53CF3] text-white shadow-[0_0_10px_rgba(229,60,243,0.45)]'
+              }`}
+            >
               <span>{product.badge}</span>
             </div>
           )}
@@ -79,13 +85,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
 
       {/* MIDDLE ZONE: Brand, Model, Flavors Pill */}
       <div className="mt-3 text-center space-y-1.5 w-full overflow-hidden">
-        {/* Brand Name: Vibrant Cyan, tracking-widest, NO YELLOW */}
+        {/* Brand Name: Vibrant Cyan, tracking-widest */}
         <p className="text-[10px] sm:text-[11px] font-black tracking-widest uppercase text-[#00DFFF] truncate">
           {product.brandName}
         </p>
 
         {/* Model Name: Bold crisp white */}
-        <h3 className="font-heading text-sm sm:text-base md:text-lg font-black text-white light:text-slate-900 tracking-tight leading-snug line-clamp-1 truncate break-words">
+        <h3 className="font-heading text-sm sm:text-base md:text-lg font-black text-white tracking-tight leading-snug line-clamp-1 truncate break-words">
           {product.modelName}
         </h3>
 
@@ -94,7 +100,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
           {leadFlavor ? (
             <div
               onClick={(e) => handleFlavorClick(e, leadFlavor)}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[#131733] light:bg-slate-100 border border-[#232958] light:border-slate-300 hover:border-[#00DFFF]/60 text-gray-200 light:text-slate-800 text-[10px] sm:text-xs transition-colors max-w-full overflow-hidden cursor-pointer"
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[#131733] border border-[#232958] hover:border-[#00DFFF]/60 text-gray-200 text-[10px] sm:text-xs transition-colors max-w-full overflow-hidden cursor-pointer"
               title="Clique para ver todos os sabores deste modelo"
             >
               {/* Colored Dot */}
@@ -103,7 +109,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
                 style={{ backgroundColor: leadFlavor.colorHex }}
               />
               <span className="shrink-0">{leadFlavor.iconEmoji}</span>
-              <span className="font-medium text-gray-200 light:text-slate-800 truncate max-w-[65px] sm:max-w-[100px]">
+              <span className="font-medium text-gray-200 truncate max-w-[65px] sm:max-w-[100px]">
                 {leadFlavor.name}
               </span>
               {remainingCount > 0 && (
@@ -119,16 +125,16 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
       </div>
 
       {/* BOTTOM ZONE: Availability + Price and Round Gradient '+' Button */}
-      <div className="mt-3.5 pt-2.5 border-t border-[#1E2348] light:border-slate-200 flex items-center justify-between gap-2 w-full">
+      <div className="mt-3.5 pt-2.5 border-t border-[#1E2348] flex items-center justify-between gap-2 w-full">
         {/* Left Side: Green dot "Disponível" + Price in clean bold white */}
         <div className="text-left overflow-hidden min-w-0 space-y-0.5">
           <div className="flex items-center gap-1.5">
             <span className="w-2 h-2 rounded-full bg-[#10B981] inline-block shrink-0 shadow-[0_0_6px_#10B981]" />
-            <span className="text-[10px] sm:text-xs font-semibold text-[#8E95B8] light:text-slate-600 truncate">
+            <span className="text-[10px] sm:text-xs font-semibold text-[#8E95B8] truncate">
               Disponível
             </span>
           </div>
-          <p className="font-heading text-sm sm:text-base md:text-lg font-black text-white light:text-slate-900 tracking-tight leading-tight truncate">
+          <p className="font-heading text-sm sm:text-base md:text-lg font-black text-white tracking-tight leading-tight truncate">
             <span className="text-[10px] sm:text-xs text-[#8E95B8] font-bold mr-0.5">R$</span>
             {product.startingPrice.toFixed(2).replace('.', ',')}
           </p>

@@ -139,7 +139,7 @@ export const BannerVisualEditor: React.FC = () => {
       case 'emerald':
         return 'from-[#10B981]/20 via-[#065F46]/15 to-[#080811]';
       case 'gold':
-        return 'from-[#FACC15]/20 via-[#EAB308]/15 to-[#080811]';
+        return 'from-[#E53CF3]/20 via-[#00DFFF]/15 to-[#080811]';
       default:
         return 'from-[#00DFFF]/15 via-[#8423DA]/20 to-[#080811]';
     }

@@ -1,14 +1,12 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../context/CatalogContext';
-import { Search, Sun, Moon, ShieldCheck, Menu, X, ArrowLeft, Sparkles, ShoppingBag } from 'lucide-react';
+import { Search, ShieldCheck, Menu, X, ArrowLeft, Sparkles, ShoppingBag } from 'lucide-react';
 import { TopCarouselBar } from './TopCarouselBar';
 import { PWAInstallButton } from './PWAInstallButton';
 
 export const Header: React.FC = () => {
   const {
     settings,
-    theme,
-    toggleTheme,
     currentView,
     setCurrentView,
     searchQuery,
@@ -79,46 +77,54 @@ export const Header: React.FC = () => {
                   {settings.storeName}
                 </span>
                 <span className="text-[10px] uppercase tracking-widest text-[#A5A5B8] font-semibold flex items-center gap-1">
-                  Catálogo Digital <span className="text-[#FACC15]">⚡</span>
+                  Catálogo Digital <span className="text-[#00DFFF]">⚡</span>
                 </span>
               </div>
             </button>
           </div>
 
-          {/* Zone 2: Navigation Links (Desktop) */}
+          {/* Zone 2: Navigation Links (Desktop) matching Image 2 */}
           {currentView === 'catalog' ? (
-            <nav className="hidden md:flex items-center gap-7 text-sm font-medium text-[#A5A5B8] light:text-slate-600">
+            <nav className="hidden lg:flex items-center gap-6 xl:gap-8 text-sm font-semibold text-[#A5A5B8]">
               <button
                 onClick={() => {
                   window.scrollTo({ top: 0, behavior: 'smooth' });
                 }}
-                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer"
+                className="relative text-[#00DFFF] hover:text-white transition-colors whitespace-nowrap cursor-pointer py-1"
               >
                 Início
+                {/* Cyan Neon active indicator line */}
+                <span className="absolute -bottom-1 left-0 right-0 h-0.5 bg-[#00DFFF] shadow-[0_0_8px_#00DFFF] rounded-full" />
               </button>
               <button
                 onClick={() => navigateTo('catalogo')}
-                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer"
+                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
-                Catálogo
+                Produtos
               </button>
               <button
                 onClick={() => navigateTo('marcas')}
-                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer"
+                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
                 Marcas
               </button>
               <button
                 onClick={() => navigateTo('modelos')}
-                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer"
+                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
-                Modelos & Sabores
+                Sabores
+              </button>
+              <button
+                onClick={() => navigateTo('catalogo')}
+                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
+              >
+                Promoções
               </button>
               <button
                 onClick={() => navigateTo('informacoes')}
-                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer"
+                className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
-                Informações
+                Sobre
               </button>
             </nav>
           ) : (
@@ -130,7 +136,7 @@ export const Header: React.FC = () => {
             </div>
           )}
 
-          {/* Zone 3: Actions (Search, Theme, Admin switch) */}
+          {/* Zone 3: Actions (Search, Cart, Admin switch — No light/dark toggle) */}
           <div className="flex items-center gap-2.5 sm:gap-3.5">
             {/* Quick search input or toggle on catalog */}
             {currentView === 'catalog' && (
@@ -139,11 +145,11 @@ export const Header: React.FC = () => {
                   <div className="relative flex items-center animate-in fade-in duration-200">
                     <input
                       type="text"
-                      placeholder="Buscar modelo ou sabor..."
+                      placeholder="Buscar produtos, marcas ou sabores..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       autoFocus
-                      className="w-48 sm:w-64 pl-8 pr-8 py-1.5 text-xs rounded-full bg-[#11152A] light:bg-slate-100 border border-[#8423DA]/40 focus:border-[#00DFFF] text-white light:text-slate-900 focus:outline-none transition-all placeholder:text-gray-500 shadow-inner"
+                      className="w-48 sm:w-64 pl-8 pr-8 py-1.5 text-xs rounded-full bg-[#11152A] border border-[#8423DA]/40 focus:border-[#00DFFF] text-white focus:outline-none transition-all placeholder:text-gray-500 shadow-inner"
                     />
                     <Search className="w-3.5 h-3.5 absolute left-2.5 text-gray-400 pointer-events-none" />
                     <button
@@ -163,7 +169,7 @@ export const Header: React.FC = () => {
                       setShowSearchInput(true);
                       navigateTo('catalogo');
                     }}
-                    className="p-2.5 rounded-xl bg-[#11152A] light:bg-slate-100 text-gray-300 light:text-slate-700 hover:text-[#00DFFF] hover:border-[#00DFFF]/40 border border-transparent transition-all cursor-pointer"
+                    className="p-2.5 rounded-xl bg-[#11152A] text-gray-300 hover:text-[#00DFFF] hover:border-[#00DFFF]/40 border border-transparent transition-all cursor-pointer"
                     title="Buscar pod, puffs ou sabor"
                     aria-label="Buscar"
                   >
@@ -176,26 +182,16 @@ export const Header: React.FC = () => {
             {/* Cart Button with Counter */}
             <button
               onClick={() => setIsCartOpen(true)}
-              className="relative p-2.5 rounded-xl bg-gradient-to-br from-[#11152A] to-[#1C2245] light:bg-slate-100 hover:border-[#00DFFF] border border-[#8423DA]/40 text-white light:text-slate-900 transition-all cursor-pointer shadow-md group"
+              className="relative p-2.5 rounded-xl bg-gradient-to-br from-[#11152A] to-[#1C2245] hover:border-[#00DFFF] border border-[#8423DA]/40 text-white transition-all cursor-pointer shadow-md group"
               title="Abrir carrinho de compras"
               aria-label="Carrinho"
             >
               <ShoppingBag className="w-4 h-4 text-[#00DFFF] group-hover:scale-110 transition-transform" />
               {totalCartItems > 0 && (
-                <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full bg-gradient-to-r from-[#FACC15] to-[#EAB308] text-[#080811] text-[11px] font-black flex items-center justify-center shadow-md animate-in zoom-in-75">
+                <span className="absolute -top-1.5 -right-1.5 min-w-[20px] h-5 px-1 rounded-full bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] text-[11px] font-black flex items-center justify-center shadow-md animate-in zoom-in-75">
                   {totalCartItems}
                 </span>
               )}
-            </button>
-
-            {/* Theme Toggle */}
-            <button
-              onClick={toggleTheme}
-              className="p-2.5 rounded-xl bg-[#11152A] light:bg-slate-100 text-[#FACC15] hover:border-[#FACC15]/40 border border-transparent transition-all cursor-pointer"
-              title={`Alternar para tema ${theme === 'dark' ? 'claro' : 'escuro'}`}
-              aria-label="Alternar tema"
-            >
-              {theme === 'dark' ? <Sun className="w-4 h-4" /> : <Moon className="w-4 h-4 text-[#8423DA]" />}
             </button>
 
             {/* PWA Install Button */}
@@ -212,7 +208,7 @@ export const Header: React.FC = () => {
             >
               {currentView === 'catalog' ? (
                 <>
-                  <Sparkles className="w-3.5 h-3.5 text-[#FACC15]" />
+                  <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
                   <span className="hidden sm:inline">Painel</span> Admin
                 </>
               ) : (
@@ -226,7 +222,7 @@ export const Header: React.FC = () => {
             {/* Mobile Hamburger Button */}
             <button
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
-              className="p-2.5 md:hidden rounded-xl bg-[#11152A] light:bg-slate-100 text-gray-300 light:text-slate-800 border border-[#8423DA]/30"
+              className="p-2.5 lg:hidden rounded-xl bg-[#11152A] text-gray-300 border border-[#8423DA]/30"
               aria-label="Menu"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
@@ -237,11 +233,11 @@ export const Header: React.FC = () => {
 
       {/* Mobile Drawer Menu */}
       {mobileMenuOpen && (
-        <div className="md:hidden border-t border-[#8423DA]/30 bg-[#080811]/98 light:bg-white/98 backdrop-blur-2xl px-5 py-6 space-y-4 animate-in slide-in-from-top-4 duration-200">
+        <div className="lg:hidden border-t border-[#8423DA]/30 bg-[#080811]/98 backdrop-blur-2xl px-5 py-6 space-y-4 animate-in slide-in-from-top-4 duration-200">
           <div className="flex items-center gap-3 pb-3 border-b border-[#8423DA]/20">
             <img src="/assets/images/logo.png" alt="PodWave Logo" className="h-10 w-10 object-contain" />
             <div>
-              <p className="font-heading font-bold text-white light:text-slate-900">{settings.storeName}</p>
+              <p className="font-heading font-bold text-white">{settings.storeName}</p>
               <p className="text-xs text-[#A5A5B8]">Catálogo Digital de Dispositivos ⚡</p>
             </div>
           </div>
@@ -253,34 +249,34 @@ export const Header: React.FC = () => {
                 setMobileMenuOpen(false);
                 window.scrollTo({ top: 0, behavior: 'smooth' });
               }}
-              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium text-gray-200 light:text-slate-700 hover:bg-[#11152A] light:hover:bg-slate-100"
+              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
             >
               Início
             </button>
             <button
               onClick={() => navigateTo('catalogo')}
-              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium text-gray-200 light:text-slate-700 hover:bg-[#11152A] light:hover:bg-slate-100 flex items-center justify-between"
+              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A] flex items-center justify-between"
             >
-              <span>Explorar Catálogo</span>
-              <span className="text-xs font-semibold text-[#FACC15]">⚡ Todos os Puffs</span>
+              <span>Produtos & Catálogo</span>
+              <span className="text-xs font-semibold text-[#00DFFF]">⚡ Todos</span>
             </button>
             <button
               onClick={() => navigateTo('marcas')}
-              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium text-gray-200 light:text-slate-700 hover:bg-[#11152A] light:hover:bg-slate-100"
+              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
             >
               Fabricantes & Marcas
             </button>
             <button
               onClick={() => navigateTo('modelos')}
-              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium text-gray-200 light:text-slate-700 hover:bg-[#11152A] light:hover:bg-slate-100"
+              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
             >
-              Modelos & Sabores
+              Sabores & Modelos
             </button>
             <button
               onClick={() => navigateTo('informacoes')}
-              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-medium text-gray-200 light:text-slate-700 hover:bg-[#11152A] light:hover:bg-slate-100"
+              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
             >
-              Especificações & Avisos (+18)
+              Sobre & Avisos (+18)
             </button>
           </div>
 
@@ -293,7 +289,7 @@ export const Header: React.FC = () => {
             >
               {currentView === 'catalog' ? (
                 <>
-                  <Sparkles className="w-4 h-4 text-[#FACC15]" />
+                  <Sparkles className="w-4 h-4 text-[#00DFFF]" />
                   Acessar Painel Administrativo
                 </>
               ) : (
