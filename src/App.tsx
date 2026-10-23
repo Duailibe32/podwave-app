@@ -1,0 +1,54 @@
+import React from 'react';
+import { CatalogProvider, useCatalog } from './context/CatalogContext';
+import { Header } from './components/Header';
+import { HeroBanner } from './components/HeroBanner';
+import { BrandScroller } from './components/BrandScroller';
+import { CatalogSection } from './components/CatalogSection';
+import { InfoSection } from './components/InfoSection';
+import { Footer } from './components/Footer';
+import { ProductDetailModal } from './components/ProductDetailModal';
+import { CartDrawer } from './components/CartDrawer';
+import { CheckoutDrawer } from './components/CheckoutDrawer';
+import { FloatingActions } from './components/FloatingActions';
+import { AdminPanel } from './components/admin/AdminPanel';
+import { OfflineIndicator } from './components/OfflineIndicator';
+
+const AppContent: React.FC = () => {
+  const { currentView } = useCatalog();
+
+  return (
+    <div className="min-h-screen flex flex-col bg-[#080811] light:bg-[#F4F6FC] text-white light:text-slate-900 transition-colors duration-200">
+      <Header />
+
+      <main className="flex-grow">
+        {currentView === 'catalog' ? (
+          <>
+            <HeroBanner />
+            <BrandScroller />
+            <div id="modelos">
+              <CatalogSection />
+            </div>
+            <InfoSection />
+          </>
+        ) : (
+          <AdminPanel />
+        )}
+      </main>
+
+      <Footer />
+      <ProductDetailModal />
+      <CartDrawer />
+      <CheckoutDrawer />
+      <FloatingActions />
+      <OfflineIndicator />
+    </div>
+  );
+};
+
+export default function App() {
+  return (
+    <CatalogProvider>
+      <AppContent />
+    </CatalogProvider>
+  );
+}

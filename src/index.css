@@ -1,0 +1,125 @@
+@import "tailwindcss";
+
+@layer base {
+  :root {
+    --bg-primary: #080811;
+    --bg-secondary: #11152A;
+    --bg-card: #151932;
+    --border-subtle: rgba(132, 35, 218, 0.25);
+    --text-primary: #FFFFFF;
+    --text-muted: #A5A5B8;
+    --color-cyan: #00DFFF;
+    --color-purple: #8423DA;
+    --color-magenta: #E53CF3;
+    --color-blue: #007BFF;
+    --color-gold: #FACC15;
+  }
+
+  html.light {
+    --bg-primary: #F4F6FC;
+    --bg-secondary: #FFFFFF;
+    --bg-card: #FFFFFF;
+    --border-subtle: rgba(132, 35, 218, 0.15);
+    --text-primary: #0A0C18;
+    --text-muted: #5B6275;
+    --color-cyan: #0099B8;
+    --color-purple: #7922C7;
+    --color-magenta: #C924D6;
+    --color-blue: #0066D6;
+    --color-gold: #CA8A04;
+  }
+
+  body {
+    font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
+    background-color: var(--bg-primary);
+    color: var(--text-primary);
+    transition: background-color 0.25s ease, color 0.25s ease;
+  }
+
+  h1, h2, h3, h4, .font-heading {
+    font-family: 'Outfit', 'Plus Jakarta Sans', sans-serif;
+  }
+}
+
+/* Custom glowing effects */
+.glow-cyan {
+  box-shadow: 0 0 20px -3px rgba(0, 223, 255, 0.35);
+}
+
+.glow-purple {
+  box-shadow: 0 0 24px -2px rgba(132, 35, 218, 0.4);
+}
+
+.glow-gold {
+  box-shadow: 0 0 16px -2px rgba(250, 204, 21, 0.45);
+}
+
+.text-gradient-cyan-purple {
+  background: linear-gradient(135deg, #00DFFF 0%, #8423DA 50%, #E53CF3 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+.text-gradient-gold {
+  background: linear-gradient(135deg, #FFE873 0%, #FACC15 60%, #EAB308 100%);
+  -webkit-background-clip: text;
+  -webkit-text-fill-color: transparent;
+}
+
+/* Glassmorphism */
+.glass-panel {
+  background: rgba(17, 21, 42, 0.85);
+  backdrop-filter: blur(16px);
+  -webkit-backdrop-filter: blur(16px);
+  border: 1px solid rgba(132, 35, 218, 0.2);
+}
+
+html.light .glass-panel {
+  background: rgba(255, 255, 255, 0.9);
+  border: 1px solid rgba(132, 35, 218, 0.12);
+  box-shadow: 0 4px 20px -2px rgba(0, 0, 0, 0.05);
+}
+
+/* Smooth custom scrollbar */
+::-webkit-scrollbar {
+  width: 8px;
+  height: 8px;
+}
+::-webkit-scrollbar-track {
+  background: #080811;
+}
+html.light ::-webkit-scrollbar-track {
+  background: #EAEFF8;
+}
+::-webkit-scrollbar-thumb {
+  background: #252A4A;
+  border-radius: 9999px;
+}
+::-webkit-scrollbar-thumb:hover {
+  background: #8423DA;
+}
+
+/* Card entrance animations (fade-in + slide-up) */
+@keyframes cardFadeSlideUp {
+  0% {
+    opacity: 0;
+    transform: translateY(22px) scale(0.98);
+  }
+  100% {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.animate-card-fade-slide-up {
+  animation: cardFadeSlideUp 0.42s cubic-bezier(0.16, 1, 0.3, 1) both;
+  will-change: transform, opacity;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .animate-card-fade-slide-up {
+    animation: none !important;
+    opacity: 1 !important;
+    transform: none !important;
+  }
+}

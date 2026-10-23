@@ -1,0 +1,156 @@
+import React from 'react';
+import { ProductModel, FlavorVariant } from '../types/catalog';
+import { useCatalog } from '../context/CatalogContext';
+import { Zap, Plus, CheckCircle2 } from 'lucide-react';
+
+interface ProductCardProps {
+  product: ProductModel;
+}
+
+export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+  const { setActiveModalProduct, setActiveSelectedFlavor, addToCart } = useCatalog();
+
+  const handleCardClick = () => {
+    setActiveModalProduct(product);
+  };
+
+  const handleFlavorClick = (e: React.MouseEvent, flavor: FlavorVariant) => {
+    e.stopPropagation();
+    setActiveModalProduct(product);
+    setActiveSelectedFlavor(flavor);
+  };
+
+  // Up to first flavor with colored dot and emoji, plus count for remaining
+  const visibleFlavors = product.flavors.slice(0, 1);
+  const remainingCount = product.flavors.length - visibleFlavors.length;
+  const leadFlavor = visibleFlavors[0];
+
+  // Format puff count: e.g. 15000 -> "15.000", or extract numbers from puffsLabel
+  const rawPuffsNumber = product.puffs > 0 ? product.puffs.toLocaleString('pt-BR') : product.puffsLabel.replace(/[^0-9.]/g, '');
+
+  return (
+    <div
+      onClick={handleCardClick}
+      className="group relative flex flex-col justify-between h-full rounded-[24px] sm:rounded-[26px] p-3 sm:p-4 transition-all duration-300 cursor-pointer bg-[#0A0D1E] light:bg-white border border-[#1E2348] hover:border-[#00DFFF]/70 light:border-slate-200 light:hover:border-[#00DFFF] hover:shadow-[0_10px_35px_rgba(0,223,255,0.22)] hover:-translate-y-1.5 overflow-hidden w-full select-none"
+    >
+      {/* Subtle neon gradient ambient background */}
+      <div className="absolute inset-0 rounded-[24px] sm:rounded-[26px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-b from-[#00DFFF]/10 via-transparent to-[#9333EA]/10" />
+
+      {/* TOP ZONE: Badges and White Product Box */}
+      <div className="w-full">
+        {/* Badges row with wrap so text never overflows the card on mobile */}
+        <div className="flex flex-wrap items-center justify-between gap-1.5 mb-2.5 w-full">
+          {/* ⚡ Puffs Badge: Dark capsule with cyan bolt, white number, gray puffs text */}
+          <div className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[#0D1127] light:bg-slate-100 border border-[#232A58] light:border-slate-300 shadow-sm shrink-0">
+            <Zap className="w-3.5 h-3.5 text-[#00DFFF] fill-[#00DFFF] shrink-0" />
+            <span className="text-white light:text-slate-900 font-extrabold text-[11px] sm:text-xs tracking-tight">
+              {rawPuffsNumber || product.puffsLabel}
+            </span>
+            <span className="text-[#8E95B8] light:text-slate-500 font-medium text-[10px] sm:text-xs">
+              Puffs
+            </span>
+          </div>
+
+          {/* Top/New Badge (Purple gradient badge matching reference) */}
+          {product.badge && (
+            <div className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-gradient-to-r from-[#9333EA] to-[#A855F7] text-white text-[9px] sm:text-[10px] font-black tracking-wider uppercase shadow-[0_0_10px_rgba(168,85,247,0.45)] shrink-0">
+              <span>{product.badge}</span>
+            </div>
+          )}
+        </div>
+
+        {/* Clean Centered White Product Container */}
+        <div className="relative w-full aspect-square rounded-2xl bg-white p-3 sm:p-4 flex items-center justify-center overflow-hidden shadow-inner group-hover:shadow-md transition-shadow">
+          <img
+            src={product.imageUrl || '/assets/images/logo.png'}
+            alt={`${product.brandName} ${product.modelName}`}
+            className="w-full h-full object-contain transform transition-transform duration-500 group-hover:scale-105"
+            loading="lazy"
+            referrerPolicy="no-referrer"
+          />
+
+          {/* Quick hover indicator tag */}
+          <div className="absolute bottom-1.5 right-1.5 px-2 py-0.5 rounded-md bg-black/80 text-[9px] text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
+            <CheckCircle2 className="w-2.5 h-2.5 text-[#00DFFF]" />
+            <span>Ver Ficha</span>
+          </div>
+        </div>
+      </div>
+
+      {/* MIDDLE ZONE: Brand, Model, Flavors Pill */}
+      <div className="mt-3 text-center space-y-1.5 w-full overflow-hidden">
+        {/* Brand Name: Vibrant Cyan, tracking-widest, NO YELLOW */}
+        <p className="text-[10px] sm:text-[11px] font-black tracking-widest uppercase text-[#00DFFF] truncate">
+          {product.brandName}
+        </p>
+
+        {/* Model Name: Bold crisp white */}
+        <h3 className="font-heading text-sm sm:text-base md:text-lg font-black text-white light:text-slate-900 tracking-tight leading-snug line-clamp-1 truncate break-words">
+          {product.modelName}
+        </h3>
+
+        {/* Flavors Pill (Dark capsule with colored dot, emoji, flavor name, and cyan +X count) */}
+        <div className="pt-0.5 flex justify-center w-full overflow-hidden">
+          {leadFlavor ? (
+            <div
+              onClick={(e) => handleFlavorClick(e, leadFlavor)}
+              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[#131733] light:bg-slate-100 border border-[#232958] light:border-slate-300 hover:border-[#00DFFF]/60 text-gray-200 light:text-slate-800 text-[10px] sm:text-xs transition-colors max-w-full overflow-hidden cursor-pointer"
+              title="Clique para ver todos os sabores deste modelo"
+            >
+              {/* Colored Dot */}
+              <span
+                className="w-2 h-2 rounded-full inline-block shrink-0 shadow-sm"
+                style={{ backgroundColor: leadFlavor.colorHex }}
+              />
+              <span className="shrink-0">{leadFlavor.iconEmoji}</span>
+              <span className="font-medium text-gray-200 light:text-slate-800 truncate max-w-[65px] sm:max-w-[100px]">
+                {leadFlavor.name}
+              </span>
+              {remainingCount > 0 && (
+                <span className="text-[#00DFFF] font-bold text-[10px] sm:text-[11px] shrink-0 ml-0.5">
+                  +{remainingCount}
+                </span>
+              )}
+            </div>
+          ) : (
+            <span className="text-[10px] text-gray-400">Sabores sob consulta</span>
+          )}
+        </div>
+      </div>
+
+      {/* BOTTOM ZONE: Availability + Price and Round Gradient '+' Button */}
+      <div className="mt-3.5 pt-2.5 border-t border-[#1E2348] light:border-slate-200 flex items-center justify-between gap-2 w-full">
+        {/* Left Side: Green dot "Disponível" + Price in clean bold white */}
+        <div className="text-left overflow-hidden min-w-0 space-y-0.5">
+          <div className="flex items-center gap-1.5">
+            <span className="w-2 h-2 rounded-full bg-[#10B981] inline-block shrink-0 shadow-[0_0_6px_#10B981]" />
+            <span className="text-[10px] sm:text-xs font-semibold text-[#8E95B8] light:text-slate-600 truncate">
+              Disponível
+            </span>
+          </div>
+          <p className="font-heading text-sm sm:text-base md:text-lg font-black text-white light:text-slate-900 tracking-tight leading-tight truncate">
+            <span className="text-[10px] sm:text-xs text-[#8E95B8] font-bold mr-0.5">R$</span>
+            {product.startingPrice.toFixed(2).replace('.', ',')}
+          </p>
+        </div>
+
+        {/* Right Side: Round '+' Button with Cyan-to-Purple Neon Gradient */}
+        <button
+          onClick={(e) => {
+            e.stopPropagation();
+            if (product.flavors.length === 1) {
+              addToCart(product, product.flavors[0]);
+            } else {
+              handleCardClick();
+            }
+          }}
+          className="w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center bg-gradient-to-br from-[#00DFFF] via-[#7C3AED] to-[#A855F7] text-white shadow-[0_0_15px_rgba(0,223,255,0.4)] hover:shadow-[0_0_22px_rgba(168,85,247,0.6)] hover:scale-105 active:scale-95 transition-all duration-200 cursor-pointer shrink-0"
+          title="Ver detalhes ou adicionar ao carrinho"
+          aria-label={`Abrir detalhes de ${product.modelName}`}
+        >
+          <Plus className="w-4 h-4 sm:w-5 sm:h-5 text-white stroke-[2.8]" />
+        </button>
+      </div>
+    </div>
+  );
+};

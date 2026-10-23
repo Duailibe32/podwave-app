@@ -1,0 +1,6 @@
+{
+  "name": "PodWave — Catálogo Digital Premium",
+  "description": "Catálogo digital futurista e sofisticado de dispositivos eletrônicos com contagem de puffs ⚡, seletor de sabores e painel administrativo demonstrativo.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
