@@ -40,6 +40,9 @@ import {
   UserCheck,
   RefreshCw,
   SlidersHorizontal,
+  Fingerprint,
+  Copy,
+  KeyRound,
 } from 'lucide-react';
 import { ProductModel, Brand, FlavorVariant, Coupon, VariantHistoryEntry } from '../../types/catalog';
 import { AdminLogin } from './AdminLogin';
@@ -83,19 +86,32 @@ export const AdminPanel: React.FC = () => {
     bulkUpdateVariants,
     globalLowQuantityThreshold,
     setGlobalLowQuantityThreshold,
+    configuredOwnerUid,
+    setConfiguredOwnerUid,
   } = useCatalog();
-
-  // If user is not authenticated as the owner, show the login screen
-  if (!isAdminAuthenticated) {
-    return <AdminLogin />;
-  }
 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
+  // State for Owner UID configuration in settings tab (Requested by user)
+  const [ownerUidInput, setOwnerUidInput] = useState(configuredOwnerUid);
+  const [isSettingOwnerUidExpanded, setIsSettingOwnerUidExpanded] = useState(false);
+  const [copiedOwnerUid, setCopiedOwnerUid] = useState(false);
+
+  // Sync ownerUidInput if configuredOwnerUid changes externally
+  React.useEffect(() => {
+    setOwnerUidInput(configuredOwnerUid);
+  }, [configuredOwnerUid]);
+
   const showToast = (msg: string) => {
     setSuccessMessage(msg);
     setTimeout(() => setSuccessMessage(null), 3000);
+  };
+
+  const handleSaveOwnerUid = (e: React.FormEvent) => {
+    e.preventDefault();
+    setConfiguredOwnerUid(ownerUidInput.trim());
+    showToast('UID Exclusivo do Proprietário atualizado com sucesso!');
   };
 
   // --- VARIANT MANAGEMENT STATE & FILTERING ---
@@ -676,6 +692,11 @@ export const AdminPanel: React.FC = () => {
   const limitedCoupons = coupons.filter((c) => c.maxUses && c.maxUses > 0).length;
   const totalCouponsUsed = coupons.reduce((acc, c) => acc + c.usedCount, 0);
 
+  // If user is not authenticated as the owner, render the owner login/UID gate screen
+  if (!isAdminAuthenticated) {
+    return <AdminLogin />;
+  }
+
   return (
     <div className="min-h-screen bg-[#080811] light:bg-[#F4F6FC] text-white light:text-slate-900 pb-20">
       {/* Toast Notification */}
@@ -688,7 +709,7 @@ export const AdminPanel: React.FC = () => {
 
       {/* Top Admin Sub-header */}
       {/* Top Admin Sub-header with Owner Profile (Section 7) */}
-      <div className="border-b border-[#8423DA]/25 bg-[#0D1022]/95 sticky top-20 z-40 backdrop-blur-xl">
+      <div className="border-b border-[#8423DA]/25 bg-[#0D1022]/95">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex flex-col sm:flex-row sm:items-center justify-between py-4 gap-3">
             <div className="flex items-center gap-3">
@@ -2102,8 +2123,121 @@ export const AdminPanel: React.FC = () => {
                 Configurações da Loja & Identidade Visual
               </h2>
               <p className="text-xs text-[#A5A5B8]">
-                Ajuste os dados institucionais e o aviso de maioridade regulatória.
+                Ajuste os dados institucionais, segurança do proprietário e o aviso de maioridade regulatória.
               </p>
+            </div>
+
+            {/* CARD EXCLUSIVO DE SEGURANÇA: UID DO PROPRIETÁRIO (SOLICITADO PELO USUÁRIO) */}
+            <div className="p-5 rounded-2xl bg-[#0D1022] light:bg-white border-2 border-[#8423DA]/50 shadow-xl space-y-4">
+              <div className="flex items-center justify-between border-b border-[#8423DA]/20 pb-3">
+                <div className="flex items-center gap-2.5">
+                  <Fingerprint className="w-5 h-5 text-[#00DFFF]" />
+                  <div>
+                    <h3 className="font-heading text-sm font-bold text-white light:text-slate-900 flex items-center gap-2">
+                      <span>UID Exclusivo do Proprietário</span>
+                      <span className={`px-2 py-0.5 text-[10px] font-black rounded-full ${
+                        configuredOwnerUid ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
+                      }`}>
+                        {configuredOwnerUid ? '✓ Configurado' : 'Pendente'}
+                      </span>
+                    </h3>
+                    <p className="text-[11px] text-[#A5A5B8]">
+                      Identificação mestre do Firebase Authentication para acesso administrativo exclusivo (OWNER)
+                    </p>
+                  </div>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={() => setIsSettingOwnerUidExpanded(!isSettingOwnerUidExpanded)}
+                  className="px-3 py-1.5 rounded-xl bg-[#00DFFF]/10 hover:bg-[#00DFFF]/20 border border-[#00DFFF]/40 text-[#00DFFF] font-bold text-xs transition-all cursor-pointer"
+                >
+                  {isSettingOwnerUidExpanded ? 'Recolher' : 'Ajustar'}
+                </button>
+              </div>
+
+              {/* Status Row showing current active owner status */}
+              <div className="p-3.5 rounded-xl bg-[#141838] border border-[#8423DA]/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
+                <div>
+                  <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">UID Autorizado no Sistema:</span>
+                  <span className="font-mono font-bold text-white text-xs truncate max-w-xs block">
+                    {configuredOwnerUid || 'Nenhum UID configurado'}
+                  </span>
+                </div>
+                {configuredOwnerUid && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      navigator.clipboard.writeText(configuredOwnerUid);
+                      setCopiedOwnerUid(true);
+                      setTimeout(() => setCopiedOwnerUid(false), 2000);
+                    }}
+                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#181C38] text-gray-300 hover:text-white border border-[#8423DA]/30 text-[11px] font-semibold cursor-pointer shrink-0"
+                  >
+                    {copiedOwnerUid ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-[#00DFFF]" />}
+                    <span>{copiedOwnerUid ? 'Copiado!' : 'Copiar UID'}</span>
+                  </button>
+                )}
+              </div>
+
+              {/* Form to Adjust / Change the Owner UID */}
+              {isSettingOwnerUidExpanded && (
+                <form onSubmit={handleSaveOwnerUid} className="space-y-3 pt-2 text-xs animate-in fade-in duration-200">
+                  <div>
+                    <label className="block text-gray-200 font-bold mb-1">
+                      Novo UID do Proprietário (Firebase Authentication)
+                    </label>
+                    <input
+                      type="text"
+                      value={ownerUidInput}
+                      onChange={(e) => setOwnerUidInput(e.target.value)}
+                      placeholder="Ex: 7xKj910PqAz88192837LmM"
+                      className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white font-mono text-xs focus:outline-none focus:border-[#00DFFF]"
+                    />
+                    <p className="text-[10px] text-[#A5A5B8] mt-1 leading-relaxed">
+                      Apenas a conta do Firebase com este UID e com a claim privilegiada <code className="text-[#00DFFF]">owner: true</code> terá permissão de acessar o painel administrativo.
+                    </p>
+                  </div>
+
+                  {currentUser?.uid && (
+                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#181C38] border border-[#8423DA]/20">
+                      <div>
+                        <span className="text-[10px] text-gray-400 block">Sua Conta Firebase Atual:</span>
+                        <span className="text-[11px] text-[#00DFFF] font-mono font-bold truncate max-w-[200px] block">
+                          {currentUser.email || currentUser.uid}
+                        </span>
+                      </div>
+                      <button
+                        type="button"
+                        onClick={() => setOwnerUidInput(currentUser.uid)}
+                        className="px-2.5 py-1 rounded-lg bg-[#00DFFF]/20 text-[#00DFFF] hover:bg-[#00DFFF]/30 text-[11px] font-bold cursor-pointer transition-colors"
+                      >
+                        Usar meu UID Atual
+                      </button>
+                    </div>
+                  )}
+
+                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#8423DA]/20">
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setOwnerUidInput('');
+                        setConfiguredOwnerUid('');
+                        showToast('UID desvinculado!');
+                      }}
+                      className="px-3 py-1.5 rounded-xl text-rose-400 hover:bg-rose-500/10 text-xs font-semibold cursor-pointer"
+                    >
+                      Limpar UID
+                    </button>
+                    <button
+                      type="submit"
+                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] text-xs font-black shadow-md cursor-pointer hover:brightness-110 active:scale-95"
+                    >
+                      Salvar UID do Proprietário
+                    </button>
+                  </div>
+                </form>
+              )}
             </div>
 
             <form
@@ -2472,7 +2606,7 @@ export const AdminPanel: React.FC = () => {
                 const previewTheme = BRAND_CARD_THEMES.find((t) => t.id === brandForm.cardColor) || BRAND_CARD_THEMES[0];
                 return (
                   <div className="flex justify-center py-2">
-                    <div className={`relative w-44 sm:w-48 h-[125px] rounded-2xl p-2.5 flex flex-col justify-between bg-gradient-to-b ${previewTheme.bgGradient} border ${previewTheme.border} overflow-hidden shadow-2xl`}>
+                    <div className={`relative w-44 sm:w-48 h-[125px] rounded-2xl p-2.5 flex flex-col justify-between bg-gradient-to-b ${previewTheme.bg} border ${previewTheme.border} overflow-hidden shadow-2xl`}>
                       <div className="absolute inset-0 bg-gradient-to-t from-black/60 via-transparent to-white/10 pointer-events-none" />
                       <div className="relative z-10 flex-grow flex items-center justify-center p-1">
                         {brandForm.logoUrl ? (

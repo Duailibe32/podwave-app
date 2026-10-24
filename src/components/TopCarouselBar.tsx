@@ -69,16 +69,16 @@ export const TopCarouselBar: React.FC = () => {
                   href={whatsappUrl}
                   target="_blank"
                   rel="noreferrer"
-                  className="inline-flex items-center gap-1.5 font-heading font-black text-[11px] sm:text-sm text-white hover:text-[#00DFFF] hover:underline cursor-pointer truncate max-w-full"
+                  className="inline-flex items-center gap-1.5 font-heading font-black text-[11px] sm:text-xs md:text-sm text-white hover:text-[#00DFFF] hover:underline cursor-pointer max-w-full"
                 >
                   <span className="shrink-0">{activeSlide.emoji}</span>
-                  <span className="truncate">{activeSlide.text}</span>
+                  <span className="truncate sm:overflow-visible sm:whitespace-normal">{activeSlide.text}</span>
                   <ExternalLink className="w-3.5 h-3.5 text-[#00DFFF] inline shrink-0" />
                 </a>
               ) : (
-                <p className="font-heading font-black text-[11px] sm:text-sm text-white tracking-tight flex items-center gap-1.5 truncate max-w-full">
+                <p className="font-heading font-black text-[11px] sm:text-xs md:text-sm text-white tracking-tight flex items-center gap-1.5 max-w-full">
                   <span className="shrink-0">{activeSlide.emoji}</span>
-                  <span className="truncate">{activeSlide.text}</span>
+                  <span className="truncate sm:overflow-visible sm:whitespace-normal">{activeSlide.text}</span>
                 </p>
               )}
             </div>

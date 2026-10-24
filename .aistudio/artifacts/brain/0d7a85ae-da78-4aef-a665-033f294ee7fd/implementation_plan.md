@@ -137,3 +137,6 @@ Cada card terá 3 zonas perfeitamente articuladas:
 6. **Filtros e Busca em Tempo Real:** Filtro rápido por faixa de puffs (`Até 6k`, `6k-15k`, `15k-25k`, `30k+`), seleção de marcas e barra de busca instantânea sem recarregar a página.
 7. **Painel Administrativo Demonstrativo:** Módulo administrativo em `/admin` com abas (Dashboard, Marcas, Modelos, Sabores, Banners, Configurações) conectado ao `localStorage`.
 8. **Validação & Compilação:** Executar `compile_applet` e testes de responsividade em desktop e dispositivos móveis.
+9. **Painel do Proprietário & Segurança:** Transferência concluída da gestão do UID Exclusivo do Proprietário para a aba **Configurações** do `AdminPanel.tsx` e remoção definitiva da tela de login `AdminLogin.tsx`. Header e barra de avisos fixados de forma contínua no topo. Sistema PWA interativo funcional.
+10. **Bloqueio de Itens Esgotados no Carrinho:** Variantes com status `ESGOTADO` (quantidade = 0 ou `inStock: false`) agora desativam e bloqueiam o botão de "Adicionar ao Carrinho" com estado visual específico ("Sabor Esgotado" em vermelho, `cursor-not-allowed`, sem clique). Proteção também implementada diretamente na camada de contexto (`addToCart`) e nos cards da vitrine.
+

@@ -16,7 +16,7 @@ export default defineConfig(() => {
           id: '/',
           name: 'PodWave — Catálogo Oficial de Pods',
           short_name: 'PodWave',
-          description: 'Catálogo digital de pods e juices em São Luís. Peça com entrega rápida e pagamento na entrega via WhatsApp.',
+          description: 'Catálogo digital de pods premium e juices com contagem de puffs e entrega rápida em toda a região.',
           theme_color: '#080811',
           background_color: '#080811',
           display: 'standalone',

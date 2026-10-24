@@ -1,36 +1,12 @@
 import React from 'react';
 import { useCatalog } from '../context/CatalogContext';
-import { ShoppingBag, MessageCircle } from 'lucide-react';
-import { PWAInstallButton } from './PWAInstallButton';
-import { buildWhatsAppUrl } from '../utils/whatsappShare';
+import { ShoppingBag } from 'lucide-react';
 
 export const FloatingActions: React.FC = () => {
-  const { totalCartItems, setIsCartOpen, settings } = useCatalog();
-  const whatsappNumber = settings.whatsappNumber || '5586999014685';
+  const { totalCartItems, setIsCartOpen } = useCatalog();
 
   return (
     <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3 pointer-events-none">
-      {/* Floating PWA Install button */}
-      <div className="pointer-events-auto">
-        <PWAInstallButton variant="floating" />
-      </div>
-      {/* Floating WhatsApp Action Button */}
-      <a
-        href={buildWhatsAppUrl(
-          whatsappNumber,
-          'Olá! Estou navegando no catálogo PodWave e gostaria de tirar uma dúvida ou fazer um pedido.'
-        )}
-        target="_blank"
-        rel="noopener noreferrer"
-        className="pointer-events-auto group flex items-center gap-2.5 px-4 py-3 rounded-full bg-[#25D366] hover:bg-[#20ba59] text-white shadow-[0_4px_25px_rgba(37,211,102,0.45)] hover:shadow-[0_6px_30px_rgba(37,211,102,0.65)] hover:scale-105 active:scale-95 transition-all duration-300"
-        title="Falar no WhatsApp Oficial: (86) 99901-4685"
-      >
-        <MessageCircle className="w-5 h-5 fill-white stroke-none" />
-        <span className="text-xs font-black tracking-wide hidden sm:inline">
-          WhatsApp (86) 99901-4685
-        </span>
-      </a>
-
       {/* Floating Cart Button with Counter */}
       <button
         onClick={() => setIsCartOpen(true)}

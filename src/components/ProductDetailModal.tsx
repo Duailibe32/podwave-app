@@ -60,12 +60,21 @@ export const ProductDetailModal: React.FC = () => {
     activeModalProduct.lowQuantityThreshold
   );
 
-  const selectedFlavorAvail = activeSelectedFlavor
+  const currentFlavor = activeSelectedFlavor || activeModalProduct.flavors[0];
+
+  const selectedFlavorAvail = currentFlavor
     ? calculateVariantAvailability(
-        activeSelectedFlavor.demoQuantity,
-        activeSelectedFlavor.lowQuantityThreshold ?? activeModalProduct.lowQuantityThreshold
+        currentFlavor.demoQuantity,
+        currentFlavor.lowQuantityThreshold ?? activeModalProduct.lowQuantityThreshold
       )
     : null;
+
+  const isFlavorSoldOut = Boolean(
+    !currentFlavor ||
+    currentFlavor.inStock === false ||
+    currentFlavor.demoQuantity === 0 ||
+    selectedFlavorAvail?.status === 'esgotado'
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-4 md:p-6 bg-black/80 backdrop-blur-md animate-in fade-in duration-200">
@@ -345,24 +354,47 @@ export const ProductDetailModal: React.FC = () => {
                 <p className="text-[10px] uppercase font-bold tracking-wider text-[#A5A5B8] leading-none">
                   A PARTIR DE
                 </p>
-                <p className="font-heading text-xl sm:text-2xl font-black text-white light:text-slate-900 tracking-tight">
-                  <span className="text-xs mr-1 text-[#00DFFF]">R$</span>
-                  {activeModalProduct.startingPrice.toFixed(2).replace('.', ',')}
-                </p>
+                <div className="flex items-baseline gap-2 mt-0.5">
+                  <p className="font-heading text-xl sm:text-2xl font-black text-white light:text-slate-900 tracking-tight">
+                    <span className="text-xs mr-1 text-[#00DFFF]">R$</span>
+                    {activeModalProduct.startingPrice.toFixed(2).replace('.', ',')}
+                  </p>
+                  {isFlavorSoldOut && (
+                    <span className="text-[10px] font-bold text-rose-400 bg-rose-500/15 border border-rose-500/30 px-2 py-0.5 rounded-full inline-flex items-center gap-1">
+                      <XCircle className="w-3 h-3 text-rose-400" /> Sabor Esgotado
+                    </span>
+                  )}
+                </div>
               </div>
 
               <div className="flex items-center gap-2">
                 <button
+                  type="button"
+                  disabled={isFlavorSoldOut}
                   onClick={() => {
-                    const flavor = activeSelectedFlavor || activeModalProduct.flavors[0];
-                    addToCart(activeModalProduct, flavor);
+                    if (isFlavorSoldOut || !currentFlavor) return;
+                    addToCart(activeModalProduct, currentFlavor);
                     setActiveModalProduct(null);
                     setIsCartOpen(true);
                   }}
-                  className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#10B981] to-emerald-500 hover:from-emerald-500 hover:to-emerald-600 text-white text-xs font-bold transition-all shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer flex items-center justify-center gap-1.5"
+                  className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
+                    isFlavorSoldOut
+                      ? 'bg-rose-500/15 border border-rose-500/40 text-rose-300 cursor-not-allowed opacity-85 shadow-none'
+                      : 'bg-gradient-to-r from-[#10B981] to-emerald-500 hover:from-emerald-500 hover:to-emerald-600 text-white shadow-[0_0_15px_rgba(16,185,129,0.4)] cursor-pointer active:scale-95'
+                  }`}
+                  title={isFlavorSoldOut ? 'Este sabor está esgotado no momento e não pode ser adicionado' : 'Adicionar ao Carrinho'}
                 >
-                  <ShoppingBag className="w-3.5 h-3.5" />
-                  <span>Adicionar ao Carrinho ⚡</span>
+                  {isFlavorSoldOut ? (
+                    <>
+                      <XCircle className="w-3.5 h-3.5 text-rose-400" />
+                      <span>Sabor Esgotado</span>
+                    </>
+                  ) : (
+                    <>
+                      <ShoppingBag className="w-3.5 h-3.5" />
+                      <span>Adicionar ao Carrinho ⚡</span>
+                    </>
+                  )}
                 </button>
 
                 <button

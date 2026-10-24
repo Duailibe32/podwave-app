@@ -46,11 +46,11 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <>
-      {/* Top Carousel Bar (as requested by user with dash indicators) */}
+    <div className="w-full">
+      {/* Top Carousel Bar */}
       <TopCarouselBar />
 
-      <header className="sticky top-0 z-50 backdrop-blur-xl border-b transition-colors duration-200 bg-[#080811]/90 dark:bg-[#080811]/90 light:bg-white/95 border-[#8423DA]/25 light:border-slate-200">
+      <header className="border-b transition-colors duration-200 bg-[#080811] border-[#8423DA]/25">
         <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-20 gap-4">
           {/* Zone 1: Official Logo & Brand */}
@@ -303,6 +303,6 @@ export const Header: React.FC = () => {
         </div>
       )}
     </header>
-  </>
+  </div>
 );
 };

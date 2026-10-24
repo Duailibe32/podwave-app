@@ -3,6 +3,7 @@ import { Brand, ProductModel, FlavorVariant, BannerSlide, StoreSettings, CartIte
 import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, AVAILABLE_COUPONS } from '../data/initialData';
 import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
 import { openWhatsAppShare } from '../utils/whatsappShare';
+import { calculateVariantAvailability } from '../utils/availability';
 import { 
   auth, 
   googleProvider, 
@@ -476,6 +477,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [cart]);
 
   const addToCart = (product: ProductModel, flavor: FlavorVariant, quantity = 1) => {
+    // Check if the flavor is sold out (status === 'esgotado', demoQuantity === 0, or inStock === false)
+    const threshold = flavor.lowQuantityThreshold ?? product.lowQuantityThreshold ?? 3;
+    const avail = calculateVariantAvailability(flavor.demoQuantity, threshold);
+    if (avail.status === 'esgotado' || flavor.demoQuantity === 0 || flavor.inStock === false) {
+      return;
+    }
+
     const itemId = `${product.id}-${flavor.id}`;
     setCart((prev) => {
       const existing = prev.find((item) => item.id === itemId);
