@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../context/CatalogContext';
-import { Search, ShieldCheck, Menu, X, ArrowLeft, Sparkles, ShoppingBag } from 'lucide-react';
+import { Search, ShieldCheck, Menu, X, ArrowLeft, Sparkles, ShoppingBag, User, Crown } from 'lucide-react';
 import { TopCarouselBar } from './TopCarouselBar';
 import { PWAInstallButton } from './PWAInstallButton';
 
@@ -15,6 +15,10 @@ export const Header: React.FC = () => {
     clearFilters,
     totalCartItems,
     setIsCartOpen,
+    currentUser,
+    isOwner,
+    openAuthModal,
+    openProfileModal,
   } = useCatalog();
 
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
@@ -194,30 +198,70 @@ export const Header: React.FC = () => {
               )}
             </button>
 
+            {/* User Account Button (Customer / Owner) */}
+            {currentUser ? (
+              <button
+                onClick={openProfileModal}
+                className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-[#11152A] hover:bg-[#181D3D] border border-[#8423DA]/35 hover:border-[#00DFFF]/50 text-white transition-all cursor-pointer shadow-md group"
+                title="Minha Conta, Dados Salvos e Pedidos"
+              >
+                <div className="w-7 h-7 rounded-lg bg-gradient-to-br from-[#8423DA] to-[#007BFF] flex items-center justify-center font-heading font-black text-xs text-white shrink-0">
+                  {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
+                </div>
+                <div className="hidden md:flex flex-col text-left leading-tight">
+                  <span className="text-xs font-bold text-gray-200 truncate max-w-[90px]">
+                    {currentUser.fullName?.split(' ')[0] || 'Conta'}
+                  </span>
+                  <span className="text-[9px] font-bold flex items-center gap-0.5">
+                    {isOwner ? (
+                      <>
+                        <Crown className="w-2.5 h-2.5 text-amber-400" />
+                        <span className="text-amber-300">Dono</span>
+                      </>
+                    ) : (
+                      <span className="text-[#00DFFF]">Cliente</span>
+                    )}
+                  </span>
+                </div>
+              </button>
+            ) : (
+              <button
+                onClick={() => openAuthModal('login')}
+                className="flex items-center gap-1.5 px-3 py-2 rounded-xl bg-[#11152A] hover:bg-[#181D3D] text-gray-300 hover:text-white border border-[#8423DA]/40 hover:border-[#00DFFF]/50 text-xs font-semibold transition cursor-pointer shadow-md"
+                title="Entrar ou criar conta de cliente"
+              >
+                <User className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span className="hidden sm:inline">Entrar</span>
+              </button>
+            )}
+
             {/* PWA Install Button */}
             <PWAInstallButton variant="header" />
 
-            {/* Admin Switcher Button */}
-            <button
-              onClick={toggleAdminView}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-300 cursor-pointer shadow-md ${
-                currentView === 'catalog'
-                  ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] hover:from-[#9534ed] hover:to-[#00DFFF] text-white border border-[#00DFFF]/40 hover:shadow-[0_0_15px_rgba(0,223,255,0.4)]'
-                  : 'bg-[#11152A] hover:bg-[#181d3d] text-white border border-[#8423DA]/60 hover:border-[#8423DA]'
-              }`}
-            >
-              {currentView === 'catalog' ? (
-                <>
-                  <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
-                  <span className="hidden sm:inline">Painel</span> Admin
-                </>
-              ) : (
-                <>
-                  <ArrowLeft className="w-3.5 h-3.5 text-[#00DFFF]" />
-                  <span>Ver Catálogo</span>
-                </>
-              )}
-            </button>
+            {/* Admin Switcher Button (EXCLUSIVO PARA O PROPRIETÁRIO) */}
+            {isOwner && (
+              <button
+                onClick={toggleAdminView}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-300 cursor-pointer shadow-md ${
+                  currentView === 'catalog'
+                    ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] hover:from-[#9534ed] hover:to-[#00DFFF] text-white border border-[#00DFFF]/40 hover:shadow-[0_0_15px_rgba(0,223,255,0.4)]'
+                    : 'bg-[#11152A] hover:bg-[#181d3d] text-white border border-[#8423DA]/60 hover:border-[#8423DA]'
+                }`}
+                title="Painel Administrativo do Proprietário"
+              >
+                {currentView === 'catalog' ? (
+                  <>
+                    <Crown className="w-3.5 h-3.5 text-amber-400" />
+                    <span className="hidden sm:inline">Painel</span> Admin
+                  </>
+                ) : (
+                  <>
+                    <ArrowLeft className="w-3.5 h-3.5 text-[#00DFFF]" />
+                    <span>Ver Catálogo</span>
+                  </>
+                )}
+              </button>
+            )}
 
             {/* Mobile Hamburger Button */}
             <button
@@ -281,24 +325,61 @@ export const Header: React.FC = () => {
           </div>
 
           <div className="pt-2 border-t border-[#8423DA]/20 flex flex-col gap-2">
+            {/* Mobile User Profile / Login */}
+            {currentUser ? (
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  openProfileModal();
+                }}
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-center bg-[#141838] hover:bg-[#181D3D] text-white border border-[#8423DA]/40 flex items-center justify-between"
+              >
+                <div className="flex items-center gap-2">
+                  <div className="w-6 h-6 rounded bg-[#8423DA] flex items-center justify-center font-bold text-white text-[10px]">
+                    {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
+                  </div>
+                  <span>Minha Conta ({currentUser.fullName?.split(' ')[0]})</span>
+                </div>
+                {isOwner && (
+                  <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
+                    <Crown className="w-3 h-3 text-amber-400" /> Dono
+                  </span>
+                )}
+              </button>
+            ) : (
+              <button
+                onClick={() => {
+                  setMobileMenuOpen(false);
+                  openAuthModal('login');
+                }}
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-center bg-[#141838] hover:bg-[#181D3D] text-white border border-[#00DFFF]/40 flex items-center justify-center gap-2"
+              >
+                <User className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span>Entrar ou Criar Conta</span>
+              </button>
+            )}
+
             <PWAInstallButton variant="banner" />
 
-            <button
-              onClick={toggleAdminView}
-              className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-center bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white flex items-center justify-center gap-2 shadow-lg"
-            >
-              {currentView === 'catalog' ? (
-                <>
-                  <Sparkles className="w-4 h-4 text-[#00DFFF]" />
-                  Acessar Painel Administrativo
-                </>
-              ) : (
-                <>
-                  <ArrowLeft className="w-4 h-4" />
-                  Voltar ao Catálogo Público
-                </>
-              )}
-            </button>
+            {/* Mobile Admin button - EXCLUSIVO PARA O PROPRIETÁRIO */}
+            {isOwner && (
+              <button
+                onClick={toggleAdminView}
+                className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-center bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white flex items-center justify-center gap-2 shadow-lg"
+              >
+                {currentView === 'catalog' ? (
+                  <>
+                    <Crown className="w-4 h-4 text-amber-400" />
+                    <span>Acessar Painel do Proprietário</span>
+                  </>
+                ) : (
+                  <>
+                    <ArrowLeft className="w-4 h-4" />
+                    <span>Voltar ao Catálogo Público</span>
+                  </>
+                )}
+              </button>
+            )}
           </div>
         </div>
       )}

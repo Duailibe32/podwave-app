@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../context/CatalogContext';
 import { USB_C_ADDON } from '../data/initialData';
 import { GpsLocationSection } from './GpsLocationSection';
@@ -12,7 +12,10 @@ import {
   Ticket,
   Percent,
   Tag,
-  Check
+  Check,
+  LogIn,
+  UserCheck,
+  Sparkles,
 } from 'lucide-react';
 
 import { OrderRecordPreviewModal } from './OrderRecordPreviewModal';
@@ -47,6 +50,10 @@ export const CheckoutDrawer: React.FC = () => {
     setIsCheckoutOpen,
     submitOrderViaWhatsapp,
     settings,
+    currentUser,
+    openAuthModal,
+    updateCustomerProfile,
+    recordCustomerOrder,
   } = useCatalog();
 
   const [fullName, setFullName] = useState('');
@@ -56,6 +63,7 @@ export const CheckoutDrawer: React.FC = () => {
   const [city, setCity] = useState('');
   const [numberAndComplement, setNumberAndComplement] = useState('');
   const [referencePoint, setReferencePoint] = useState('');
+  const [cep, setCep] = useState('');
   const [isPickup, setIsPickup] = useState(false);
   const [paymentMethod, setPaymentMethod] = useState('');
   const [notes, setNotes] = useState('');
@@ -63,6 +71,41 @@ export const CheckoutDrawer: React.FC = () => {
   const [gpsMapsUrl, setGpsMapsUrl] = useState<string | undefined>(undefined);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [isPreviewOpen, setIsPreviewOpen] = useState(false);
+  const [saveAddressToAccount, setSaveAddressToAccount] = useState(true);
+
+  // Pre-fill fields automatically from logged-in customer profile
+  useEffect(() => {
+    if (currentUser && isCheckoutOpen) {
+      if (currentUser.fullName) {
+        setFullName(currentUser.fullName);
+      }
+      if (currentUser.phoneWhatsapp) {
+        setPhoneWhatsapp(currentUser.phoneWhatsapp);
+      }
+      if (currentUser.address) {
+        if (currentUser.address.street) {
+          setAddress(currentUser.address.street);
+        }
+        const numComp = [currentUser.address.number, currentUser.address.complement].filter(Boolean).join(' - ');
+        if (numComp) {
+          setNumberAndComplement(numComp);
+        }
+        if (currentUser.address.bairro) {
+          setBairro(currentUser.address.bairro);
+        }
+        const cityState = [currentUser.address.city, currentUser.address.state].filter(Boolean).join(' - ');
+        if (cityState) {
+          setCity(cityState);
+        }
+        if (currentUser.address.referencePoint) {
+          setReferencePoint(currentUser.address.referencePoint);
+        }
+        if (currentUser.address.cep) {
+          setCep(currentUser.address.cep);
+        }
+      }
+    }
+  }, [currentUser, isCheckoutOpen]);
 
   // Dynamic coupon input and validation
   const [couponCode, setCouponCode] = useState('');
@@ -122,6 +165,39 @@ export const CheckoutDrawer: React.FC = () => {
     if (!paymentMethod || paymentMethod === 'Selecione...') {
       setErrorMessage('Por favor selecione a forma de pagamento desejada.');
       return;
+    }
+
+    // Salvar pedido no histórico do cliente e atualizar dados para compras futuras
+    if (currentUser) {
+      const addressSummary = isPickup
+        ? 'Retirada no Local'
+        : `${address}${numberAndComplement ? `, ${numberAndComplement}` : ''}${bairro ? ` - ${bairro}` : ''}${city ? ` (${city})` : ''}`;
+
+      recordCustomerOrder({
+        referenceId: `PW-${Date.now().toString().slice(-6)}`,
+        subtotal: cartSubtotal,
+        discount: discountAmount,
+        total: cartTotal,
+        paymentMethod,
+        deliveryType: isPickup ? 'pickup' : 'delivery',
+        addressSummary,
+        items: cart,
+      });
+
+      if (saveAddressToAccount && !isPickup) {
+        updateCustomerProfile({
+          fullName,
+          phoneWhatsapp,
+          address: {
+            street: address,
+            number: numberAndComplement,
+            bairro,
+            city,
+            referencePoint,
+            cep: cep || currentUser.address?.cep,
+          },
+        });
+      }
     }
 
     submitOrderViaWhatsapp({

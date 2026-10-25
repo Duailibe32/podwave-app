@@ -150,3 +150,42 @@ export interface OrderForm {
   wantsLoyaltyCard: boolean;
   gpsMapsUrl?: string;
 }
+
+export type UserRole = 'customer' | 'owner';
+
+export interface CustomerAddress {
+  cep?: string;
+  street: string;
+  number: string;
+  bairro: string;
+  complement?: string;
+  city: string;
+  state?: string;
+  referencePoint?: string;
+}
+
+export interface CustomerOrderHistoryItem {
+  id: string;
+  referenceId: string;
+  createdAt: string;
+  items: CartItem[];
+  subtotal: number;
+  discount: number;
+  total: number;
+  paymentMethod: string;
+  deliveryType: 'delivery' | 'pickup';
+  addressSummary?: string;
+  status: 'recebido' | 'em_separacao' | 'enviado' | 'entregue';
+}
+
+export interface UserProfile {
+  id: string;
+  email: string;
+  fullName: string;
+  phoneWhatsapp?: string;
+  cpf?: string;
+  role: UserRole;
+  address?: CustomerAddress;
+  orderHistory?: CustomerOrderHistoryItem[];
+  createdAt?: string;
+}

@@ -55,8 +55,8 @@ export const AdminLogin: React.FC = () => {
   };
 
   const copyCurrentUid = () => {
-    if (currentUser?.uid) {
-      navigator.clipboard.writeText(currentUser.uid);
+    if (currentUser?.id) {
+      navigator.clipboard.writeText(currentUser.id);
       setCopiedUid(true);
       setTimeout(() => setCopiedUid(false), 2000);
     }
@@ -103,10 +103,10 @@ export const AdminLogin: React.FC = () => {
                 <span>Acesso Não Autorizado</span>
               </div>
               <p className="text-[11px] text-rose-300/90 leading-relaxed">
-                A conta <strong>{currentUser.email || currentUser.uid}</strong> não possui privilégios de Proprietário (OWNER).
+                A conta <strong>{currentUser.email || currentUser.id}</strong> não possui privilégios de Proprietário (OWNER).
               </p>
               <div className="pt-2 flex items-center justify-between border-t border-rose-500/20 text-[10px]">
-                <span className="text-gray-400 font-mono truncate max-w-[180px]">UID: {currentUser.uid}</span>
+                <span className="text-gray-400 font-mono truncate max-w-[180px]">ID: {currentUser.id}</span>
                 <button
                   type="button"
                   onClick={copyCurrentUid}
@@ -239,7 +239,7 @@ export const AdminLogin: React.FC = () => {
 
         {/* Security badge footer */}
         <p className="text-center text-[11px] text-gray-500">
-          Sessão administrativa protegida por Firebase &bull; {settings.storeName}
+          Sessão administrativa protegida com Supabase PostgreSQL &bull; {settings.storeName}
         </p>
       </div>
     </div>

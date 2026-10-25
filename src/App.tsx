@@ -12,6 +12,8 @@ import { CheckoutDrawer } from './components/CheckoutDrawer';
 import { FloatingActions } from './components/FloatingActions';
 import { AdminPanel } from './components/admin/AdminPanel';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { AuthModal } from './components/auth/AuthModal';
+import { CustomerProfileModal } from './components/auth/CustomerProfileModal';
 
 const AppContent: React.FC = () => {
   const { currentView } = useCatalog();
@@ -41,6 +43,8 @@ const AppContent: React.FC = () => {
       <CheckoutDrawer />
       <FloatingActions />
       <OfflineIndicator />
+      <AuthModal />
+      <CustomerProfileModal />
     </div>
   );
 };

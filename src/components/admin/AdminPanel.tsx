@@ -43,13 +43,15 @@ import {
   Fingerprint,
   Copy,
   KeyRound,
+  Database,
 } from 'lucide-react';
 import { ProductModel, Brand, FlavorVariant, Coupon, VariantHistoryEntry } from '../../types/catalog';
 import { AdminLogin } from './AdminLogin';
 import { BannerVisualEditor } from './BannerVisualEditor';
+import { SupabaseTab } from './SupabaseTab';
 import { calculateVariantAvailability, calculateVariantsSummary, isNeedsAttention, DEFAULT_LOW_QUANTITY_THRESHOLD } from '../../utils/availability';
 
-type AdminTab = 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'configuracoes';
+type AdminTab = 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'configuracoes' | 'supabase';
 
 export const AdminPanel: React.FC = () => {
   const {
@@ -569,31 +571,141 @@ export const AdminPanel: React.FC = () => {
     setIsModelModalOpen(false);
   };
 
-  // --- FLAVOR SELECTION STATE ---
-  const [selectedModelForFlavors, setSelectedModelForFlavors] = useState<string>(
-    models[0]?.id || ''
-  );
-  const activeModelForFlavors = models.find((m) => m.id === selectedModelForFlavors) || models[0];
+  const handleModelImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const compressed = await compressImage(file, 400, 400);
+    if (compressed) {
+      setModelForm((prev) => ({ ...prev, imageUrl: compressed }));
+      showToast('Foto do modelo carregada com sucesso!');
+    }
+  };
 
-  const [newFlavorForm, setNewFlavorForm] = useState({
+  const handleDuplicateModel = (model: ProductModel) => {
+    const copyName = `${model.modelName} (Cópia)`;
+    addModel({
+      ...model,
+      modelName: copyName,
+      flavors: model.flavors.map((f, i) => ({
+        ...f,
+        id: `fl-dup-${Date.now()}-${i}`,
+      })),
+    });
+    showToast(`Modelo "${model.modelName}" duplicado com sucesso!`);
+  };
+
+  // --- FLAVOR FULL CRUD STATE & PRESETS ---
+  const FLAVOR_PRESET_COLORS = [
+    { name: 'Uva / Roxo', color: '#9333EA' },
+    { name: 'Morango / Vermelho', color: '#EF4444' },
+    { name: 'Melancia / Pink', color: '#F43F5E' },
+    { name: 'Blueberry / Ice', color: '#3B82F6' },
+    { name: 'Menta / Ciano', color: '#00DFFF' },
+    { name: 'Limão / Citrus', color: '#EAB308' },
+    { name: 'Manga / Laranja', color: '#F59E0B' },
+    { name: 'Pêssego / Salmão', color: '#FB923C' },
+    { name: 'Maçã Verde', color: '#10B981' },
+    { name: 'Tabaco / Gold', color: '#D97706' },
+    { name: 'Café / Marrom', color: '#78350F' },
+    { name: 'Frozen / Ice', color: '#38BDF8' },
+  ];
+
+  const FLAVOR_PRESET_EMOJIS = [
+    '🍇', '🍓', '🍉', '🫐', '🍋', '🥭', '🍑', '🍏', '🍒', '🍍', '❄️', '⚡', '🍹', '🌴', '🍬', '☕'
+  ];
+
+  const [isFlavorModalOpen, setIsFlavorModalOpen] = useState(false);
+  const [editingFlavor, setEditingFlavor] = useState<{ modelId: string; flavor: FlavorVariant } | null>(null);
+  const [flavorForm, setFlavorForm] = useState({
+    modelId: '',
     name: '',
     colorHex: '#9333EA',
     iconEmoji: '🍇',
+    demoQuantity: '10',
+    lowQuantityThreshold: 3,
+    customImage: '',
     inStock: true,
   });
 
-  const handleAddNewFlavor = (e: React.FormEvent) => {
-    e.preventDefault();
-    if (!newFlavorForm.name.trim() || !activeModelForFlavors) return;
+  const handleOpenFlavorModal = (targetModelId?: string, flavor?: FlavorVariant) => {
+    const chosenModelId = targetModelId || (variantModelFilter !== 'all' ? variantModelFilter : (models[0]?.id || ''));
 
-    addFlavor(activeModelForFlavors.id, {
-      name: newFlavorForm.name,
-      colorHex: newFlavorForm.colorHex,
-      iconEmoji: newFlavorForm.iconEmoji || '⚡',
-      inStock: newFlavorForm.inStock,
-    });
-    setNewFlavorForm({ name: '', colorHex: '#EF4444', iconEmoji: '🍉', inStock: true });
-    showToast(`Sabor adicionado ao modelo ${activeModelForFlavors.modelName}!`);
+    if (flavor && targetModelId) {
+      setEditingFlavor({ modelId: targetModelId, flavor });
+      setFlavorForm({
+        modelId: targetModelId,
+        name: flavor.name,
+        colorHex: flavor.colorHex || '#9333EA',
+        iconEmoji: flavor.iconEmoji || '🍇',
+        demoQuantity: flavor.demoQuantity === null || flavor.demoQuantity === undefined ? '' : String(flavor.demoQuantity),
+        lowQuantityThreshold: flavor.lowQuantityThreshold ?? 3,
+        customImage: flavor.customImage || '',
+        inStock: flavor.inStock !== false,
+      });
+    } else {
+      setEditingFlavor(null);
+      setFlavorForm({
+        modelId: chosenModelId,
+        name: '',
+        colorHex: '#3B82F6',
+        iconEmoji: '🫐',
+        demoQuantity: '10',
+        lowQuantityThreshold: 3,
+        customImage: '',
+        inStock: true,
+      });
+    }
+    setIsFlavorModalOpen(true);
+  };
+
+  const handleFlavorImageFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (!file) return;
+    const compressed = await compressImage(file, 260, 260);
+    if (compressed) {
+      setFlavorForm((prev) => ({ ...prev, customImage: compressed }));
+      showToast('Foto do sabor carregada!');
+    }
+  };
+
+  const handleSaveFlavor = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!flavorForm.name.trim() || !flavorForm.modelId) return;
+
+    let parsedQty: number | null = null;
+    if (flavorForm.demoQuantity.trim() !== '') {
+      const q = parseInt(flavorForm.demoQuantity.trim(), 10);
+      parsedQty = isNaN(q) || q < 0 ? 0 : q;
+    }
+
+    const thresholdVal = Number(flavorForm.lowQuantityThreshold) || 3;
+
+    if (editingFlavor) {
+      updateFlavor(editingFlavor.modelId, editingFlavor.flavor.id, {
+        name: flavorForm.name.trim(),
+        colorHex: flavorForm.colorHex,
+        iconEmoji: flavorForm.iconEmoji || '⚡',
+        demoQuantity: parsedQty,
+        lowQuantityThreshold: thresholdVal,
+        customImage: flavorForm.customImage.trim() || undefined,
+        inStock: parsedQty === null ? flavorForm.inStock : parsedQty > 0,
+        updatedAt: new Date().toISOString(),
+      });
+      showToast(`Sabor "${flavorForm.name}" atualizado com sucesso!`);
+    } else {
+      addFlavor(flavorForm.modelId, {
+        name: flavorForm.name.trim(),
+        colorHex: flavorForm.colorHex,
+        iconEmoji: flavorForm.iconEmoji || '⚡',
+        demoQuantity: parsedQty,
+        lowQuantityThreshold: thresholdVal,
+        customImage: flavorForm.customImage.trim() || undefined,
+        inStock: parsedQty === null ? flavorForm.inStock : parsedQty > 0,
+        updatedAt: new Date().toISOString(),
+      });
+      showToast(`Novo sabor "${flavorForm.name}" adicionado com sucesso!`);
+    }
+    setIsFlavorModalOpen(false);
   };
 
   // --- COUPON MANAGEMENT STATE ---
@@ -883,6 +995,18 @@ export const AdminPanel: React.FC = () => {
               <Settings className="w-3.5 h-3.5" />
               <span>Configurações</span>
             </button>
+
+            <button
+              onClick={() => setActiveTab('supabase')}
+              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                activeTab === 'supabase'
+                  ? 'bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] font-black border-[#00DFFF] shadow-md shadow-[#00DFFF]/20'
+                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#00DFFF]/40'
+              }`}
+            >
+              <Database className="w-3.5 h-3.5 text-[#00DFFF]" />
+              <span>Supabase & SQL</span>
+            </button>
           </div>
         </div>
       </div>
@@ -1152,6 +1276,34 @@ export const AdminPanel: React.FC = () => {
                 </div>
               </div>
             </div>
+
+            {/* CARD EXPLICATIVO: PERSISTÊNCIA & QUANDO O CATÁLOGO É REDEFINIDO */}
+            <div className="p-5 rounded-3xl bg-gradient-to-r from-[#11152A] via-[#141838] to-[#11152A] border-2 border-emerald-500/30 shadow-xl space-y-2">
+              <div className="flex items-center gap-2.5">
+                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
+                  <ShieldCheck className="w-4 h-4" />
+                </div>
+                <div>
+                  <h4 className="font-heading text-sm font-black text-white flex items-center gap-2">
+                    Status de Persistência dos Dados &bull; Quando o catálogo é redefinido?
+                  </h4>
+                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
+                    ✓ Armazenamento Ativo & Permanente
+                  </span>
+                </div>
+              </div>
+              <p className="text-xs text-[#A5A5B8] leading-relaxed pt-1">
+                Todas as alterações realizadas no CRUD (cadastro/edição de <strong>Marcas</strong>, <strong>Modelos</strong>, <strong>Sabores</strong>, <strong>Cupons</strong>, <strong>Banners</strong> e <strong>Estoque</strong>) são gravadas de forma <strong>imediata e definitiva</strong> no armazenamento local deste navegador.
+              </p>
+              <div className="p-3 rounded-xl bg-[#0D1022] border border-white/10 text-xs text-gray-300 space-y-1">
+                <p className="font-bold text-white flex items-center gap-1.5">
+                  <span className="text-emerald-400">●</span> Ele NUNCA é redefinido automaticamente.
+                </p>
+                <p className="text-[11px] text-[#A5A5B8]">
+                  Não há expiração de tempo nem perda de dados ao fechar a janela ou atualizar a página. O catálogo só é restaurado para os dados padrão se você (Proprietário) clicar voluntariamente no botão <strong>&ldquo;Restaurar Padrão&rdquo;</strong> (no topo) ou <strong>&ldquo;Restaurar Padrão de Fábrica&rdquo;</strong> (na aba Configurações) e confirmar a ação.
+                </p>
+              </div>
+            </div>
           </div>
         )}
 
@@ -1262,26 +1414,46 @@ export const AdminPanel: React.FC = () => {
                           </button>
                         </td>
 
-                        <td className="p-4 text-right space-x-2">
-                          <button
-                            onClick={() => handleOpenModelModal(model)}
-                            className="p-2 rounded-lg bg-[#181C38] text-[#00DFFF] hover:bg-[#8423DA] hover:text-white transition-all cursor-pointer"
-                            title="Editar Modelo"
-                          >
-                            <Edit2 className="w-3.5 h-3.5" />
-                          </button>
-                          <button
-                            onClick={() => {
-                              if (confirm(`Excluir o modelo "${model.modelName}"?`)) {
-                                deleteModel(model.id);
-                                showToast('Modelo removido com sucesso!');
-                              }
-                            }}
-                            className="p-2 rounded-lg bg-[#181C38] text-rose-400 hover:bg-rose-900 hover:text-white transition-all cursor-pointer"
-                            title="Excluir Modelo"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                        <td className="p-4 text-right">
+                          <div className="flex items-center justify-end gap-1.5">
+                            <button
+                              onClick={() => handleOpenFlavorModal(model.id)}
+                              className="px-2.5 py-1.5 rounded-lg bg-gradient-to-r from-[#00DFFF]/20 to-[#8423DA]/20 hover:from-[#00DFFF]/30 hover:to-[#8423DA]/30 border border-[#00DFFF]/40 text-[#00DFFF] hover:text-white text-[11px] font-bold transition-all cursor-pointer flex items-center gap-1 shadow-sm"
+                              title={`Adicionar novo sabor para ${model.modelName}`}
+                            >
+                              <Plus className="w-3 h-3 stroke-[3]" />
+                              <span>Sabor</span>
+                            </button>
+
+                            <button
+                              onClick={() => handleDuplicateModel(model)}
+                              className="p-1.5 rounded-lg bg-[#181C38] text-gray-300 hover:bg-[#8423DA] hover:text-white transition-all cursor-pointer"
+                              title="Duplicar este modelo"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              onClick={() => handleOpenModelModal(model)}
+                              className="p-1.5 rounded-lg bg-[#181C38] text-[#00DFFF] hover:bg-[#8423DA] hover:text-white transition-all cursor-pointer"
+                              title="Editar Modelo"
+                            >
+                              <Edit2 className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                if (confirm(`Excluir o modelo "${model.modelName}"?`)) {
+                                  deleteModel(model.id);
+                                  showToast('Modelo removido com sucesso!');
+                                }
+                              }}
+                              className="p-1.5 rounded-lg bg-[#181C38] text-rose-400 hover:bg-rose-900 hover:text-white transition-all cursor-pointer"
+                              title="Excluir Modelo"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </td>
                       </tr>
                     ))}
@@ -1466,6 +1638,15 @@ export const AdminPanel: React.FC = () => {
 
               {/* Action Buttons */}
               <div className="flex flex-wrap items-center gap-2">
+                <button
+                  onClick={() => handleOpenFlavorModal(variantModelFilter !== 'all' ? variantModelFilter : undefined)}
+                  className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#007BFF] hover:from-[#33e5ff] hover:to-[#1a8cff] text-[#080811] text-xs font-black flex items-center gap-1.5 shadow-md shadow-[#00DFFF]/20 cursor-pointer active:scale-95 transition-all"
+                  title="Cadastrar novo sabor ou variação"
+                >
+                  <Plus className="w-4 h-4 stroke-[3]" />
+                  <span>Novo Sabor</span>
+                </button>
+
                 {selectedVariantKeys.length > 0 && (
                   <button
                     onClick={() => setIsBatchModalOpen(true)}
@@ -1837,27 +2018,37 @@ export const AdminPanel: React.FC = () => {
                             </td>
 
                             {/* Ações */}
-                            <td className="p-3.5 text-right space-x-1.5">
-                              <button
-                                onClick={() => handleStartInlineEdit(item)}
-                                className="p-2 rounded-xl bg-[#141838] text-[#00DFFF] hover:bg-[#8423DA] hover:text-white transition-all cursor-pointer"
-                                title="Edição Rápida da Variante"
-                              >
-                                <Edit2 className="w-3.5 h-3.5" />
-                              </button>
+                            <td className="p-3.5 text-right">
+                              <div className="flex items-center justify-end gap-1.5">
+                                <button
+                                  onClick={() => handleStartInlineEdit(item)}
+                                  className="p-2 rounded-xl bg-[#141838] text-[#00DFFF] hover:bg-[#8423DA] hover:text-white transition-all cursor-pointer"
+                                  title="Edição Rápida da Quantidade"
+                                >
+                                  <Edit2 className="w-3.5 h-3.5" />
+                                </button>
 
-                              <button
-                                onClick={() => {
-                                  if (confirm(`Remover a variante "${item.flavor.name}" do modelo ${item.modelName}?`)) {
-                                    deleteFlavor(item.modelId, item.flavor.id);
-                                    showToast('Sabor removido!');
-                                  }
-                                }}
-                                className="p-2 rounded-xl bg-[#141838] text-rose-400 hover:bg-rose-900/60 hover:text-white transition-all cursor-pointer"
-                                title="Excluir Variante"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                              </button>
+                                <button
+                                  onClick={() => handleOpenFlavorModal(item.modelId, item.flavor)}
+                                  className="p-2 rounded-xl bg-[#181C38] text-purple-300 hover:bg-[#8423DA] hover:text-white transition-all cursor-pointer"
+                                  title="Editar Detalhes do Sabor (Nome, Cor, Foto, Emoji, Limites)"
+                                >
+                                  <Sliders className="w-3.5 h-3.5" />
+                                </button>
+
+                                <button
+                                  onClick={() => {
+                                    if (confirm(`Remover o sabor "${item.flavor.name}" do modelo ${item.modelName}?`)) {
+                                      deleteFlavor(item.modelId, item.flavor.id);
+                                      showToast('Sabor removido!');
+                                    }
+                                  }}
+                                  className="p-2 rounded-xl bg-[#141838] text-rose-400 hover:bg-rose-900/60 hover:text-white transition-all cursor-pointer"
+                                  title="Excluir Variante"
+                                >
+                                  <Trash2 className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
                             </td>
                           </tr>
                         );
@@ -2185,34 +2376,34 @@ export const AdminPanel: React.FC = () => {
                 <form onSubmit={handleSaveOwnerUid} className="space-y-3 pt-2 text-xs animate-in fade-in duration-200">
                   <div>
                     <label className="block text-gray-200 font-bold mb-1">
-                      Novo UID do Proprietário (Firebase Authentication)
+                      ID Exclusivo do Administrador / Proprietário
                     </label>
                     <input
                       type="text"
                       value={ownerUidInput}
                       onChange={(e) => setOwnerUidInput(e.target.value)}
-                      placeholder="Ex: 7xKj910PqAz88192837LmM"
+                      placeholder="Ex: admin-master-01"
                       className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white font-mono text-xs focus:outline-none focus:border-[#00DFFF]"
                     />
                     <p className="text-[10px] text-[#A5A5B8] mt-1 leading-relaxed">
-                      Apenas a conta do Firebase com este UID e com a claim privilegiada <code className="text-[#00DFFF]">owner: true</code> terá permissão de acessar o painel administrativo.
+                      Apenas o perfil ou sessão com este ID terá acesso privilegiado de proprietário para editar o catálogo.
                     </p>
                   </div>
 
-                  {currentUser?.uid && (
+                  {currentUser?.id && (
                     <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#181C38] border border-[#8423DA]/20">
                       <div>
-                        <span className="text-[10px] text-gray-400 block">Sua Conta Firebase Atual:</span>
+                        <span className="text-[10px] text-gray-400 block">Sua Sessão de Administrador Atual:</span>
                         <span className="text-[11px] text-[#00DFFF] font-mono font-bold truncate max-w-[200px] block">
-                          {currentUser.email || currentUser.uid}
+                          {currentUser.email || currentUser.id}
                         </span>
                       </div>
                       <button
                         type="button"
-                        onClick={() => setOwnerUidInput(currentUser.uid)}
+                        onClick={() => setOwnerUidInput(currentUser.id)}
                         className="px-2.5 py-1 rounded-lg bg-[#00DFFF]/20 text-[#00DFFF] hover:bg-[#00DFFF]/30 text-[11px] font-bold cursor-pointer transition-colors"
                       >
-                        Usar meu UID Atual
+                        Usar meu ID Atual
                       </button>
                     </div>
                   )}
@@ -2317,22 +2508,30 @@ export const AdminPanel: React.FC = () => {
                   Salvar Alterações
                 </button>
 
-                <button
-                  type="button"
-                  onClick={() => {
-                    if (confirm('Deseja resetar todas as configurações e catálogo?')) {
-                      resetAllData();
-                      showToast('Configurações resetadas!');
-                    }
-                  }}
-                  className="text-rose-400 hover:underline"
-                >
-                  Restaurar Padrão de Fábrica
-                </button>
+                <div className="flex flex-col items-end gap-1">
+                  <button
+                    type="button"
+                    onClick={() => {
+                      if (confirm('Atenção: Deseja realmente restaurar todos os dados do catálogo para os valores de demonstração originais de fábrica?')) {
+                        resetAllData();
+                        showToast('Catálogo restaurado para o padrão original!');
+                      }
+                    }}
+                    className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold cursor-pointer transition"
+                  >
+                    Restaurar Padrão de Fábrica
+                  </button>
+                  <span className="text-[10px] text-gray-500 text-right">
+                    O catálogo nunca reseta sozinho. Esta ação é estritamente manual.
+                  </span>
+                </div>
               </div>
             </form>
           </div>
         )}
+
+        {/* ===================== TAB: SUPABASE & SQL (SOLICITADO PELO USUÁRIO) ===================== */}
+        {activeTab === 'supabase' && <SupabaseTab />}
 
         {/* ===================== TAB: CUPONS & LIMITES (SOLICITADO PELO USUÁRIO) ===================== */}
         {activeTab === 'cupons' && (
@@ -2935,26 +3134,66 @@ export const AdminPanel: React.FC = () => {
                 </div>
               </div>
 
-              {/* Photo selector */}
-              <div>
-                <label className="block font-semibold mb-1">Foto Principal do Dispositivo</label>
-                <select
-                  value={modelForm.imageUrl}
-                  onChange={(e) => setModelForm({ ...modelForm, imageUrl: e.target.value })}
-                  className="w-full p-2.5 rounded-xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/30 mb-2"
-                >
-                  {availableImages.map((img) => (
-                    <option key={img.url} value={img.url}>
-                      {img.label} ({img.url})
-                    </option>
-                  ))}
-                </select>
+              {/* Photo selector with upload, presets, and URL */}
+              <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 space-y-3">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-gray-200 flex items-center gap-1.5">
+                    <ImageIcon className="w-4 h-4 text-[#00DFFF]" />
+                    <span>Foto Principal do Dispositivo</span>
+                  </label>
+                  {modelForm.imageUrl && (
+                    <span className="text-[10px] text-emerald-400 font-bold flex items-center gap-1">
+                      <Check className="w-3 h-3" /> Imagem Ativa
+                    </span>
+                  )}
+                </div>
 
-                <div className="flex items-center gap-3 p-2 bg-[#141838] rounded-xl">
-                  <div className="w-12 h-12 rounded bg-white p-1">
-                    <img src={modelForm.imageUrl || '/assets/images/logo.png'} alt="" className="w-full h-full object-contain" />
+                <div className="flex flex-col sm:flex-row items-center gap-3">
+                  <div className="w-16 h-16 rounded-xl bg-white/10 p-1.5 border border-[#8423DA]/40 flex items-center justify-center shrink-0 overflow-hidden">
+                    <img
+                      src={modelForm.imageUrl || '/assets/images/logo.png'}
+                      alt=""
+                      className="max-w-full max-h-full object-contain"
+                    />
                   </div>
-                  <span className="text-[11px] text-gray-400">Prévia da imagem selecionada</span>
+
+                  <div className="flex-1 w-full space-y-2">
+                    <label className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#8423DA]/30 to-[#007BFF]/30 hover:from-[#8423DA]/50 hover:to-[#007BFF]/50 border border-[#00DFFF]/50 text-white text-center font-bold cursor-pointer transition flex items-center justify-center gap-2 text-xs shadow-md active:scale-95">
+                      <Plus className="w-3.5 h-3.5 text-[#00DFFF]" />
+                      <span>Upload de Foto do Computador / Celular</span>
+                      <input
+                        type="file"
+                        accept="image/*"
+                        onChange={handleModelImageFileUpload}
+                        className="hidden"
+                      />
+                    </label>
+
+                    <div className="flex items-center gap-2">
+                      <select
+                        value={availableImages.some((img) => img.url === modelForm.imageUrl) ? modelForm.imageUrl : ''}
+                        onChange={(e) => {
+                          if (e.target.value) setModelForm({ ...modelForm, imageUrl: e.target.value });
+                        }}
+                        className="flex-1 p-2 rounded-xl bg-[#0D1022] border border-[#8423DA]/30 text-white text-[11px] focus:outline-none"
+                      >
+                        <option value="">Galeria de Imagens de Referência...</option>
+                        {availableImages.map((img) => (
+                          <option key={img.url} value={img.url}>
+                            {img.label}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+
+                    <input
+                      type="url"
+                      value={modelForm.imageUrl.startsWith('data:') ? '' : modelForm.imageUrl}
+                      onChange={(e) => setModelForm({ ...modelForm, imageUrl: e.target.value })}
+                      placeholder="Ou cole uma URL direta da imagem (ex: https://...)"
+                      className="w-full p-2 rounded-xl bg-[#0D1022] border border-[#8423DA]/30 text-white text-[11px] focus:outline-none focus:border-[#00DFFF]"
+                    />
+                  </div>
                 </div>
               </div>
 
@@ -3196,6 +3435,280 @@ export const AdminPanel: React.FC = () => {
                   className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#007BFF] hover:from-[#33e5ff] hover:to-[#1a8cff] text-[#080811] font-black shadow-lg shadow-[#00DFFF]/20 transition-all cursor-pointer active:scale-95"
                 >
                   {editingCoupon ? 'Atualizar Cupom' : 'Salvar Cupom'}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== MODAL: EDIT/ADD FLAVOR (SOLICITADO PELO USUÁRIO) ===================== */}
+      {isFlavorModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+          <div className="w-full max-w-lg max-h-[92vh] overflow-y-auto rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/50 p-5 sm:p-7 space-y-4 text-white shadow-2xl my-6">
+            <div className="flex items-center justify-between border-b border-[#8423DA]/25 pb-3">
+              <div className="flex items-center gap-2.5">
+                <div className="w-9 h-9 rounded-xl bg-[#8423DA]/30 border border-[#8423DA] flex items-center justify-center text-[#00DFFF] shadow-md">
+                  <Sparkles className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="font-heading text-lg font-black text-white">
+                    {editingFlavor ? 'Editar Sabor / Variante' : 'Novo Sabor / Variante'}
+                  </h3>
+                  <p className="text-[11px] text-[#A5A5B8]">
+                    Configure nome, emoji, cor de identificação, foto e estoque demonstrativo
+                  </p>
+                </div>
+              </div>
+              <button
+                onClick={() => setIsFlavorModalOpen(false)}
+                className="p-1.5 rounded-xl bg-[#141838] hover:bg-[#8423DA] text-gray-400 hover:text-white transition cursor-pointer"
+              >
+                <X className="w-5 h-5" />
+              </button>
+            </div>
+
+            {/* LIVE PREVIEW OF FLAVOR BADGE */}
+            <div className="p-3.5 rounded-2xl bg-[#080811] border border-[#8423DA]/30 space-y-2">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 block">
+                Prévia da Variante no Catálogo
+              </span>
+              <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#141838] border border-white/10">
+                <div className="flex items-center gap-2.5">
+                  <span className="text-2xl">{flavorForm.iconEmoji || '🍇'}</span>
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <span className="font-bold text-white text-xs">{flavorForm.name || 'Nome do Sabor'}</span>
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0 border border-white/30 shadow-sm"
+                        style={{ backgroundColor: flavorForm.colorHex }}
+                      />
+                    </div>
+                    <span className="text-[10px] text-gray-400">
+                      {models.find((m) => m.id === flavorForm.modelId)?.modelName || 'Modelo'}
+                    </span>
+                  </div>
+                </div>
+
+                <div className="text-right">
+                  <span className={`inline-block px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                    flavorForm.demoQuantity === '' ? 'bg-slate-500/20 text-slate-300' :
+                    parseInt(flavorForm.demoQuantity, 10) === 0 ? 'bg-rose-500/20 text-rose-400' :
+                    parseInt(flavorForm.demoQuantity, 10) <= flavorForm.lowQuantityThreshold ? 'bg-amber-500/20 text-amber-400' :
+                    'bg-emerald-500/20 text-emerald-400'
+                  }`}>
+                    {flavorForm.demoQuantity === '' ? 'Disponível' :
+                     parseInt(flavorForm.demoQuantity, 10) === 0 ? 'Esgotado' :
+                     parseInt(flavorForm.demoQuantity, 10) <= flavorForm.lowQuantityThreshold ? 'Últimas un.' :
+                     `${flavorForm.demoQuantity} un`}
+                  </span>
+                </div>
+              </div>
+            </div>
+
+            <form onSubmit={handleSaveFlavor} className="space-y-4 text-xs">
+              {/* MODELO VINCULADO */}
+              <div>
+                <label className="block font-bold text-gray-200 mb-1">
+                  Dispositivo / Modelo Vinculado <span className="text-[#00DFFF]">*</span>
+                </label>
+                <select
+                  value={flavorForm.modelId}
+                  onChange={(e) => setFlavorForm({ ...flavorForm, modelId: e.target.value })}
+                  disabled={!!editingFlavor}
+                  className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/35 text-white font-bold focus:outline-none focus:border-[#00DFFF]"
+                >
+                  {models.map((m) => (
+                    <option key={m.id} value={m.id}>
+                      [{m.brandName}] {m.modelName} &bull; {m.puffsLabel}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              {/* NOME DO SABOR */}
+              <div>
+                <label className="block font-bold text-gray-200 mb-1">
+                  Nome do Sabor <span className="text-[#00DFFF]">*</span>
+                </label>
+                <input
+                  type="text"
+                  value={flavorForm.name}
+                  onChange={(e) => setFlavorForm({ ...flavorForm, name: e.target.value })}
+                  placeholder="Ex: Watermelon Ice, Grape Bubblegum, Cool Mint..."
+                  required
+                  className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/35 text-white font-bold focus:outline-none focus:border-[#00DFFF]"
+                />
+              </div>
+
+              {/* EMOJI DO SABOR */}
+              <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 space-y-2">
+                <label className="block font-bold text-gray-200">
+                  Emoji Representativo
+                </label>
+                <div className="flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={flavorForm.iconEmoji}
+                    onChange={(e) => setFlavorForm({ ...flavorForm, iconEmoji: e.target.value })}
+                    maxLength={4}
+                    className="w-14 p-2 text-center text-xl rounded-xl bg-[#0D1022] border border-[#8423DA]/40 text-white focus:outline-none focus:border-[#00DFFF]"
+                  />
+                  <div className="flex-1 flex flex-wrap gap-1">
+                    {FLAVOR_PRESET_EMOJIS.map((emoji) => (
+                      <button
+                        key={emoji}
+                        type="button"
+                        onClick={() => setFlavorForm({ ...flavorForm, iconEmoji: emoji })}
+                        className={`w-7 h-7 rounded-lg text-sm flex items-center justify-center transition cursor-pointer ${
+                          flavorForm.iconEmoji === emoji ? 'bg-[#00DFFF]/30 border border-[#00DFFF]' : 'bg-[#0D1022] hover:bg-white/10'
+                        }`}
+                      >
+                        {emoji}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+              </div>
+
+              {/* COR HEXADECIMAL */}
+              <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 space-y-2">
+                <label className="block font-bold text-gray-200">
+                  Cor de Destaque do Sabor
+                </label>
+                <div className="flex items-center gap-2 mb-2">
+                  <input
+                    type="color"
+                    value={flavorForm.colorHex}
+                    onChange={(e) => setFlavorForm({ ...flavorForm, colorHex: e.target.value })}
+                    className="w-9 h-9 rounded-lg bg-transparent cursor-pointer border border-white/20"
+                  />
+                  <input
+                    type="text"
+                    value={flavorForm.colorHex}
+                    onChange={(e) => setFlavorForm({ ...flavorForm, colorHex: e.target.value })}
+                    placeholder="#9333EA"
+                    className="flex-1 p-2 rounded-xl bg-[#0D1022] border border-[#8423DA]/30 text-white font-mono uppercase text-xs focus:outline-none focus:border-[#00DFFF]"
+                  />
+                </div>
+                <div className="grid grid-cols-3 sm:grid-cols-4 gap-1.5">
+                  {FLAVOR_PRESET_COLORS.map((pColor) => (
+                    <button
+                      key={pColor.color}
+                      type="button"
+                      onClick={() => setFlavorForm({ ...flavorForm, colorHex: pColor.color })}
+                      className={`p-1.5 rounded-lg border text-left flex items-center gap-1.5 cursor-pointer transition ${
+                        flavorForm.colorHex.toLowerCase() === pColor.color.toLowerCase()
+                          ? 'border-[#00DFFF] bg-[#00DFFF]/10'
+                          : 'border-white/10 bg-[#0D1022] hover:border-white/20'
+                      }`}
+                    >
+                      <span
+                        className="w-3 h-3 rounded-full shrink-0 shadow-sm"
+                        style={{ backgroundColor: pColor.color }}
+                      />
+                      <span className="text-[10px] text-gray-300 truncate">{pColor.name}</span>
+                    </button>
+                  ))}
+                </div>
+              </div>
+
+              {/* QUANTIDADE DEMONSTRATIVA & LIMITE DE ALERTA */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block font-bold text-gray-200 mb-1">
+                    Qtd. Demonstrativa (un.)
+                  </label>
+                  <input
+                    type="number"
+                    min="0"
+                    value={flavorForm.demoQuantity}
+                    onChange={(e) => setFlavorForm({ ...flavorForm, demoQuantity: e.target.value })}
+                    placeholder="Deixe vazio p/ não inf."
+                    className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/35 text-white font-bold text-sm focus:outline-none focus:border-[#00DFFF]"
+                  />
+                  <span className="text-[9px] text-gray-400 mt-0.5 block">0 un = Esgotado</span>
+                </div>
+
+                <div>
+                  <label className="block font-bold text-gray-200 mb-1">
+                    Limite de Alerta (un.)
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={flavorForm.lowQuantityThreshold}
+                    onChange={(e) => setFlavorForm({ ...flavorForm, lowQuantityThreshold: parseInt(e.target.value, 10) || 3 })}
+                    className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/35 text-white font-bold text-sm focus:outline-none focus:border-[#00DFFF]"
+                  />
+                  <span className="text-[9px] text-gray-400 mt-0.5 block">Dispara &ldquo;Últimas un.&rdquo;</span>
+                </div>
+              </div>
+
+              {/* FOTO ESPECÍFICA DO SABOR (OPCIONAL) */}
+              <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-gray-200 flex items-center gap-1.5">
+                    <ImageIcon className="w-3.5 h-3.5 text-[#00DFFF]" />
+                    <span>Foto do Sabor (Opcional)</span>
+                  </label>
+                  {flavorForm.customImage && (
+                    <button
+                      type="button"
+                      onClick={() => setFlavorForm({ ...flavorForm, customImage: '' })}
+                      className="text-[10px] text-rose-400 hover:underline cursor-pointer"
+                    >
+                      Remover Foto
+                    </button>
+                  )}
+                </div>
+
+                <div className="flex items-center gap-3">
+                  {flavorForm.customImage && (
+                    <div className="w-12 h-12 rounded-lg bg-white/10 p-1 flex items-center justify-center shrink-0 overflow-hidden border border-white/20">
+                      <img src={flavorForm.customImage} alt="" className="max-w-full max-h-full object-contain" />
+                    </div>
+                  )}
+                  <label className="flex-1 py-2 px-3 rounded-xl bg-[#0D1022] hover:bg-[#181C38] border border-[#8423DA]/40 text-gray-300 hover:text-white text-center font-semibold cursor-pointer transition flex items-center justify-center gap-1.5 text-xs">
+                    <Plus className="w-3.5 h-3.5 text-[#00DFFF]" />
+                    <span>Escolher Foto do Sabor</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={handleFlavorImageFileUpload}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+              </div>
+
+              {/* CHECKBOX EM ESTOQUE */}
+              <label className="flex items-center gap-2 p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/20 cursor-pointer">
+                <input
+                  type="checkbox"
+                  checked={flavorForm.inStock}
+                  onChange={(e) => setFlavorForm({ ...flavorForm, inStock: e.target.checked })}
+                  className="w-4 h-4 rounded text-[#8423DA] focus:ring-[#00DFFF] cursor-pointer"
+                />
+                <span className="text-xs font-semibold text-gray-200">
+                  Sabor Ativo / Habilitado para Pedidos
+                </span>
+              </label>
+
+              {/* FOOTER BUTTONS */}
+              <div className="pt-2 flex items-center justify-end gap-2 border-t border-[#8423DA]/20">
+                <button
+                  type="button"
+                  onClick={() => setIsFlavorModalOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-[#181C38] text-gray-300 hover:text-white transition-colors cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-6 py-2.5 rounded-xl bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:brightness-110 text-white font-black text-xs uppercase tracking-wider cursor-pointer shadow-lg active:scale-95 transition-all"
+                >
+                  {editingFlavor ? 'Atualizar Sabor' : 'Salvar Novo Sabor'}
                 </button>
               </div>
             </form>

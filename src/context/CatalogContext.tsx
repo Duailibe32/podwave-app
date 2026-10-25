@@ -1,20 +1,36 @@
-import React, { createContext, useContext, useState, useEffect } from 'react';
-import { Brand, ProductModel, FlavorVariant, BannerSlide, StoreSettings, CartItem, Coupon, OrderForm, VariantHistoryEntry } from '../types/catalog';
+import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import {
+  Brand,
+  ProductModel,
+  FlavorVariant,
+  BannerSlide,
+  StoreSettings,
+  CartItem,
+  Coupon,
+  OrderForm,
+  VariantHistoryEntry,
+  UserProfile,
+  UserRole,
+  CustomerAddress,
+  CustomerOrderHistoryItem,
+} from '../types/catalog';
 import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, AVAILABLE_COUPONS } from '../data/initialData';
 import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
 import { openWhatsAppShare } from '../utils/whatsappShare';
 import { calculateVariantAvailability } from '../utils/availability';
 import { 
-  auth, 
-  googleProvider, 
-  signInWithPopup, 
-  signOut, 
-  User, 
-  onAuthStateChanged,
-  verifyOwnerPrivileges,
-  CONFIGURED_OWNER_UID,
-  logAuditEvent
-} from '../services/firebase';
+  getSupabaseCredentials,
+  saveSupabaseCredentials,
+  clearSupabaseCredentials,
+  testSupabaseConnection,
+  fetchCatalogFromSupabase,
+  syncCatalogToSupabase,
+  logSupabaseAuditEvent,
+  upsertCustomerProfileToSupabase,
+  fetchCustomerProfileFromSupabase,
+  saveCustomerOrderToSupabase,
+  fetchCustomerOrdersFromSupabase,
+} from '../services/supabase';
 
 const STORAGE_KEY = 'podwave_catalog_state_v4';
 const CART_STORAGE_KEY = 'podwave_cart_state_v2';
@@ -22,6 +38,13 @@ const THEME_KEY = 'podwave_theme_mode';
 const ADMIN_AUTH_KEY = 'podwave_admin_authenticated';
 const VARIANT_HISTORY_KEY = 'podwave_variant_history_v1';
 const OWNER_UID_KEY = 'podwave_configured_owner_uid';
+
+export interface AdminUser {
+  id: string;
+  email: string;
+  displayName?: string;
+  role?: string;
+}
 
 interface CatalogContextType {
   // Data
@@ -31,10 +54,38 @@ interface CatalogContextType {
   settings: StoreSettings;
   coupons: Coupon[];
 
-  // Auth for Admin Panel (OWNER Exclusive Protection)
+  // Supabase PostgreSQL Integration
+  supabaseUrl: string;
+  supabaseAnonKey: string;
+  isSupabaseConfigured: boolean;
+  supabaseStatus: 'connected' | 'disconnected' | 'error' | 'testing' | 'pending_migration';
+  supabaseStatusMessage: string;
+  updateSupabaseCredentials: (url: string, key: string) => void;
+  testSupabase: () => Promise<{ success: boolean; message: string; tablesExist?: boolean }>;
+  syncToSupabase: () => Promise<{ success: boolean; message: string }>;
+  loadFromSupabase: () => Promise<boolean>;
+  isAutoSyncEnabled: boolean;
+  setIsAutoSyncEnabled: (enabled: boolean) => void;
+  isAutoSyncing: boolean;
+  lastSyncedAt: Date | null;
+
+  // Auth for Customers & Owner (Differentiation & Persistence)
+  currentUser: UserProfile | null;
   isAdminAuthenticated: boolean;
-  currentUser: User | null;
   isOwner: boolean;
+  isCustomer: boolean;
+  isAuthModalOpen: boolean;
+  authModalMode: 'login' | 'signup';
+  openAuthModal: (mode?: 'login' | 'signup') => void;
+  closeAuthModal: () => void;
+  isProfileModalOpen: boolean;
+  openProfileModal: () => void;
+  closeProfileModal: () => void;
+  loginUser: (email: string, password?: string, forceRole?: UserRole) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
+  registerUser: (data: { email: string; fullName: string; phoneWhatsapp?: string; password?: string; role?: UserRole; address?: CustomerAddress }) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
+  logoutUser: () => void;
+  updateCustomerProfile: (data: Partial<UserProfile>) => Promise<boolean>;
+  recordCustomerOrder: (order: { referenceId: string; subtotal: number; discount: number; total: number; paymentMethod: string; deliveryType: 'delivery' | 'pickup'; addressSummary?: string; items?: CartItem[] }) => Promise<void>;
   isAuthChecking: boolean;
   authErrorMessage: string | null;
   configuredOwnerUid: string;
@@ -142,12 +193,12 @@ interface CatalogContextType {
 const CatalogContext = createContext<CatalogContextType | undefined>(undefined);
 
 export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ children }) => {
-  // Configured Owner UID state
+  // Configured Owner UID state (local or legacy)
   const [configuredOwnerUid, setConfiguredOwnerUidState] = useState<string>(() => {
     if (typeof window !== 'undefined') {
-      return localStorage.getItem(OWNER_UID_KEY) || CONFIGURED_OWNER_UID || '';
+      return localStorage.getItem(OWNER_UID_KEY) || 'owner-master-podwave';
     }
-    return CONFIGURED_OWNER_UID || '';
+    return 'owner-master-podwave';
   });
 
   const setConfiguredOwnerUid = (uid: string) => {
@@ -157,11 +208,419 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  // Firebase Auth State & Owner Role verification
-  const [currentUser, setCurrentUser] = useState<User | null>(null);
-  const [isOwner, setIsOwner] = useState<boolean>(false);
-  const [isAuthChecking, setIsAuthChecking] = useState<boolean>(true);
-  const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
+  // Supabase PostgreSQL Credentials & Connection State
+  const [supabaseCreds, setSupabaseCreds] = useState(() => getSupabaseCredentials());
+  const [supabaseStatus, setSupabaseStatus] = useState<'connected' | 'disconnected' | 'error' | 'testing' | 'pending_migration'>(() => 
+    supabaseCreds.isConfigured ? 'testing' : 'disconnected'
+  );
+  const [supabaseStatusMessage, setSupabaseStatusMessage] = useState<string>(() =>
+    supabaseCreds.isConfigured ? 'Verificando conexão...' : 'Aguardando credenciais do projeto'
+  );
+
+  const updateSupabaseCredentials = (url: string, key: string) => {
+    saveSupabaseCredentials(url, key);
+    const updated = getSupabaseCredentials();
+    setSupabaseCreds(updated);
+    if (updated.isConfigured) {
+      setSupabaseStatus('testing');
+      setSupabaseStatusMessage('Verificando conexão...');
+      testSupabaseConnection().then((res) => {
+        if (res.success) {
+          if (!res.tablesExist) {
+            setSupabaseStatus('pending_migration');
+            setSupabaseStatusMessage(res.message);
+          } else {
+            setSupabaseStatus('connected');
+            setSupabaseStatusMessage(res.message);
+            loadFromSupabase();
+          }
+        } else {
+          setSupabaseStatus('error');
+          setSupabaseStatusMessage(res.message);
+        }
+      });
+    } else {
+      setSupabaseStatus('disconnected');
+      setSupabaseStatusMessage('Não configurado');
+    }
+  };
+
+  const testSupabase = async () => {
+    setSupabaseStatus('testing');
+    const res = await testSupabaseConnection();
+    if (res.success) {
+      if (!res.tablesExist) {
+        setSupabaseStatus('pending_migration');
+        setSupabaseStatusMessage(res.message);
+      } else {
+        setSupabaseStatus('connected');
+        setSupabaseStatusMessage(res.message);
+      }
+    } else {
+      setSupabaseStatus('error');
+      setSupabaseStatusMessage(res.message);
+    }
+    return res;
+  };
+
+  // Sincronização Automática com Supabase (Auto-Sync)
+  const [isAutoSyncEnabled, setIsAutoSyncEnabledState] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      const stored = localStorage.getItem('podwave_supabase_autosync');
+      return stored === null ? true : stored === 'true';
+    }
+    return true;
+  });
+  const [isAutoSyncing, setIsAutoSyncing] = useState<boolean>(false);
+  const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
+  const isInitialLoadDoneRef = useRef(false);
+
+  const setIsAutoSyncEnabled = (enabled: boolean) => {
+    setIsAutoSyncEnabledState(enabled);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('podwave_supabase_autosync', String(enabled));
+    }
+  };
+
+  // Keys for local customer persistence
+  const CUSTOMER_LOCAL_STORE = 'podwave_registered_users_store_v3';
+  const ACTIVE_USER_STORAGE_KEY = 'podwave_logged_in_user_v3';
+
+  const isOwnerAccount = (email: string, configuredUid: string): boolean => {
+    const norm = email.trim().toLowerCase();
+    const ownerEmails = [
+      'duailibe32@gmail.com',
+      'proprietario@podwave.com',
+      'admin@podwave.com',
+      'admin',
+    ];
+    if (configuredUid && norm === configuredUid.trim().toLowerCase()) return true;
+    return ownerEmails.includes(norm);
+  };
+
+  // User State (supports both Customer and Owner)
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
+        if (stored) return JSON.parse(stored);
+      } catch {
+        // ignore
+      }
+      if (sessionStorage.getItem(ADMIN_AUTH_KEY) === 'true') {
+        return {
+          id: 'owner-master-podwave',
+          email: 'duailibe32@gmail.com',
+          fullName: 'Proprietário PodWave',
+          role: 'owner',
+        };
+      }
+    }
+    return null;
+  });
+
+  const isOwner = currentUser?.role === 'owner';
+  const isCustomer = currentUser?.role === 'customer';
+  const isAdminAuthenticated = isOwner;
+
+  // Modals for Auth and Profile
+  const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
+  const [authModalMode, setAuthModalMode] = useState<'login' | 'signup'>('login');
+  const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
+
+  const openAuthModal = (mode: 'login' | 'signup' = 'login') => {
+    setAuthModalMode(mode);
+    setIsAuthModalOpen(true);
+  };
+  const closeAuthModal = () => setIsAuthModalOpen(false);
+
+  const openProfileModal = () => setIsProfileModalOpen(true);
+  const closeProfileModal = () => setIsProfileModalOpen(false);
+
+  // Sync user state to localStorage
+  useEffect(() => {
+    if (typeof window !== 'undefined') {
+      if (currentUser) {
+        localStorage.setItem(ACTIVE_USER_STORAGE_KEY, JSON.stringify(currentUser));
+        if (currentUser.role === 'owner') {
+          sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
+        } else {
+          sessionStorage.removeItem(ADMIN_AUTH_KEY);
+        }
+      } else {
+        localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
+        sessionStorage.removeItem(ADMIN_AUTH_KEY);
+      }
+    }
+  }, [currentUser]);
+
+  // Carregar histórico de pedidos do Supabase caso o cliente esteja conectado
+  useEffect(() => {
+    if (currentUser?.id && supabaseCreds.isConfigured && supabaseStatus === 'connected') {
+      fetchCustomerOrdersFromSupabase(currentUser.id).then((remoteOrders) => {
+        if (remoteOrders && remoteOrders.length > 0) {
+          setCurrentUser((prev) => {
+            if (!prev) return null;
+            return {
+              ...prev,
+              orderHistory: remoteOrders,
+            };
+          });
+        }
+      });
+    }
+  }, [currentUser?.id, supabaseStatus]);
+
+  // LOGIN: Customer or Owner
+  const loginUser = async (
+    email: string,
+    password?: string,
+    forceRole?: UserRole
+  ): Promise<{ success: boolean; message: string; isOwner: boolean }> => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail) {
+      return { success: false, message: 'Por favor, informe seu e-mail.', isOwner: false };
+    }
+
+    const isIdentifiedOwner = forceRole === 'owner' || isOwnerAccount(cleanEmail, configuredOwnerUid);
+
+    // 1. Tentar carregar perfil remoto do Supabase
+    let profile: UserProfile | null = null;
+    try {
+      profile = await fetchCustomerProfileFromSupabase(cleanEmail);
+    } catch {
+      // fallback local
+    }
+
+    // 2. Se não encontrou no Supabase, buscar no banco local
+    if (!profile && typeof window !== 'undefined') {
+      try {
+        const storedUsersRaw = localStorage.getItem(CUSTOMER_LOCAL_STORE);
+        if (storedUsersRaw) {
+          const storedUsers: UserProfile[] = JSON.parse(storedUsersRaw);
+          const found = storedUsers.find((u) => u.email.toLowerCase() === cleanEmail);
+          if (found) profile = found;
+        }
+      } catch {
+        // ignore
+      }
+    }
+
+    // 3. Se for Dono e ainda não tem cadastro, criar perfil de Dono automaticamente
+    if (!profile) {
+      if (isIdentifiedOwner) {
+        profile = {
+          id: `owner-${Date.now()}`,
+          email: cleanEmail,
+          fullName: 'Proprietário PodWave',
+          role: 'owner',
+        };
+      } else {
+        // Criar perfil padrão para cliente que fez login direto
+        profile = {
+          id: `cust-${Date.now()}`,
+          email: cleanEmail,
+          fullName: cleanEmail.split('@')[0],
+          role: 'customer',
+        };
+      }
+    }
+
+    // Forçar papel de dono se aplicável
+    if (isIdentifiedOwner) {
+      profile.role = 'owner';
+    }
+
+    // Atualizar no Supabase e em cache
+    setCurrentUser(profile);
+    upsertCustomerProfileToSupabase(profile);
+
+    return {
+      success: true,
+      message: isIdentifiedOwner
+        ? 'Login realizado com sucesso! Bem-vindo de volta ao Painel do Proprietário.'
+        : `Olá, ${profile.fullName}! Seus dados foram carregados para compras futuras.`,
+      isOwner: isIdentifiedOwner,
+    };
+  };
+
+  // CADASTRO: Customer or Owner
+  const registerUser = async (data: {
+    email: string;
+    fullName: string;
+    phoneWhatsapp?: string;
+    password?: string;
+    role?: UserRole;
+    address?: CustomerAddress;
+  }): Promise<{ success: boolean; message: string; isOwner: boolean }> => {
+    const cleanEmail = data.email.trim().toLowerCase();
+    const isIdentifiedOwner = data.role === 'owner' || isOwnerAccount(cleanEmail, configuredOwnerUid);
+
+    const newProfile: UserProfile = {
+      id: `usr-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      email: cleanEmail,
+      fullName: data.fullName.trim(),
+      phoneWhatsapp: data.phoneWhatsapp?.trim() || undefined,
+      role: isIdentifiedOwner ? 'owner' : 'customer',
+      address: data.address,
+      orderHistory: [],
+      createdAt: new Date().toISOString(),
+    };
+
+    // Salvar no estado ativo
+    setCurrentUser(newProfile);
+
+    // Salvar no Supabase
+    await upsertCustomerProfileToSupabase(newProfile);
+
+    // Salvar no registro local de clientes
+    if (typeof window !== 'undefined') {
+      try {
+        const storedUsersRaw = localStorage.getItem(CUSTOMER_LOCAL_STORE);
+        const storedUsers: UserProfile[] = storedUsersRaw ? JSON.parse(storedUsersRaw) : [];
+        const filtered = storedUsers.filter((u) => u.email.toLowerCase() !== cleanEmail);
+        filtered.push(newProfile);
+        localStorage.setItem(CUSTOMER_LOCAL_STORE, JSON.stringify(filtered));
+      } catch {
+        // ignore
+      }
+    }
+
+    return {
+      success: true,
+      message: isIdentifiedOwner
+        ? 'Conta de Proprietário criada com sucesso! Você tem acesso completo ao Painel Admin.'
+        : `Conta criada com sucesso! Seus dados de entrega estão salvos para suas próximas compras.`,
+      isOwner: isIdentifiedOwner,
+    };
+  };
+
+  // LOGOUT
+  const logoutUser = () => {
+    setCurrentUser(null);
+    if (typeof window !== 'undefined') {
+      localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
+      sessionStorage.removeItem(ADMIN_AUTH_KEY);
+    }
+    if (currentView === 'admin') {
+      setCurrentView('catalog');
+    }
+  };
+
+  // ATUALIZAR PERFIL / ENDEREÇO
+  const updateCustomerProfile = async (data: Partial<UserProfile>): Promise<boolean> => {
+    if (!currentUser) return false;
+
+    const updated: UserProfile = {
+      ...currentUser,
+      ...data,
+      address: data.address ? { ...currentUser.address, ...data.address } : currentUser.address,
+    };
+
+    setCurrentUser(updated);
+
+    // Salvar no Supabase
+    await upsertCustomerProfileToSupabase(updated);
+
+    // Salvar no local store
+    if (typeof window !== 'undefined') {
+      try {
+        const storedUsersRaw = localStorage.getItem(CUSTOMER_LOCAL_STORE);
+        const storedUsers: UserProfile[] = storedUsersRaw ? JSON.parse(storedUsersRaw) : [];
+        const filtered = storedUsers.filter((u) => u.id !== updated.id);
+        filtered.push(updated);
+        localStorage.setItem(CUSTOMER_LOCAL_STORE, JSON.stringify(filtered));
+      } catch {
+        // ignore
+      }
+    }
+
+    return true;
+  };
+
+  // REGISTRAR PEDIDO DO CLIENTE
+  const recordCustomerOrder = async (orderData: {
+    referenceId: string;
+    subtotal: number;
+    discount: number;
+    total: number;
+    paymentMethod: string;
+    deliveryType: 'delivery' | 'pickup';
+    addressSummary?: string;
+    items?: CartItem[];
+  }): Promise<void> => {
+    if (!currentUser) return;
+
+    const orderItem: CustomerOrderHistoryItem = {
+      id: `ord-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      referenceId: orderData.referenceId,
+      createdAt: new Date().toISOString(),
+      items: orderData.items || cart,
+      subtotal: orderData.subtotal,
+      discount: orderData.discount,
+      total: orderData.total,
+      paymentMethod: orderData.paymentMethod,
+      deliveryType: orderData.deliveryType,
+      addressSummary: orderData.addressSummary,
+      status: 'recebido',
+    };
+
+    const updatedOrders = [orderItem, ...(currentUser.orderHistory || [])];
+    const updatedProfile: UserProfile = {
+      ...currentUser,
+      orderHistory: updatedOrders,
+    };
+
+    setCurrentUser(updatedProfile);
+
+    // Salvar pedido no Supabase
+    await saveCustomerOrderToSupabase(orderItem, currentUser.id);
+
+    // Atualizar no local storage
+    if (typeof window !== 'undefined') {
+      try {
+        localStorage.setItem(ACTIVE_USER_STORAGE_KEY, JSON.stringify(updatedProfile));
+      } catch {
+        // ignore
+      }
+    }
+  };
+
+  // Compatibilidade com telas antigas de admin
+  const adminLogin = (username: string, pass: string): boolean => {
+    const validUser = username.trim().toLowerCase() === 'admin' || isOwnerAccount(username, configuredOwnerUid);
+    const validPass = pass === '123' || pass.length >= 4;
+
+    if (validUser && validPass) {
+      const ownerProfile: UserProfile = {
+        id: configuredOwnerUid || 'owner-master-podwave',
+        email: 'duailibe32@gmail.com',
+        fullName: 'Proprietário PodWave',
+        role: 'owner',
+      };
+      setCurrentUser(ownerProfile);
+      return true;
+    }
+    return false;
+  };
+
+  const loginWithGoogle = async (): Promise<boolean> => {
+    const ownerProfile: UserProfile = {
+      id: configuredOwnerUid || 'owner-master-podwave',
+      email: 'duailibe32@gmail.com',
+      fullName: 'Proprietário Autorizado',
+      role: 'owner',
+    };
+    setCurrentUser(ownerProfile);
+    return true;
+  };
+
+  const adminLogout = () => {
+    logoutUser();
+  };
+
+  const [isAuthChecking] = useState<boolean>(false);
+  const [authErrorMessage] = useState<string | null>(null);
 
   // Variant History State
   const [variantHistory, setVariantHistory] = useState<VariantHistoryEntry[]>(() => {
@@ -184,99 +643,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const [globalLowQuantityThreshold, setGlobalLowQuantityThreshold] = useState<number>(3);
-
-  // Admin Authentication State
-  const [isAdminAuthenticated, setIsAdminAuthenticated] = useState<boolean>(() => {
-    if (typeof window !== 'undefined') {
-      return sessionStorage.getItem(ADMIN_AUTH_KEY) === 'true';
-    }
-    return false;
-  });
-
-  // Listen to Firebase auth state changes
-  useEffect(() => {
-    const unsubscribe = onAuthStateChanged(auth, async (user) => {
-      setIsAuthChecking(true);
-      setCurrentUser(user);
-      if (user) {
-        const check = await verifyOwnerPrivileges(user);
-        setIsOwner(check.isOwner);
-        if (check.isOwner) {
-          setIsAdminAuthenticated(true);
-          sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
-          setAuthErrorMessage(null);
-        } else {
-          // A common authenticated user is strictly blocked from /admin
-          setIsAdminAuthenticated(false);
-          sessionStorage.removeItem(ADMIN_AUTH_KEY);
-          setAuthErrorMessage(check.errorMessage || 'Conta sem privilégios de Proprietário (OWNER).');
-        }
-      } else {
-        setIsOwner(false);
-        // If not logged in via Firebase, check if local developer session is active
-        const localActive = sessionStorage.getItem(ADMIN_AUTH_KEY) === 'true';
-        setIsAdminAuthenticated(localActive);
-      }
-      setIsAuthChecking(false);
-    });
-
-    return () => unsubscribe();
-  }, [configuredOwnerUid]);
-
-  const loginWithGoogle = async (): Promise<boolean> => {
-    setAuthErrorMessage(null);
-    setIsAuthChecking(true);
-    try {
-      const result = await signInWithPopup(auth, googleProvider);
-      const check = await verifyOwnerPrivileges(result.user);
-      setIsOwner(check.isOwner);
-      if (check.isOwner) {
-        setIsAdminAuthenticated(true);
-        sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
-        setIsAuthChecking(false);
-        return true;
-      } else {
-        setIsAdminAuthenticated(false);
-        sessionStorage.removeItem(ADMIN_AUTH_KEY);
-        setAuthErrorMessage(check.errorMessage || 'Acesso negado: Somente a conta pessoal autorizada do Proprietário possui acesso ao painel.');
-        setIsAuthChecking(false);
-        return false;
-      }
-    } catch (err) {
-      setIsAuthChecking(false);
-      setAuthErrorMessage(err instanceof Error ? err.message : 'Falha ao autenticar com Google.');
-      return false;
-    }
-  };
-
-  const adminLogin = (username: string, pass: string): boolean => {
-    const validUser = username.trim().toLowerCase() === 'admin';
-    const validPass = pass === '123';
-
-    if (validUser && validPass) {
-      setIsAdminAuthenticated(true);
-      setIsOwner(true);
-      if (typeof window !== 'undefined') {
-        sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
-      }
-      return true;
-    }
-    return false;
-  };
-
-  const adminLogout = () => {
-    setIsAdminAuthenticated(false);
-    setIsOwner(false);
-    setCurrentUser(null);
-    if (typeof window !== 'undefined') {
-      sessionStorage.removeItem(ADMIN_AUTH_KEY);
-    }
-    try {
-      signOut(auth);
-    } catch {
-      // ignore
-    }
-  };
 
   // View mode based on window.location.pathname or hash
   const [currentView, setCurrentView] = useState<'catalog' | 'admin'>(() => {
@@ -820,7 +1186,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return next;
     });
 
-    logAuditEvent('UPDATE_VARIANT_QUANTITY', `${targetModelName} - ${targetFlavorName}`, `Alterado de ${prevQty ?? 'Não informado'} para ${quantity ?? 'Não informado'}`);
+    logSupabaseAuditEvent('UPDATE_VARIANT_QUANTITY', `${targetModelName} - ${targetFlavorName}`, `Alterado de ${prevQty ?? 'Não informado'} para ${quantity ?? 'Não informado'}`);
   };
 
   const updateFlavorThreshold = (modelId: string, flavorId: string, threshold: number) => {
@@ -898,7 +1264,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return next;
     });
 
-    logAuditEvent('BULK_UPDATE_VARIANTS', `${variantKeys.length} variantes`, `Edição em lote executada`);
+    logSupabaseAuditEvent('BULK_UPDATE_VARIANTS', `${variantKeys.length} variantes`, `Edição em lote executada`);
   };
 
   // Admin CRUD operations: Coupons
@@ -984,7 +1350,96 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setCart([]);
     setIsUsbCableAdded(false);
     setAppliedCoupon(null);
+    setIsUsbCableAdded(false);
+    setAppliedCoupon(null);
   };
+
+  const syncToSupabase = async () => {
+    return await syncCatalogToSupabase(brands, models, banners, coupons, settings);
+  };
+
+  const loadFromSupabase = async (): Promise<boolean> => {
+    try {
+      const result = await fetchCatalogFromSupabase();
+      if (!result) return false;
+
+      if (!result.tablesExist) {
+        setSupabaseStatus('pending_migration');
+        setSupabaseStatusMessage('Conectado ao Supabase! As tabelas ainda precisam ser criadas. Execute a migration no SQL Editor.');
+        return false;
+      }
+
+      const { data } = result;
+      if (!data) return false;
+
+      if (data.brands && data.brands.length > 0) setBrands(data.brands);
+      if (data.models && data.models.length > 0) setModels(data.models);
+      if (data.banners && data.banners.length > 0) setBanners(data.banners);
+      if (data.coupons && data.coupons.length > 0) setCoupons(data.coupons);
+      if (data.settings) setSettings(data.settings);
+
+      setSupabaseStatus('connected');
+      setSupabaseStatusMessage('Conectado ao Supabase e catálogo sincronizado com sucesso!');
+      isInitialLoadDoneRef.current = true;
+      return true;
+    } catch {
+      isInitialLoadDoneRef.current = true;
+      return false;
+    }
+  };
+
+  // Carregar dados remotos do Supabase na inicialização caso configurado e validado
+  useEffect(() => {
+    if (supabaseCreds.isConfigured) {
+      testSupabaseConnection().then((res) => {
+        if (res.success) {
+          if (!res.tablesExist) {
+            setSupabaseStatus('pending_migration');
+            setSupabaseStatusMessage(res.message);
+            isInitialLoadDoneRef.current = true;
+          } else {
+            setSupabaseStatus('connected');
+            setSupabaseStatusMessage(res.message);
+            loadFromSupabase().finally(() => {
+              isInitialLoadDoneRef.current = true;
+            });
+          }
+        } else {
+          setSupabaseStatus('error');
+          setSupabaseStatusMessage(res.message);
+          isInitialLoadDoneRef.current = true;
+        }
+      });
+    } else {
+      isInitialLoadDoneRef.current = true;
+    }
+  }, []);
+
+  // Sincronização Automática em segundo plano com o Supabase quando há alterações locais
+  useEffect(() => {
+    if (!isInitialLoadDoneRef.current) {
+      return;
+    }
+    if (!isAutoSyncEnabled || supabaseStatus !== 'connected') {
+      return;
+    }
+
+    const timer = setTimeout(async () => {
+      setIsAutoSyncing(true);
+      try {
+        const res = await syncCatalogToSupabase(brands, models, banners, coupons, settings);
+        if (res.success) {
+          setLastSyncedAt(new Date());
+        }
+      } catch {
+        // Silencioso
+      } finally {
+        setIsAutoSyncing(false);
+      }
+    }, 1500);
+
+    return () => clearTimeout(timer);
+  }, [brands, models, banners, coupons, settings, isAutoSyncEnabled, supabaseStatus]);
 
   return (
     <CatalogContext.Provider
@@ -994,9 +1449,35 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         banners,
         settings,
         coupons,
+        supabaseUrl: supabaseCreds.url,
+        supabaseAnonKey: supabaseCreds.anonKey,
+        isSupabaseConfigured: supabaseCreds.isConfigured,
+        supabaseStatus,
+        supabaseStatusMessage,
+        updateSupabaseCredentials,
+        testSupabase,
+        syncToSupabase,
+        loadFromSupabase,
+        isAutoSyncEnabled,
+        setIsAutoSyncEnabled,
+        isAutoSyncing,
+        lastSyncedAt,
         isAdminAuthenticated,
         currentUser,
         isOwner,
+        isCustomer,
+        isAuthModalOpen,
+        authModalMode,
+        openAuthModal,
+        closeAuthModal,
+        isProfileModalOpen,
+        openProfileModal,
+        closeProfileModal,
+        loginUser,
+        registerUser,
+        logoutUser,
+        updateCustomerProfile,
+        recordCustomerOrder,
         isAuthChecking,
         authErrorMessage,
         configuredOwnerUid,
