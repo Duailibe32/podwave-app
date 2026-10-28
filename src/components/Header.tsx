@@ -17,6 +17,8 @@ export const Header: React.FC = () => {
     setIsCartOpen,
     currentUser,
     isOwner,
+    isAdmin,
+    isVip,
     openAuthModal,
     openProfileModal,
   } = useCatalog();
@@ -135,7 +137,7 @@ export const Header: React.FC = () => {
             <div className="hidden md:flex items-center gap-3 text-sm font-semibold text-[#00DFFF]">
               <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#11152A] border border-[#8423DA]/50 text-xs">
                 <ShieldCheck className="w-3.5 h-3.5 text-[#00DFFF]" />
-                Painel Administrativo Demonstrativo
+                Painel Administrativo
               </span>
             </div>
           )}
@@ -218,8 +220,18 @@ export const Header: React.FC = () => {
                         <Crown className="w-2.5 h-2.5 text-amber-400" />
                         <span className="text-amber-300">Dono</span>
                       </>
+                    ) : currentUser.role === 'admin' ? (
+                      <>
+                        <Crown className="w-2.5 h-2.5 text-[#00DFFF]" />
+                        <span className="text-[#00DFFF]">Admin</span>
+                      </>
+                    ) : isVip ? (
+                      <>
+                        <Sparkles className="w-2.5 h-2.5 text-amber-400" />
+                        <span className="text-amber-300">VIP</span>
+                      </>
                     ) : (
-                      <span className="text-[#00DFFF]">Cliente</span>
+                      <span className="text-gray-300">Cliente</span>
                     )}
                   </span>
                 </div>
@@ -238,8 +250,8 @@ export const Header: React.FC = () => {
             {/* PWA Install Button */}
             <PWAInstallButton variant="header" />
 
-            {/* Admin Switcher Button (EXCLUSIVO PARA O PROPRIETÁRIO) */}
-            {isOwner && (
+            {/* Admin Switcher Button (ACESSO PARA ADMINISTRADORES E PROPRIETÁRIO) */}
+            {isAdmin && (
               <button
                 onClick={toggleAdminView}
                 className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-semibold transition-all duration-300 cursor-pointer shadow-md ${
@@ -247,7 +259,7 @@ export const Header: React.FC = () => {
                     ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] hover:from-[#9534ed] hover:to-[#00DFFF] text-white border border-[#00DFFF]/40 hover:shadow-[0_0_15px_rgba(0,223,255,0.4)]'
                     : 'bg-[#11152A] hover:bg-[#181d3d] text-white border border-[#8423DA]/60 hover:border-[#8423DA]'
                 }`}
-                title="Painel Administrativo do Proprietário"
+                title="Painel Administrativo"
               >
                 {currentView === 'catalog' ? (
                   <>
@@ -340,11 +352,19 @@ export const Header: React.FC = () => {
                   </div>
                   <span>Minha Conta ({currentUser.fullName?.split(' ')[0]})</span>
                 </div>
-                {isOwner && (
+                {isOwner ? (
                   <span className="text-[10px] text-amber-400 font-bold flex items-center gap-1">
                     <Crown className="w-3 h-3 text-amber-400" /> Dono
                   </span>
-                )}
+                ) : currentUser.role === 'admin' ? (
+                  <span className="text-[10px] text-[#00DFFF] font-bold flex items-center gap-1">
+                    <Crown className="w-3 h-3 text-[#00DFFF]" /> Admin
+                  </span>
+                ) : isVip ? (
+                  <span className="text-[10px] text-amber-300 font-bold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-amber-400" /> VIP
+                  </span>
+                ) : null}
               </button>
             ) : (
               <button
@@ -361,8 +381,8 @@ export const Header: React.FC = () => {
 
             <PWAInstallButton variant="banner" />
 
-            {/* Mobile Admin button - EXCLUSIVO PARA O PROPRIETÁRIO */}
-            {isOwner && (
+            {/* Mobile Admin button - ACESSO PARA ADMINISTRADORES E PROPRIETÁRIO */}
+            {isAdmin && (
               <button
                 onClick={toggleAdminView}
                 className="w-full py-2.5 px-4 rounded-xl text-xs font-bold text-center bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white flex items-center justify-center gap-2 shadow-lg"
@@ -370,7 +390,7 @@ export const Header: React.FC = () => {
                 {currentView === 'catalog' ? (
                   <>
                     <Crown className="w-4 h-4 text-amber-400" />
-                    <span>Acessar Painel do Proprietário</span>
+                    <span>Acessar Painel Administrativo</span>
                   </>
                 ) : (
                   <>

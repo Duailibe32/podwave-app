@@ -1,5 +1,6 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../context/CatalogContext';
+import { toast } from '../context/ToastContext';
 import { OrderForm } from '../types/catalog';
 import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
 import { X, Copy, Check, Send, Edit2, ArrowLeft, ShieldCheck, FileText } from 'lucide-react';
@@ -46,6 +47,7 @@ export const OrderRecordPreviewModal: React.FC<OrderRecordPreviewModalProps> = (
     try {
       await navigator.clipboard.writeText(recordText);
       setCopied(true);
+      toast.success('Ficha copiada!', 'Resumo do pedido copiado para a área de transferência.');
       setTimeout(() => setCopied(false), 3000);
     } catch {
       // Fallback copy using textarea
@@ -56,6 +58,7 @@ export const OrderRecordPreviewModal: React.FC<OrderRecordPreviewModalProps> = (
       document.execCommand('copy');
       document.body.removeChild(textarea);
       setCopied(true);
+      toast.success('Ficha copiada!', 'Resumo do pedido copiado para a área de transferência.');
       setTimeout(() => setCopied(false), 3000);
     }
   };

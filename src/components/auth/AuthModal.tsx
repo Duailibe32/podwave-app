@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
-import { UserRole, CustomerAddress } from '../../types/catalog';
+import { CustomerAddress } from '../../types/catalog';
 import {
   X,
   User,
@@ -8,8 +8,6 @@ import {
   Lock,
   Phone,
   MapPin,
-  ShieldCheck,
-  Crown,
   Sparkles,
   ShoppingBag,
   ArrowRight,
@@ -17,6 +15,8 @@ import {
   AlertCircle,
   Search,
   RefreshCw,
+  HelpCircle,
+  MessageCircle,
 } from 'lucide-react';
 
 export const AuthModal: React.FC = () => {
@@ -26,7 +26,8 @@ export const AuthModal: React.FC = () => {
     closeAuthModal,
     loginUser,
     registerUser,
-    currentUser,
+    resetPassword,
+    settings,
   } = useCatalog();
 
   const [mode, setMode] = useState<'login' | 'signup'>(authModalMode);
@@ -34,7 +35,6 @@ export const AuthModal: React.FC = () => {
   const [password, setPassword] = useState('');
   const [fullName, setFullName] = useState('');
   const [phoneWhatsapp, setPhoneWhatsapp] = useState('');
-  const [isOwnerRole, setIsOwnerRole] = useState(false);
 
   // Address fields for customer future purchases
   const [cep, setCep] = useState('');
@@ -49,11 +49,15 @@ export const AuthModal: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [showForgotModal, setShowForgotModal] = useState(false);
+  const [isSendingResetEmail, setIsSendingResetEmail] = useState(false);
 
   React.useEffect(() => {
     setMode(authModalMode);
     setErrorMsg(null);
     setSuccessMsg(null);
+    setShowForgotModal(false);
+    setIsSendingResetEmail(false);
   }, [authModalMode, isAuthModalOpen]);
 
   if (!isAuthModalOpen) return null;
@@ -80,7 +84,10 @@ export const AuthModal: React.FC = () => {
 
   const handleLookupCep = async () => {
     const raw = cep.replace(/\D/g, '');
-    if (raw.length !== 8) return;
+    if (raw.length !== 8) {
+      setErrorMsg('Por favor informe um CEP válido com 8 dígitos.');
+      return;
+    }
 
     setIsSearchingCep(true);
     try {
@@ -91,9 +98,11 @@ export const AuthModal: React.FC = () => {
         setBairro(data.bairro || '');
         setCity(data.localidade || '');
         setState(data.uf || '');
+      } else {
+        setErrorMsg('CEP não localizado pelos Correios. Preencha manualmente.');
       }
     } catch {
-      // ignore
+      setErrorMsg('Não foi possível consultar o CEP no momento.');
     } finally {
       setIsSearchingCep(false);
     }
@@ -103,9 +112,19 @@ export const AuthModal: React.FC = () => {
     e.preventDefault();
     setErrorMsg(null);
     setSuccessMsg(null);
-    setIsLoading(true);
 
-    const res = await loginUser(email, password);
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setErrorMsg('Por favor informe um e-mail válido.');
+      return;
+    }
+    if (!password) {
+      setErrorMsg('Por favor informe sua senha.');
+      return;
+    }
+
+    setIsLoading(true);
+    const res = await loginUser(cleanEmail, password);
     setIsLoading(false);
 
     if (res.success) {
@@ -123,8 +142,17 @@ export const AuthModal: React.FC = () => {
     setErrorMsg(null);
     setSuccessMsg(null);
 
-    if (!fullName.trim() || !email.trim()) {
-      setErrorMsg('Por favor informe seu nome completo e e-mail.');
+    const cleanEmail = email.trim().toLowerCase();
+    if (!fullName.trim()) {
+      setErrorMsg('Por favor informe seu nome completo.');
+      return;
+    }
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setErrorMsg('Por favor informe um e-mail válido.');
+      return;
+    }
+    if (password.length < 6) {
+      setErrorMsg('A senha precisa ter no mínimo 6 caracteres para sua segurança.');
       return;
     }
 
@@ -143,11 +171,10 @@ export const AuthModal: React.FC = () => {
       : undefined;
 
     const res = await registerUser({
-      email: email.trim(),
+      email: cleanEmail,
       fullName: fullName.trim(),
       phoneWhatsapp: phoneWhatsapp.trim(),
       password,
-      role: isOwnerRole ? 'owner' : 'customer',
       address,
     });
 
@@ -163,20 +190,33 @@ export const AuthModal: React.FC = () => {
     }
   };
 
-  const handleQuickDemoLogin = async (asOwner: boolean) => {
-    setIsLoading(true);
+  const handleSendPasswordResetEmail = async () => {
+    const cleanEmail = email.trim().toLowerCase();
+    if (!cleanEmail || !cleanEmail.includes('@')) {
+      setErrorMsg('Por favor informe seu e-mail no campo acima para enviarmos o link de recuperação.');
+      return;
+    }
+    setIsSendingResetEmail(true);
     setErrorMsg(null);
+    setSuccessMsg(null);
 
-    const targetEmail = asOwner ? 'duailibe32@gmail.com' : 'cliente@podwave.com';
-    const res = await loginUser(targetEmail, '123456', asOwner ? 'owner' : 'customer');
-    setIsLoading(false);
+    const res = await resetPassword(cleanEmail);
+    setIsSendingResetEmail(false);
 
     if (res.success) {
       setSuccessMsg(res.message);
-      setTimeout(() => closeAuthModal(), 900);
     } else {
       setErrorMsg(res.message);
     }
+  };
+
+  const handleContactSupportForPassword = () => {
+    const phone = settings.supportPhone || settings.whatsappNumber || '5586999014685';
+    const cleanPhone = phone.replace(/\D/g, '');
+    const text = encodeURIComponent(
+      `Olá, equipe PodWave! Preciso de ajuda para redefinir minha senha de acesso com o e-mail: ${email || '[meu e-mail]'}.`
+    );
+    window.open(`https://wa.me/${cleanPhone}?text=${text}`, '_blank');
   };
 
   return (
@@ -203,6 +243,7 @@ export const AuthModal: React.FC = () => {
           <button
             onClick={closeAuthModal}
             className="p-2 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 text-gray-400 hover:text-white transition cursor-pointer"
+            aria-label="Fechar"
           >
             <X className="w-5 h-5" />
           </button>
@@ -277,10 +318,19 @@ export const AuthModal: React.FC = () => {
             </div>
 
             <div>
-              <label className="block text-gray-200 font-bold mb-1.5 flex items-center gap-1.5">
-                <Lock className="w-3.5 h-3.5 text-[#00DFFF]" />
-                <span>Senha *</span>
-              </label>
+              <div className="flex items-center justify-between mb-1.5">
+                <label className="text-gray-200 font-bold flex items-center gap-1.5">
+                  <Lock className="w-3.5 h-3.5 text-[#00DFFF]" />
+                  <span>Senha *</span>
+                </label>
+                <button
+                  type="button"
+                  onClick={() => setShowForgotModal(true)}
+                  className="text-[11px] text-[#00DFFF] hover:underline cursor-pointer"
+                >
+                  Esqueci minha senha
+                </button>
+              </div>
               <input
                 type="password"
                 value={password}
@@ -294,7 +344,7 @@ export const AuthModal: React.FC = () => {
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:brightness-110 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-[#8423DA]/30 flex items-center justify-center gap-2 cursor-pointer transition active:scale-95 disabled:opacity-50"
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:brightness-110 text-white font-black text-xs uppercase tracking-wider shadow-lg shadow-[#8423DA]/30 flex items-center justify-center gap-2 cursor-pointer transition active:scale-95 disabled:opacity-50"
             >
               {isLoading ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />
@@ -304,31 +354,51 @@ export const AuthModal: React.FC = () => {
               <span>{isLoading ? 'Autenticando...' : 'Acessar Conta'}</span>
             </button>
 
-            {/* Quick Demo Logins for Testing */}
-            <div className="pt-3 border-t border-[#8423DA]/20 space-y-2">
-              <span className="text-[10px] text-gray-400 block font-semibold text-center uppercase tracking-wider">
-                Acesso Rápido para Testes
-              </span>
-              <div className="grid grid-cols-2 gap-2">
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin(true)}
-                  className="p-2.5 rounded-xl bg-[#141838] hover:bg-[#8423DA]/20 border border-[#8423DA]/40 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer transition"
-                >
-                  <Crown className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Entrar como Dono</span>
-                </button>
-
-                <button
-                  type="button"
-                  onClick={() => handleQuickDemoLogin(false)}
-                  className="p-2.5 rounded-xl bg-[#141838] hover:bg-[#00DFFF]/20 border border-[#00DFFF]/40 text-white font-bold text-[11px] flex items-center justify-center gap-1.5 cursor-pointer transition"
-                >
-                  <ShoppingBag className="w-3.5 h-3.5 text-[#00DFFF]" />
-                  <span>Entrar como Cliente</span>
-                </button>
+            {/* Password Recovery Box */}
+            {showForgotModal && (
+              <div className="mt-4 p-4 rounded-2xl bg-[#141838] border border-[#00DFFF]/40 text-xs space-y-3 animate-in fade-in">
+                <div className="flex items-center justify-between text-[#00DFFF] font-bold">
+                  <div className="flex items-center gap-2">
+                    <HelpCircle className="w-4 h-4" />
+                    <span>Recuperação Segura de Senha</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => setShowForgotModal(false)}
+                    className="p-1 rounded-lg text-gray-400 hover:text-white cursor-pointer"
+                    aria-label="Fechar recuperação de senha"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+                <p className="text-[#A5A5B8] leading-relaxed text-[11px]">
+                  Solicite um link oficial de redefinição de senha para o seu e-mail ou fale diretamente com a equipe PodWave:
+                </p>
+                <div className="flex flex-col sm:flex-row gap-2">
+                  <button
+                    type="button"
+                    onClick={handleSendPasswordResetEmail}
+                    disabled={isSendingResetEmail}
+                    className="flex-1 py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#8423DA] to-[#007BFF] hover:brightness-110 text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition shadow active:scale-95 disabled:opacity-50"
+                  >
+                    {isSendingResetEmail ? (
+                      <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                    ) : (
+                      <Mail className="w-3.5 h-3.5" />
+                    )}
+                    <span>{isSendingResetEmail ? 'Enviando...' : 'Enviar Link por E-mail'}</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={handleContactSupportForPassword}
+                    className="py-2.5 px-3 rounded-xl bg-[#10B981] hover:bg-[#059669] text-white font-bold text-xs flex items-center justify-center gap-1.5 cursor-pointer transition shadow active:scale-95"
+                  >
+                    <MessageCircle className="w-3.5 h-3.5" />
+                    <span>Suporte WhatsApp</span>
+                  </button>
+                </div>
               </div>
-            </div>
+            )}
           </form>
         )}
 
@@ -349,7 +419,10 @@ export const AuthModal: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-gray-200 font-bold mb-1">WhatsApp / Telefone</label>
+                <label className="block text-gray-200 font-bold mb-1 flex items-center gap-1">
+                  <Phone className="w-3 h-3 text-[#00DFFF]" />
+                  <span>WhatsApp / Telefone</span>
+                </label>
                 <input
                   type="tel"
                   value={phoneWhatsapp}
@@ -374,13 +447,14 @@ export const AuthModal: React.FC = () => {
               </div>
 
               <div>
-                <label className="block text-gray-200 font-bold mb-1">Senha *</label>
+                <label className="block text-gray-200 font-bold mb-1">Senha (Mínimo 6 caracteres) *</label>
                 <input
                   type="password"
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Mínimo 6 caracteres"
+                  placeholder="••••••••"
                   required
+                  minLength={6}
                   className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/35 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
                 />
               </div>
@@ -411,7 +485,7 @@ export const AuthModal: React.FC = () => {
                       onClick={handleLookupCep}
                       disabled={isSearchingCep}
                       className="p-2 rounded-xl bg-[#00DFFF]/20 hover:bg-[#00DFFF]/30 text-[#00DFFF] font-bold text-xs cursor-pointer shrink-0"
-                      title="Buscar CEP"
+                      title="Buscar CEP no ViaCEP"
                     >
                       {isSearchingCep ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
                     </button>
@@ -476,29 +550,10 @@ export const AuthModal: React.FC = () => {
               />
             </div>
 
-            {/* Checkbox: Conta de Dono / Proprietário */}
-            <label className="flex items-center gap-2.5 p-3 rounded-2xl bg-[#080811] border border-[#8423DA]/30 cursor-pointer hover:border-[#00DFFF]/50 transition">
-              <input
-                type="checkbox"
-                checked={isOwnerRole}
-                onChange={(e) => setIsOwnerRole(e.target.checked)}
-                className="w-4 h-4 rounded text-[#8423DA] focus:ring-[#00DFFF] cursor-pointer"
-              />
-              <div className="text-left">
-                <span className="font-bold text-white flex items-center gap-1.5 text-xs">
-                  <Crown className="w-3.5 h-3.5 text-amber-400" />
-                  <span>Cadastrar como Proprietário / Dono da Loja</span>
-                </span>
-                <span className="text-[10px] text-[#A5A5B8] block">
-                  Concede acesso irrestrito ao Painel Administrativo de Gestão do Catálogo.
-                </span>
-              </div>
-            </label>
-
             <button
               type="submit"
               disabled={isLoading}
-              className="w-full py-3 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#007BFF] hover:brightness-110 text-[#080811] font-black text-xs uppercase tracking-wider shadow-lg shadow-[#00DFFF]/20 flex items-center justify-center gap-2 cursor-pointer transition active:scale-95 disabled:opacity-50"
+              className="w-full py-3.5 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#007BFF] hover:brightness-110 text-[#080811] font-black text-xs uppercase tracking-wider shadow-lg shadow-[#00DFFF]/20 flex items-center justify-center gap-2 cursor-pointer transition active:scale-95 disabled:opacity-50"
             >
               {isLoading ? (
                 <RefreshCw className="w-4 h-4 animate-spin" />

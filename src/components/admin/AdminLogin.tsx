@@ -5,14 +5,14 @@ import {
   User, 
   KeyRound, 
   ArrowLeft, 
-  ShieldCheck, 
   AlertCircle, 
   Eye, 
   EyeOff, 
   LogIn, 
   ShieldAlert, 
   Check, 
-  Copy 
+  Copy,
+  RefreshCw
 } from 'lucide-react';
 
 export const AdminLogin: React.FC = () => {
@@ -21,31 +21,50 @@ export const AdminLogin: React.FC = () => {
     loginWithGoogle, 
     currentUser, 
     isOwner, 
+    isAdmin,
     isAuthChecking, 
     authErrorMessage, 
     setCurrentView, 
     settings 
   } = useCatalog();
 
-  const [username, setUsername] = useState('admin');
+  const [username, setUsername] = useState('');
   const [password, setPassword] = useState('');
   const [showPassword, setShowPassword] = useState(false);
   const [localError, setLocalError] = useState<string | null>(null);
+  const [isSubmitting, setIsSubmitting] = useState(false);
   const [copiedUid, setCopiedUid] = useState(false);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
     setLocalError(null);
 
-    const success = adminLogin(username, password);
+    if (!username.trim()) {
+      setLocalError('Por favor informe o usuário ou e-mail do proprietário.');
+      return;
+    }
+    if (!password) {
+      setLocalError('Por favor informe a senha de acesso administrativo.');
+      return;
+    }
+
+    setIsSubmitting(true);
+    const success = await adminLogin(username.trim(), password);
+    setIsSubmitting(false);
+
     if (!success) {
-      setLocalError('Credenciais incorretas. Verifique seu login e senha.');
+      setLocalError('Credenciais administrativas inválidas. Acesso exclusivo para o proprietário autorizado.');
     }
   };
 
   const handleGoogleSignIn = async () => {
     setLocalError(null);
-    await loginWithGoogle();
+    setIsSubmitting(true);
+    const success = await loginWithGoogle();
+    setIsSubmitting(false);
+    if (!success) {
+      setLocalError('A conta Google selecionada não possui autorização de proprietário neste sistema.');
+    }
   };
 
   const handleBackToCatalog = () => {
@@ -90,20 +109,20 @@ export const AdminLogin: React.FC = () => {
                 Painel do Proprietário
               </h2>
               <p className="mt-1 text-xs text-[#A5A5B8] leading-relaxed">
-                Acesso exclusivo para gerenciamento de catálogo, disponibilidade de sabores e marcas.
+                Acesso exclusivo para gerenciamento de catálogo, disponibilidade de estoque e configurações.
               </p>
             </div>
           </div>
 
           {/* Unauthorized Common User Alert */}
-          {currentUser && !isOwner && (
+          {currentUser && !isAdmin && (
             <div className="mt-5 p-4 rounded-2xl bg-rose-500/15 border-2 border-rose-500/40 text-rose-200 text-xs space-y-2 animate-in fade-in">
               <div className="flex items-center gap-2 text-rose-400 font-bold">
                 <ShieldAlert className="w-4 h-4 shrink-0" />
                 <span>Acesso Não Autorizado</span>
               </div>
               <p className="text-[11px] text-rose-300/90 leading-relaxed">
-                A conta <strong>{currentUser.email || currentUser.id}</strong> não possui privilégios de Proprietário (OWNER).
+                A conta <strong>{currentUser.email || currentUser.fullName}</strong> está autenticada como Cliente e não possui privilégios de Administrador ou Dono.
               </p>
               <div className="pt-2 flex items-center justify-between border-t border-rose-500/20 text-[10px]">
                 <span className="text-gray-400 font-mono truncate max-w-[180px]">ID: {currentUser.id}</span>
@@ -120,29 +139,33 @@ export const AdminLogin: React.FC = () => {
           )}
 
           {/* General Error Message */}
-          {(localError || authErrorMessage) && !currentUser && (
+          {(localError || authErrorMessage) && (
             <div className="mt-5 p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2 animate-in fade-in duration-200">
               <AlertCircle className="w-4 h-4 flex-shrink-0" />
               <span>{localError || authErrorMessage}</span>
             </div>
           )}
 
-          {/* Primary Owner Access: Google Firebase Authentication */}
+          {/* Primary Owner Access: Google Authentication */}
           <div className="mt-6 space-y-3">
             <button
               type="button"
-              disabled={isAuthChecking}
+              disabled={isAuthChecking || isSubmitting}
               onClick={handleGoogleSignIn}
-              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#00DFFF] via-[#007BFF] to-[#8423DA] hover:opacity-95 text-[#080811] font-heading font-black text-sm tracking-wide shadow-lg shadow-[#00DFFF]/20 transition-all cursor-pointer active:scale-98 flex items-center justify-center gap-2"
+              className="w-full py-3.5 px-4 rounded-xl bg-gradient-to-r from-[#00DFFF] via-[#007BFF] to-[#8423DA] hover:opacity-95 text-[#080811] font-heading font-black text-sm tracking-wide shadow-lg shadow-[#00DFFF]/20 transition-all cursor-pointer active:scale-98 flex items-center justify-center gap-2 disabled:opacity-50"
             >
-              <LogIn className="w-4 h-4 text-[#080811]" />
-              <span>Entrar com Conta Google do Proprietário</span>
+              {isSubmitting ? (
+                <RefreshCw className="w-4 h-4 animate-spin text-[#080811]" />
+              ) : (
+                <LogIn className="w-4 h-4 text-[#080811]" />
+              )}
+              <span>Entrar com Conta Google Autorizada</span>
             </button>
 
             <div className="relative flex py-2 items-center">
               <div className="flex-grow border-t border-[#8423DA]/25"></div>
               <span className="flex-shrink mx-3 text-[10px] text-gray-400 uppercase font-bold tracking-wider">
-                ou acesso por credencial direta
+                ou credenciais administrativas
               </span>
               <div className="flex-grow border-t border-[#8423DA]/25"></div>
             </div>
@@ -153,7 +176,7 @@ export const AdminLogin: React.FC = () => {
             {/* Usuário / Login */}
             <div>
               <label className="block text-xs font-bold text-gray-200 mb-1.5">
-                Usuário do Proprietário *
+                Usuário ou E-mail do Administrador *
               </label>
               <div className="relative">
                 <User className="w-4 h-4 absolute left-3.5 top-3.5 text-gray-400" />
@@ -161,7 +184,7 @@ export const AdminLogin: React.FC = () => {
                   type="text"
                   value={username}
                   onChange={(e) => setUsername(e.target.value)}
-                  placeholder="admin"
+                  placeholder="admin@podwave.com"
                   required
                   className="w-full pl-10 pr-3.5 py-3 rounded-xl bg-[#141838] border border-[#8423DA]/30 focus:border-[#00DFFF] text-white text-sm focus:outline-none transition-colors"
                 />
@@ -170,19 +193,16 @@ export const AdminLogin: React.FC = () => {
 
             {/* Senha */}
             <div>
-              <div className="flex items-center justify-between mb-1.5">
-                <label className="block text-xs font-bold text-gray-200">
-                  Senha de Acesso *
-                </label>
-                <span className="text-[10px] text-gray-400">Padrão: 123</span>
-              </div>
+              <label className="block text-xs font-bold text-gray-200 mb-1.5">
+                Senha Administrativa *
+              </label>
               <div className="relative">
                 <KeyRound className="w-4 h-4 absolute left-3.5 top-3.5 text-gray-400" />
                 <input
                   type={showPassword ? 'text' : 'password'}
                   value={password}
                   onChange={(e) => setPassword(e.target.value)}
-                  placeholder="Digite sua senha (123)"
+                  placeholder="Digite sua senha de acesso"
                   required
                   className="w-full pl-10 pr-10 py-3 rounded-xl bg-[#141838] border border-[#8423DA]/30 focus:border-[#00DFFF] text-white text-sm focus:outline-none transition-colors"
                 />
@@ -191,36 +211,20 @@ export const AdminLogin: React.FC = () => {
                   onClick={() => setShowPassword(!showPassword)}
                   className="absolute right-3 top-3 text-gray-400 hover:text-white p-0.5 cursor-pointer"
                   tabIndex={-1}
+                  aria-label={showPassword ? 'Ocultar senha' : 'Exibir senha'}
                 >
                   {showPassword ? <EyeOff className="w-4 h-4" /> : <Eye className="w-4 h-4" />}
                 </button>
               </div>
             </div>
 
-            {/* Hint Box with Neon Palette */}
-            <div className="p-3 rounded-xl bg-[#11152A] border border-[#8423DA]/25 flex items-center justify-between text-[11px] text-[#A5A5B8]">
-              <span className="flex items-center gap-1.5 font-medium">
-                <ShieldCheck className="w-3.5 h-3.5 text-[#00DFFF]" />
-                Login: <strong className="text-white">admin</strong> &bull; Senha: <strong className="text-[#00DFFF]">123</strong>
-              </span>
-              <button
-                type="button"
-                onClick={() => {
-                  setUsername('admin');
-                  setPassword('123');
-                }}
-                className="text-[10px] text-[#00DFFF] hover:underline font-bold cursor-pointer"
-              >
-                Preencher
-              </button>
-            </div>
-
             {/* Submit button */}
             <button
               type="submit"
-              className="w-full py-3.5 px-4 rounded-xl bg-[#181C38] hover:bg-[#8423DA] border border-[#8423DA]/40 text-white font-heading font-black text-sm tracking-wide shadow-lg transition-all cursor-pointer active:scale-98"
+              disabled={isSubmitting}
+              className="w-full py-3.5 px-4 rounded-xl bg-[#181C38] hover:bg-[#8423DA] border border-[#8423DA]/40 text-white font-heading font-black text-sm tracking-wide shadow-lg transition-all cursor-pointer active:scale-98 disabled:opacity-50"
             >
-              Entrar como Proprietário
+              {isSubmitting ? 'Verificando autorização...' : 'Acessar Painel do Proprietário'}
             </button>
           </form>
 
@@ -239,7 +243,7 @@ export const AdminLogin: React.FC = () => {
 
         {/* Security badge footer */}
         <p className="text-center text-[11px] text-gray-500">
-          Sessão administrativa protegida com Supabase PostgreSQL &bull; {settings.storeName}
+          Autenticação administrativa restrita &bull; {settings.storeName}
         </p>
       </div>
     </div>

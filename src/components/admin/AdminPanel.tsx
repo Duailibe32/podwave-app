@@ -38,20 +38,26 @@ import {
   ShieldCheck,
   Flame,
   UserCheck,
+  Users,
   RefreshCw,
   SlidersHorizontal,
   Fingerprint,
   Copy,
   KeyRound,
   Database,
+  ChevronLeft,
+  ChevronRight,
 } from 'lucide-react';
 import { ProductModel, Brand, FlavorVariant, Coupon, VariantHistoryEntry } from '../../types/catalog';
 import { AdminLogin } from './AdminLogin';
 import { BannerVisualEditor } from './BannerVisualEditor';
 import { SupabaseTab } from './SupabaseTab';
+import { UserManagementTab } from './UserManagementTab';
+import { ActivityLogsSection } from './ActivityLogsSection';
+import { ImageEditorStudioModal } from './ImageEditorStudioModal';
 import { calculateVariantAvailability, calculateVariantsSummary, isNeedsAttention, DEFAULT_LOW_QUANTITY_THRESHOLD } from '../../utils/availability';
 
-type AdminTab = 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'configuracoes' | 'supabase';
+type AdminTab = 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'usuarios' | 'configuracoes' | 'supabase';
 
 export const AdminPanel: React.FC = () => {
   const {
@@ -61,6 +67,7 @@ export const AdminPanel: React.FC = () => {
     settings,
     coupons,
     isAdminAuthenticated,
+    isAdmin,
     currentUser,
     isOwner,
     adminLogout,
@@ -90,10 +97,39 @@ export const AdminPanel: React.FC = () => {
     setGlobalLowQuantityThreshold,
     configuredOwnerUid,
     setConfiguredOwnerUid,
+    activityLogs,
   } = useCatalog();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  // Horizontal scroll state & controls for Admin Navigation Tabs
+  const tabsContainerRef = React.useRef<HTMLDivElement>(null);
+  const [canScrollLeft, setCanScrollLeft] = useState(false);
+  const [canScrollRight, setCanScrollRight] = useState(false);
+
+  const checkTabsScroll = React.useCallback(() => {
+    if (tabsContainerRef.current) {
+      const { scrollLeft, scrollWidth, clientWidth } = tabsContainerRef.current;
+      setCanScrollLeft(scrollLeft > 6);
+      setCanScrollRight(scrollLeft < scrollWidth - clientWidth - 6);
+    }
+  }, []);
+
+  React.useEffect(() => {
+    checkTabsScroll();
+    const handleResize = () => checkTabsScroll();
+    window.addEventListener('resize', handleResize);
+    return () => window.removeEventListener('resize', handleResize);
+  }, [checkTabsScroll]);
+
+  const handleScrollTabs = (direction: 'left' | 'right') => {
+    if (tabsContainerRef.current) {
+      const offset = direction === 'left' ? -260 : 260;
+      tabsContainerRef.current.scrollBy({ left: offset, behavior: 'smooth' });
+      setTimeout(checkTabsScroll, 320);
+    }
+  };
 
   // State for Owner UID configuration in settings tab (Requested by user)
   const [ownerUidInput, setOwnerUidInput] = useState(configuredOwnerUid);
@@ -114,6 +150,36 @@ export const AdminPanel: React.FC = () => {
     e.preventDefault();
     setConfiguredOwnerUid(ownerUidInput.trim());
     showToast('UID Exclusivo do Proprietário atualizado com sucesso!');
+  };
+
+  // --- AI IMAGE STUDIO STATE & HANDLERS ---
+  const [isAiStudioOpen, setIsAiStudioOpen] = useState(false);
+  const [aiStudioTarget, setAiStudioTarget] = useState<'model' | 'flavor'>('model');
+  const [aiStudioContextTitle, setAiStudioContextTitle] = useState('Produto');
+  const [aiStudioInitialUrl, setAiStudioInitialUrl] = useState('');
+
+  const handleOpenAiStudioForModel = (initialUrl?: string, title?: string) => {
+    setAiStudioTarget('model');
+    setAiStudioContextTitle(title || modelForm.modelName || 'Modelo');
+    setAiStudioInitialUrl(initialUrl || modelForm.imageUrl || '');
+    setIsAiStudioOpen(true);
+  };
+
+  const handleOpenAiStudioForFlavor = (initialUrl?: string, title?: string) => {
+    setAiStudioTarget('flavor');
+    setAiStudioContextTitle(title || flavorForm.name || 'Sabor');
+    setAiStudioInitialUrl(initialUrl || flavorForm.customImage || modelForm.imageUrl || '');
+    setIsAiStudioOpen(true);
+  };
+
+  const handleApplyAiStudioImage = (newImageUrl: string) => {
+    if (aiStudioTarget === 'model') {
+      setModelForm((prev) => ({ ...prev, imageUrl: newImageUrl }));
+      showToast('Nova foto do modelo aprimorada com sucesso!');
+    } else {
+      setFlavorForm((prev) => ({ ...prev, customImage: newImageUrl }));
+      showToast('Nova foto do sabor aprimorada com sucesso!');
+    }
   };
 
   // --- VARIANT MANAGEMENT STATE & FILTERING ---
@@ -804,8 +870,8 @@ export const AdminPanel: React.FC = () => {
   const limitedCoupons = coupons.filter((c) => c.maxUses && c.maxUses > 0).length;
   const totalCouponsUsed = coupons.reduce((acc, c) => acc + c.usedCount, 0);
 
-  // If user is not authenticated as the owner, render the owner login/UID gate screen
-  if (!isAdminAuthenticated) {
+  // If user is not authenticated as an admin or owner, render the admin login gate screen
+  if (!isAdmin) {
     return <AdminLogin />;
   }
 
@@ -843,10 +909,10 @@ export const AdminPanel: React.FC = () => {
                 <div>
                   <div className="flex items-center gap-2">
                     <h1 className="font-heading text-lg font-black tracking-tight text-white flex items-center gap-2">
-                      Painel do Proprietário
+                      Painel Administrativo
                     </h1>
                     <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-[#00DFFF]/20 via-[#8423DA]/30 to-[#E53CF3]/20 border border-[#00DFFF]/50 text-[10px] text-[#00DFFF] font-black tracking-widest shadow-[0_0_10px_rgba(0,223,255,0.3)]">
-                      OWNER
+                      {isOwner ? 'PROPRIETÁRIO' : 'ADMINISTRADOR'}
                     </span>
                   </div>
                   <p className="text-[11px] text-[#A5A5B8] flex items-center gap-2 mt-0.5">
@@ -856,7 +922,7 @@ export const AdminPanel: React.FC = () => {
                     </span>
                     <span>&bull;</span>
                     <span className="text-gray-300 truncate max-w-[220px]">
-                      {currentUser?.displayName || currentUser?.email || 'Proprietário Autorizado'}
+                      {currentUser?.fullName || currentUser?.email || 'Proprietário Autorizado'}
                     </span>
                   </p>
                 </div>
@@ -892,121 +958,195 @@ export const AdminPanel: React.FC = () => {
             </div>
           </div>
 
-          {/* Navigation Tabs */}
-          <div className="flex items-center gap-2 overflow-x-auto pb-3 pt-1 scrollbar-none">
-            <button
-              onClick={() => setActiveTab('dashboard')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeTab === 'dashboard'
-                  ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
-              }`}
-            >
-              <LayoutDashboard className="w-3.5 h-3.5" />
-              <span>Dashboard</span>
-            </button>
+          {/* Navigation Tabs with Smooth Horizontal Scroll Controls */}
+          <div className="relative group/tabs pt-1 pb-3">
+            {/* Scroll Left Indicator Button */}
+            {canScrollLeft && (
+              <button
+                type="button"
+                onClick={() => handleScrollTabs('left')}
+                className="absolute left-0 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-[#0D1022]/95 hover:bg-[#8423DA] text-white border border-[#00DFFF]/60 flex items-center justify-center shadow-xl shadow-black/80 transition-all cursor-pointer backdrop-blur-md"
+                title="Rolar abas para a esquerda"
+                aria-label="Rolar para a esquerda"
+              >
+                <ChevronLeft className="w-4 h-4 text-[#00DFFF]" />
+              </button>
+            )}
 
-            {/* TAB: GESTÃO DE VARIANTES (SOLICITADO COM PRIORIDADE) */}
-            <button
-              onClick={() => setActiveTab('variantes')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 relative ${
-                activeTab === 'variantes'
-                  ? 'bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] text-white border-[#00DFFF] shadow-[0_0_15px_rgba(0,223,255,0.35)]'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
-              }`}
-            >
-              <Flame className="w-3.5 h-3.5 text-[#00DFFF]" />
-              <span>Gestão de Variantes</span>
-              {variantsSummary.precisamAtencao > 0 && (
-                <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-black font-black text-[10px] animate-pulse">
-                  {variantsSummary.precisamAtencao}
-                </span>
-              )}
-            </button>
+            {/* Scroll Right Indicator Button */}
+            {canScrollRight && (
+              <button
+                type="button"
+                onClick={() => handleScrollTabs('right')}
+                className="absolute right-0 top-1/2 -translate-y-1/2 z-20 w-8 h-8 rounded-full bg-[#0D1022]/95 hover:bg-[#8423DA] text-white border border-[#00DFFF]/60 flex items-center justify-center shadow-xl shadow-black/80 transition-all cursor-pointer backdrop-blur-md"
+                title="Rolar abas para a direita"
+                aria-label="Rolar para a direita"
+              >
+                <ChevronRight className="w-4 h-4 text-[#00DFFF]" />
+              </button>
+            )}
 
-            <button
-              onClick={() => setActiveTab('modelos')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeTab === 'modelos'
-                  ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
-              }`}
+            <div
+              ref={tabsContainerRef}
+              onScroll={checkTabsScroll}
+              className="flex items-center gap-2 overflow-x-auto pb-1.5 scroll-smooth [scrollbar-width:thin] [scrollbar-color:#8423DA_#0D1022] pr-10"
             >
-              <Package className="w-3.5 h-3.5" />
-              <span>Modelos & Puffs ({totalModels})</span>
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('dashboard');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'dashboard'
+                    ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <LayoutDashboard className="w-3.5 h-3.5" />
+                <span>Dashboard</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('marcas')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeTab === 'marcas'
-                  ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
-              }`}
-            >
-              <Layers className="w-3.5 h-3.5" />
-              <span>Marcas ({totalBrands})</span>
-            </button>
+              {/* TAB: GESTÃO DE VARIANTES (SOLICITADO COM PRIORIDADE) */}
+              <button
+                onClick={() => {
+                  setActiveTab('variantes');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 relative ${
+                  activeTab === 'variantes'
+                    ? 'bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] text-white border-[#00DFFF] shadow-[0_0_15px_rgba(0,223,255,0.35)]'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <Flame className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span>Gestão de Variantes</span>
+                {variantsSummary.precisamAtencao > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-amber-500 text-black font-black text-[10px] animate-pulse">
+                    {variantsSummary.precisamAtencao}
+                  </span>
+                )}
+              </button>
 
-            <button
-              onClick={() => setActiveTab('cupons')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeTab === 'cupons'
-                  ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
-              }`}
-            >
-              <Ticket className="w-3.5 h-3.5 text-[#00DFFF]" />
-              <span>Cupons ({totalCoupons})</span>
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('modelos');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'modelos'
+                    ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <Package className="w-3.5 h-3.5" />
+                <span>Modelos & Puffs ({totalModels})</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('banners')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeTab === 'banners'
-                  ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
-              }`}
-            >
-              <ImageIcon className="w-3.5 h-3.5" />
-              <span>Banners</span>
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('marcas');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'marcas'
+                    ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <Layers className="w-3.5 h-3.5" />
+                <span>Marcas ({totalBrands})</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('historico')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeTab === 'historico'
-                  ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
-              }`}
-            >
-              <History className="w-3.5 h-3.5 text-[#00DFFF]" />
-              <span>Auditoria ({variantHistory.length})</span>
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('cupons');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'cupons'
+                    ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <Ticket className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span>Cupons ({totalCoupons})</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('configuracoes')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeTab === 'configuracoes'
-                  ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
-              }`}
-            >
-              <Settings className="w-3.5 h-3.5" />
-              <span>Configurações</span>
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('banners');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'banners'
+                    ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <ImageIcon className="w-3.5 h-3.5" />
+                <span>Banners</span>
+              </button>
 
-            <button
-              onClick={() => setActiveTab('supabase')}
-              className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
-                activeTab === 'supabase'
-                  ? 'bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] font-black border-[#00DFFF] shadow-md shadow-[#00DFFF]/20'
-                  : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#00DFFF]/40'
-              }`}
-            >
-              <Database className="w-3.5 h-3.5 text-[#00DFFF]" />
-              <span>Supabase & SQL</span>
-            </button>
+              <button
+                onClick={() => {
+                  setActiveTab('historico');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'historico'
+                    ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <History className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span>Auditoria & Logs ({activityLogs.length + variantHistory.length})</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('usuarios');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'usuarios'
+                    ? 'bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] text-white border-[#00DFFF] shadow-md'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <Users className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span>Usuários & VIPs</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('configuracoes');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'configuracoes'
+                    ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white border-[#00DFFF]/50 shadow-md'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#8423DA]/40'
+                }`}
+              >
+                <Settings className="w-3.5 h-3.5" />
+                <span>Configurações</span>
+              </button>
+
+              <button
+                onClick={() => {
+                  setActiveTab('supabase');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'supabase'
+                    ? 'bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] font-black border-[#00DFFF] shadow-md shadow-[#00DFFF]/20'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#00DFFF]/40'
+                }`}
+              >
+                <Database className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span>Supabase & SQL</span>
+              </button>
+            </div>
           </div>
         </div>
       </div>
@@ -1316,7 +1456,7 @@ export const AdminPanel: React.FC = () => {
                   Gerenciamento de Modelos de Dispositivos
                 </h2>
                 <p className="text-xs text-[#A5A5B8]">
-                  Cadastre novos pods, defina a quantidade nominal de puffs ⚡, preços demonstrativos e ficha técnica.
+                  Cadastre novos pods, defina a quantidade nominal de puffs ⚡, preços e ficha técnica.
                 </p>
               </div>
 
@@ -1431,6 +1571,17 @@ export const AdminPanel: React.FC = () => {
                               title="Duplicar este modelo"
                             >
                               <Copy className="w-3.5 h-3.5" />
+                            </button>
+
+                            <button
+                              onClick={() => {
+                                handleOpenModelModal(model);
+                                handleOpenAiStudioForModel(model.imageUrl, model.modelName);
+                              }}
+                              className="p-1.5 rounded-lg bg-gradient-to-r from-[#8423DA]/30 to-[#00DFFF]/30 text-[#00DFFF] hover:text-white border border-[#00DFFF]/40 transition-all cursor-pointer shadow-sm"
+                              title="Editar ou Aprimorar Foto com IA"
+                            >
+                              <Sparkles className="w-3.5 h-3.5" />
                             </button>
 
                             <button
@@ -2195,108 +2346,9 @@ export const AdminPanel: React.FC = () => {
           </div>
         )}
 
-        {/* ===================== TAB: HISTÓRICO DE AUDITORIA DE VARIANTES (SECTION 16) ===================== */}
+        {/* ===================== TAB: CENTRAL DE AUDITORIA & LOGS DE ATIVIDADE ===================== */}
         {activeTab === 'historico' && (
-          <div className="space-y-6 animate-in fade-in duration-200">
-            <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 p-6 rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/30 shadow-xl">
-              <div>
-                <div className="flex items-center gap-2">
-                  <History className="w-5 h-5 text-[#00DFFF]" />
-                  <h2 className="font-heading text-xl font-bold text-white">
-                    Registro de Auditoria de Variantes
-                  </h2>
-                </div>
-                <p className="text-xs text-[#A5A5B8] mt-1">
-                  Histórico inviolável de alterações de quantidades e limites demonstrativos efetuadas pelo proprietário.
-                </p>
-              </div>
-
-              {variantHistory.length > 0 && (
-                <button
-                  onClick={() => {
-                    if (confirm('Deseja limpar o histórico de alterações local?')) {
-                      clearVariantHistory();
-                      showToast('Histórico limpo!');
-                    }
-                  }}
-                  className="px-3.5 py-1.5 rounded-xl bg-[#141838] hover:bg-rose-950/60 text-xs font-bold text-rose-300 transition-all cursor-pointer flex items-center gap-1.5"
-                >
-                  <Trash2 className="w-3.5 h-3.5" />
-                  <span>Limpar Histórico</span>
-                </button>
-              )}
-            </div>
-
-            <div className="rounded-3xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl overflow-hidden">
-              <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead>
-                    <tr className="border-b border-[#8423DA]/20 text-[#A5A5B8] bg-[#11152A]/80 font-bold uppercase tracking-wider text-[10px]">
-                      <th className="p-3.5">Data & Horário</th>
-                      <th className="p-3.5">Modelo / Produto</th>
-                      <th className="p-3.5">Variante / Sabor</th>
-                      <th className="p-3.5">Qtd Anterior</th>
-                      <th className="p-3.5">Nova Quantidade</th>
-                      <th className="p-3.5">Tipo de Ação</th>
-                      <th className="p-3.5">Responsável</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#8423DA]/10">
-                    {variantHistory.length === 0 ? (
-                      <tr>
-                        <td colSpan={7} className="p-12 text-center text-gray-400">
-                          <History className="w-8 h-8 text-gray-500 mx-auto mb-2" />
-                          <p className="text-xs font-semibold text-gray-300">
-                            Nenhum registro de alteração de variante ainda.
-                          </p>
-                          <p className="text-[11px] text-gray-500 mt-1">
-                            Ao editar a quantidade de um sabor pelo painel, a auditoria registrará o evento automaticamente.
-                          </p>
-                        </td>
-                      </tr>
-                    ) : (
-                      variantHistory.map((h) => (
-                        <tr key={h.id} className="hover:bg-[#141838]/60 transition-colors">
-                          <td className="p-3.5 text-gray-300 font-mono text-[11px]">
-                            {new Date(h.timestamp).toLocaleDateString('pt-BR', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
-                          </td>
-                          <td className="p-3.5 font-bold text-white text-xs">
-                            {h.modelName}
-                          </td>
-                          <td className="p-3.5">
-                            <span className="flex items-center gap-1.5 font-semibold text-gray-200">
-                              <span>{h.flavorEmoji}</span>
-                              <span>{h.flavorName}</span>
-                            </span>
-                          </td>
-                          <td className="p-3.5 font-mono text-gray-400">
-                            {h.previousQuantity === null || h.previousQuantity === undefined ? 'Não informado' : `${h.previousQuantity} un`}
-                          </td>
-                          <td className="p-3.5 font-mono font-bold text-[#00DFFF]">
-                            {h.newQuantity === null || h.newQuantity === undefined ? 'Não informado' : `${h.newQuantity} un`}
-                          </td>
-                          <td className="p-3.5">
-                            <span className="px-2 py-0.5 rounded-md bg-[#8423DA]/30 border border-[#8423DA]/50 text-[#00DFFF] text-[10px] font-bold">
-                              {h.changeType === 'quick_edit' ? 'Edição Rápida' : h.changeType === 'bulk_edit' ? 'Edição em Lote' : 'Ajuste'}
-                            </span>
-                          </td>
-                          <td className="p-3.5 text-gray-300 text-[11px]">
-                            {h.updatedBy}
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
-              </div>
-            </div>
-          </div>
+          <ActivityLogsSection />
         )}
 
         {/* ===================== TAB 5: BANNERS & DESTAQUES ===================== */}
@@ -2532,6 +2584,9 @@ export const AdminPanel: React.FC = () => {
 
         {/* ===================== TAB: SUPABASE & SQL (SOLICITADO PELO USUÁRIO) ===================== */}
         {activeTab === 'supabase' && <SupabaseTab />}
+
+        {/* ===================== TAB: GESTÃO DE USUÁRIOS, ADMINS & VIPS ===================== */}
+        {activeTab === 'usuarios' && <UserManagementTab />}
 
         {/* ===================== TAB: CUPONS & LIMITES (SOLICITADO PELO USUÁRIO) ===================== */}
         {activeTab === 'cupons' && (
@@ -3110,7 +3165,7 @@ export const AdminPanel: React.FC = () => {
 
               <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
-                  <label className="block font-semibold mb-1">Preço Demonstrativo (R$)</label>
+                  <label className="block font-semibold mb-1">Preço (R$)</label>
                   <input
                     type="number"
                     step="0.01"
@@ -3158,6 +3213,16 @@ export const AdminPanel: React.FC = () => {
                   </div>
 
                   <div className="flex-1 w-full space-y-2">
+                    {/* Botão de Estúdio de Fotos */}
+                    <button
+                      type="button"
+                      onClick={() => handleOpenAiStudioForModel(modelForm.imageUrl, modelForm.modelName || 'Modelo')}
+                      className="w-full py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:brightness-110 border border-[#00DFFF]/60 text-white font-black cursor-pointer transition flex items-center justify-center gap-2 text-xs shadow-[0_0_15px_rgba(0,223,255,0.3)] active:scale-95"
+                    >
+                      <Sparkles className="w-4 h-4 text-[#00DFFF] animate-pulse" />
+                      <span>Estúdio de Fotos: 20 Estilos & Variações</span>
+                    </button>
+
                     <label className="w-full py-2 px-3 rounded-xl bg-gradient-to-r from-[#8423DA]/30 to-[#007BFF]/30 hover:from-[#8423DA]/50 hover:to-[#007BFF]/50 border border-[#00DFFF]/50 text-white text-center font-bold cursor-pointer transition flex items-center justify-center gap-2 text-xs shadow-md active:scale-95">
                       <Plus className="w-3.5 h-3.5 text-[#00DFFF]" />
                       <span>Upload de Foto do Computador / Celular</span>
@@ -3456,7 +3521,7 @@ export const AdminPanel: React.FC = () => {
                     {editingFlavor ? 'Editar Sabor / Variante' : 'Novo Sabor / Variante'}
                   </h3>
                   <p className="text-[11px] text-[#A5A5B8]">
-                    Configure nome, emoji, cor de identificação, foto e estoque demonstrativo
+                    Configure nome, emoji, cor de identificação, foto e estoque
                   </p>
                 </div>
               </div>
@@ -3663,15 +3728,25 @@ export const AdminPanel: React.FC = () => {
                   )}
                 </div>
 
-                <div className="flex items-center gap-3">
+                <div className="flex flex-col sm:flex-row items-center gap-2">
                   {flavorForm.customImage && (
                     <div className="w-12 h-12 rounded-lg bg-white/10 p-1 flex items-center justify-center shrink-0 overflow-hidden border border-white/20">
                       <img src={flavorForm.customImage} alt="" className="max-w-full max-h-full object-contain" />
                     </div>
                   )}
-                  <label className="flex-1 py-2 px-3 rounded-xl bg-[#0D1022] hover:bg-[#181C38] border border-[#8423DA]/40 text-gray-300 hover:text-white text-center font-semibold cursor-pointer transition flex items-center justify-center gap-1.5 text-xs">
+
+                  <button
+                    type="button"
+                    onClick={() => handleOpenAiStudioForFlavor(flavorForm.customImage, flavorForm.name || 'Sabor')}
+                    className="w-full sm:flex-1 py-2 px-3 rounded-xl bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:brightness-110 border border-[#00DFFF]/50 text-white font-black cursor-pointer transition flex items-center justify-center gap-1.5 text-xs shadow-md active:scale-95"
+                  >
+                    <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
+                    <span>Estúdio: 20 Estilos & Variações</span>
+                  </button>
+
+                  <label className="w-full sm:flex-1 py-2 px-3 rounded-xl bg-[#0D1022] hover:bg-[#181C38] border border-[#8423DA]/40 text-gray-300 hover:text-white text-center font-semibold cursor-pointer transition flex items-center justify-center gap-1.5 text-xs">
                     <Plus className="w-3.5 h-3.5 text-[#00DFFF]" />
-                    <span>Escolher Foto do Sabor</span>
+                    <span>Upload do Arquivo</span>
                     <input
                       type="file"
                       accept="image/*"
@@ -3715,6 +3790,15 @@ export const AdminPanel: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ===================== MODAL: ESTÚDIO DE IMAGENS IA GEMINI ===================== */}
+      <ImageEditorStudioModal
+        isOpen={isAiStudioOpen}
+        onClose={() => setIsAiStudioOpen(false)}
+        initialImageUrl={aiStudioInitialUrl}
+        contextTitle={aiStudioContextTitle}
+        onApplyImage={handleApplyAiStudioImage}
+      />
     </div>
   );
 };

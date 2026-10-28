@@ -1,5 +1,7 @@
 import React from 'react';
 import { CatalogProvider, useCatalog } from './context/CatalogContext';
+import { ToastProvider } from './context/ToastContext';
+import { ToastContainer } from './components/ui/ToastContainer';
 import { Header } from './components/Header';
 import { HeroBanner } from './components/HeroBanner';
 import { BrandScroller } from './components/BrandScroller';
@@ -45,14 +47,17 @@ const AppContent: React.FC = () => {
       <OfflineIndicator />
       <AuthModal />
       <CustomerProfileModal />
+      <ToastContainer />
     </div>
   );
 };
 
 export default function App() {
   return (
-    <CatalogProvider>
-      <AppContent />
-    </CatalogProvider>
+    <ToastProvider>
+      <CatalogProvider>
+        <AppContent />
+      </CatalogProvider>
+    </ToastProvider>
   );
 }

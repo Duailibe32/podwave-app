@@ -13,13 +13,7 @@ import {
 import { buildWhatsAppUrl } from '../utils/whatsappShare';
 
 export const Footer: React.FC = () => {
-  const { settings, setCurrentView } = useCatalog();
-
-  const openAdmin = () => {
-    setCurrentView('admin');
-    window.history.pushState({}, '', '/admin');
-    window.scrollTo({ top: 0, behavior: 'smooth' });
-  };
+  const { settings } = useCatalog();
 
   const whatsappUrl = buildWhatsAppUrl(
     settings.whatsappNumber,
@@ -123,17 +117,6 @@ export const Footer: React.FC = () => {
               Troca em até 24 horas para produto com defeito de fábrica, sem sinal de uso e na embalagem original.
             </p>
           </div>
-        </div>
-
-        {/* Admin Access Bar */}
-        <div className="pt-2 flex justify-center sm:justify-start">
-          <button
-            onClick={openAdmin}
-            className="inline-flex items-center gap-2 px-3.5 py-1.5 rounded-xl bg-[#11152A] hover:bg-[#1C2245] border border-[#8423DA]/40 text-[#00DFFF] text-xs font-semibold transition-all cursor-pointer"
-          >
-            <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
-            <span>Acessar Painel Administrativo Demonstrativo (/admin)</span>
-          </button>
         </div>
 
         {/* Bottom Regulatory Notice & Copyright */}

@@ -12,7 +12,8 @@ import {
   ShoppingBag,
   Check,
   CheckCircle2,
-  ArrowRight
+  ArrowRight,
+  Sparkles,
 } from 'lucide-react';
 
 export const CartDrawer: React.FC = () => {
@@ -28,6 +29,9 @@ export const CartDrawer: React.FC = () => {
     applyCoupon,
     removeCoupon,
     discountAmount,
+    isVip,
+    vipDiscountAmount,
+    vipDiscountRate,
     cartSubtotal,
     cartTotal,
     freeShippingGoal,
@@ -345,10 +349,20 @@ export const CartDrawer: React.FC = () => {
                   </div>
                 )}
 
+                {isVip && vipDiscountAmount > 0 && (
+                  <div className="flex justify-between text-amber-300 font-bold">
+                    <span className="flex items-center gap-1">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Desconto Cliente VIP ({vipDiscountRate}%):</span>
+                    </span>
+                    <span className="font-mono">-R$ {vipDiscountAmount.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+
                 {appliedCoupon && (
                   <div className="flex justify-between text-emerald-400">
-                    <span>Desconto ({appliedCoupon.code}):</span>
-                    <span className="font-mono">-R$ {discountAmount.toFixed(2).replace('.', ',')}</span>
+                    <span>Cupom ({appliedCoupon.code}):</span>
+                    <span className="font-mono">-R$ {(discountAmount - vipDiscountAmount > 0 ? discountAmount - vipDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}</span>
                   </div>
                 )}
 

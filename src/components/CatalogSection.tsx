@@ -1,4 +1,5 @@
 import React, { useMemo } from 'react';
+import { motion, AnimatePresence } from 'motion/react';
 import { useCatalog } from '../context/CatalogContext';
 import { ProductCard } from './ProductCard';
 import { Search, Zap, SlidersHorizontal, RotateCcw, PackageX } from 'lucide-react';
@@ -180,8 +181,8 @@ export const CatalogSection: React.FC = () => {
                 <option value="relevance">Classificação: Relevância / TOP</option>
                 <option value="puffs-desc">Maior quantidade de Puffs ⚡</option>
                 <option value="puffs-asc">Menor quantidade de Puffs</option>
-                <option value="price-asc">Menor Preço Demonstrativo</option>
-                <option value="price-desc">Maior Preço Demonstrativo</option>
+                <option value="price-asc">Menor Preço</option>
+                <option value="price-desc">Maior Preço</option>
                 <option value="name-asc">Ordem Alfabética (A-Z)</option>
               </select>
             </div>
@@ -193,7 +194,8 @@ export const CatalogSection: React.FC = () => {
               <Zap className="w-3.5 h-3.5 text-[#00DFFF]" /> Faixa de Puffs:
             </span>
 
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedPuffRange('all')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === 'all'
@@ -202,9 +204,10 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               Todos
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedPuffRange('under-6k')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === 'under-6k'
@@ -213,9 +216,10 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               ⚡ Até 6.000 Puffs
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedPuffRange('6k-15k')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === '6k-15k'
@@ -224,9 +228,10 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               ⚡ 6.000 a 15.000 Puffs
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedPuffRange('15k-25k')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === '15k-25k'
@@ -235,9 +240,10 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               ⚡ 15.000 a 25.000 Puffs
-            </button>
+            </motion.button>
 
-            <button
+            <motion.button
+              whileTap={{ scale: 0.95 }}
               onClick={() => setSelectedPuffRange('over-25k')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === 'over-25k'
@@ -246,70 +252,93 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               ⚡ 30.000+ Puffs Max
-            </button>
+            </motion.button>
 
             {/* Category Filter Chips */}
             <div className="hidden lg:flex items-center gap-1.5 ml-auto">
               <span className="text-[#A5A5B8] mr-1">Categoria:</span>
-              <button
+              <motion.button
+                whileTap={{ scale: 0.94 }}
                 onClick={() => setSelectedCategory('all')}
-                className={`px-2.5 py-1 rounded-md text-[11px] font-medium ${
+                className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
                   selectedCategory === 'all'
                     ? 'bg-[#00DFFF] text-black font-bold'
                     : 'text-gray-400 hover:text-white'
                 }`}
               >
                 Todas
-              </button>
+              </motion.button>
               {categories.map((cat) => (
-                <button
+                <motion.button
                   key={cat}
+                  whileTap={{ scale: 0.94 }}
                   onClick={() => setSelectedCategory(cat)}
-                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium ${
+                  className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
                     selectedCategory === cat
                       ? 'bg-[#00DFFF] text-black font-bold'
                       : 'text-gray-400 hover:text-white'
                   }`}
                 >
                   {cat}
-                </button>
+                </motion.button>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Product Cards Grid: 2 columns on smartphone, 3 to 4 on desktop with smooth entrance animations */}
-        {filteredModels.length > 0 ? (
-          <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6">
-            {filteredModels.map((product, index) => (
-              <div
-                key={`${product.id}-${selectedBrand}-${selectedCategory}-${selectedPuffRange}-${selectedSort}-${searchQuery.trim()}`}
-                className="animate-card-fade-slide-up h-full flex flex-col"
-                style={{
-                  animationDelay: `${Math.min(index * 35, 320)}ms`,
-                }}
-              >
-                <ProductCard product={product} />
-              </div>
-            ))}
-          </div>
-        ) : (
-          <div className="py-16 text-center rounded-3xl bg-[#0D1022] light:bg-white border border-[#8423DA]/30 p-8 space-y-4">
-            <PackageX className="w-12 h-12 text-[#E53CF3] mx-auto opacity-70" />
-            <h3 className="font-heading text-xl font-bold text-white light:text-slate-900">
-              Nenhum modelo encontrado
-            </h3>
-            <p className="text-sm text-[#A5A5B8] max-w-md mx-auto">
-              Nenhum dispositivo atende aos filtros selecionados. Tente ajustar a busca, a marca ou a faixa de puffs.
-            </p>
-            <button
-              onClick={clearFilters}
-              className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white font-bold text-xs uppercase tracking-wider shadow-lg hover:brightness-110 transition-all cursor-pointer"
+        {/* Product Cards Grid: 2 columns on smartphone, 3 to 4 on desktop with smooth Framer Motion transitions */}
+        <AnimatePresence mode="wait">
+          {filteredModels.length > 0 ? (
+            <motion.div
+              key="product-grid"
+              layout
+              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6"
             >
-              Restaurar Todos os Filtros
-            </button>
-          </div>
-        )}
+              <AnimatePresence mode="popLayout">
+                {filteredModels.map((product) => (
+                  <motion.div
+                    key={product.id}
+                    layout
+                    initial={{ opacity: 0, scale: 0.92, y: 16 }}
+                    animate={{ opacity: 1, scale: 1, y: 0 }}
+                    exit={{ opacity: 0, scale: 0.88, y: -8, transition: { duration: 0.18, ease: 'easeIn' } }}
+                    transition={{
+                      duration: 0.28,
+                      ease: [0.16, 1, 0.3, 1],
+                      layout: { duration: 0.3, ease: [0.16, 1, 0.3, 1] },
+                    }}
+                    className="h-full flex flex-col"
+                  >
+                    <ProductCard product={product} />
+                  </motion.div>
+                ))}
+              </AnimatePresence>
+            </motion.div>
+          ) : (
+            <motion.div
+              key="empty-state"
+              initial={{ opacity: 0, y: 16, scale: 0.98 }}
+              animate={{ opacity: 1, y: 0, scale: 1 }}
+              exit={{ opacity: 0, y: -10, scale: 0.98 }}
+              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
+              className="py-16 text-center rounded-3xl bg-[#0D1022] light:bg-white border border-[#8423DA]/30 p-8 space-y-4"
+            >
+              <PackageX className="w-12 h-12 text-[#E53CF3] mx-auto opacity-70" />
+              <h3 className="font-heading text-xl font-bold text-white light:text-slate-900">
+                Nenhum modelo encontrado
+              </h3>
+              <p className="text-sm text-[#A5A5B8] max-w-md mx-auto">
+                Nenhum dispositivo atende aos filtros selecionados. Tente ajustar a busca, a marca ou a faixa de puffs.
+              </p>
+              <button
+                onClick={clearFilters}
+                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white font-bold text-xs uppercase tracking-wider shadow-lg hover:brightness-110 active:scale-95 transition-all cursor-pointer"
+              >
+                Restaurar Todos os Filtros
+              </button>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
     </section>
   );

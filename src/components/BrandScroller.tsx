@@ -1,4 +1,5 @@
 import React from 'react';
+import { motion } from 'motion/react';
 import { useCatalog } from '../context/CatalogContext';
 import { Check, RotateCcw, ArrowDown, Sparkles } from 'lucide-react';
 
@@ -324,8 +325,9 @@ export const BrandScroller: React.FC = () => {
             const productCount = getBrandProductCount(brand.id);
 
             return (
-              <button
+              <motion.button
                 key={brand.id}
+                whileTap={{ scale: 0.97 }}
                 onClick={() => handleSelectBrand(brand.id)}
                 className={`group relative flex flex-col justify-between h-[115px] sm:h-[125px] rounded-2xl p-2.5 transition-all duration-300 cursor-pointer overflow-hidden border text-left select-none ${theme.bgGradient} ${
                   isSelected
@@ -371,7 +373,7 @@ export const BrandScroller: React.FC = () => {
                     Ver &darr;
                   </span>
                 </div>
-              </button>
+              </motion.button>
             );
           })}
         </div>

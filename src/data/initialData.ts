@@ -532,7 +532,7 @@ export const INITIAL_BANNERS: BannerSlide[] = [
   {
     id: 'banner-3',
     title: 'Atendimento & Especificações Técnicas (+18)',
-    subtitle: 'Catálogo demonstrativo oficial de dispositivos originais com entrega ágil e suporte dedicado via WhatsApp.',
+    subtitle: 'Catálogo oficial de dispositivos originais com entrega ágil e suporte dedicado via WhatsApp.',
     badge: '🛡️ PROCEDÊNCIA GARANTIDA',
     tagline: 'QUALIDADE & ATENDIMENTO EXCLUSIVO',
     ctaText: 'Falar no WhatsApp',
@@ -645,4 +645,5 @@ export const INITIAL_SETTINGS: StoreSettings = {
   supportPhone: '(86) 99901-4685',
   whatsappNumber: '5586999014685',
   themePreference: 'dark',
+  vipDiscountPercent: 10,
 };

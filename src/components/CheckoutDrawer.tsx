@@ -20,21 +20,6 @@ import {
 
 import { OrderRecordPreviewModal } from './OrderRecordPreviewModal';
 
-interface DemoCoupon {
-  code: string;
-  percentage: number;
-  description: string;
-  minOrderValue?: number;
-}
-
-const DEMO_CHECKOUT_COUPONS: DemoCoupon[] = [
-  { code: 'PODWAVE10', percentage: 10, description: '10% OFF oficial PodWave' },
-  { code: 'PODWAVE15', percentage: 15, description: '15% OFF toda a região' },
-  { code: 'TURBO20', percentage: 20, description: '20% OFF modo Turbo Puffs' },
-  { code: 'VIP25', percentage: 25, description: '25% OFF cliente VIP exclusivo', minOrderValue: 120 },
-  { code: 'PRIMEIRACOMPRA', percentage: 10, description: '10% OFF primeira compra' },
-];
-
 export const CheckoutDrawer: React.FC = () => {
   const {
     cart,
@@ -44,6 +29,9 @@ export const CheckoutDrawer: React.FC = () => {
     applyCoupon,
     removeCoupon,
     discountAmount,
+    isVip,
+    vipDiscountAmount,
+    vipDiscountRate,
     cartSubtotal,
     cartTotal,
     isCheckoutOpen,
@@ -251,6 +239,47 @@ export const CheckoutDrawer: React.FC = () => {
               <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <span>{errorMessage}</span>
+              </div>
+            )}
+
+            {/* Smart Customer Account Banner */}
+            {currentUser ? (
+              <div className="p-3.5 rounded-2xl bg-gradient-to-r from-purple-900/40 via-[#141838] to-[#11152A] border border-[#8423DA]/50 flex items-center justify-between text-xs shadow-md">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#8423DA] to-[#00DFFF] flex items-center justify-center text-sm shadow">
+                    {currentUser.role === 'owner' ? '👑' : '👤'}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-1.5">
+                      <span className="text-white font-bold">{currentUser.fullName}</span>
+                      <span className="text-[10px] bg-purple-500/20 text-[#00DFFF] px-2 py-0.5 rounded-full border border-purple-500/30 font-semibold">
+                        {currentUser.role === 'owner' ? 'Proprietário' : 'Cliente PodWave'}
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-emerald-400 flex items-center gap-1 mt-0.5 font-medium">
+                      <Check className="w-3 h-3 text-emerald-400" /> Dados e endereço preenchidos automaticamente
+                    </p>
+                  </div>
+                </div>
+              </div>
+            ) : (
+              <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 flex items-center justify-between text-xs">
+                <div className="flex items-center gap-2.5">
+                  <div className="w-8 h-8 rounded-xl bg-[#8423DA]/20 border border-[#8423DA]/40 flex items-center justify-center text-[#00DFFF]">
+                    <LogIn className="w-4 h-4" />
+                  </div>
+                  <div>
+                    <p className="text-white font-semibold text-xs">Deseja salvar seus dados?</p>
+                    <p className="text-[11px] text-[#A5A5B8]">Faça login para salvar seus dados e agilizar compras futuras.</p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => openAuthModal('login')}
+                  className="px-3 py-1.5 rounded-xl bg-[#8423DA] hover:bg-[#9d3aef] text-white text-xs font-bold cursor-pointer transition-colors shadow shrink-0"
+                >
+                  Entrar
+                </button>
               </div>
             )}
 
@@ -593,14 +622,26 @@ export const CheckoutDrawer: React.FC = () => {
                   </div>
                 )}
 
+                {isVip && vipDiscountAmount > 0 && (
+                  <div className="flex items-center justify-between text-xs py-1 text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/30">
+                    <span className="flex items-center gap-1 font-bold">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      Desconto Cliente VIP ({vipDiscountRate}% OFF):
+                    </span>
+                    <span className="font-bold font-mono">
+                      -R$ {vipDiscountAmount.toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                )}
+
                 {appliedCoupon && (
                   <div className="flex items-center justify-between text-xs py-1 text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg">
                     <span className="flex items-center gap-1">
                       <Tag className="w-3 h-3" />
-                      Desconto ({appliedCoupon.code} &bull; {appliedCoupon.discountType === 'percent' ? `${appliedCoupon.value}%` : ''} OFF):
+                      Cupom ({appliedCoupon.code} &bull; {appliedCoupon.discountType === 'percent' ? `${appliedCoupon.value}%` : ''} OFF):
                     </span>
                     <span className="font-bold font-mono">
-                      -R$ {discountAmount.toFixed(2).replace('.', ',')}
+                      -R$ {(discountAmount - vipDiscountAmount > 0 ? discountAmount - vipDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}
                     </span>
                   </div>
                 )}
@@ -622,6 +663,21 @@ export const CheckoutDrawer: React.FC = () => {
                 </span>
               </div>
             </div>
+
+            {/* Salvar dados de entrega na conta */}
+            {currentUser && !isPickup && (
+              <label className="flex items-center gap-2 cursor-pointer text-xs text-gray-300 p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/25">
+                <input
+                  type="checkbox"
+                  checked={saveAddressToAccount}
+                  onChange={(e) => setSaveAddressToAccount(e.target.checked)}
+                  className="w-4 h-4 rounded accent-[#8423DA] bg-[#0D1022] border-[#8423DA]/40 cursor-pointer"
+                />
+                <span className="text-[11px] text-gray-200">
+                  Salvar ou atualizar este endereço na minha conta para compras futuras
+                </span>
+              </label>
+            )}
 
             {/* Visualizar Registro / Ficha Administrativa (PodWave 2.0) */}
             <div className="space-y-2 pt-1">

@@ -105,6 +105,8 @@ export interface StoreSettings {
   supportPhone: string;
   whatsappNumber: string;
   themePreference: 'dark' | 'light';
+  adminPassword?: string;
+  vipDiscountPercent?: number; // Desconto padrão (%) para clientes com cargo 'vip' (ex: 10)
 }
 
 export interface CartItem {
@@ -151,7 +153,7 @@ export interface OrderForm {
   gpsMapsUrl?: string;
 }
 
-export type UserRole = 'customer' | 'owner';
+export type UserRole = 'customer' | 'vip' | 'admin' | 'owner';
 
 export interface CustomerAddress {
   cep?: string;
@@ -188,4 +190,35 @@ export interface UserProfile {
   address?: CustomerAddress;
   orderHistory?: CustomerOrderHistoryItem[];
   createdAt?: string;
+  vipDiscountCustom?: number; // Desconto VIP exclusivo personalizado para este cliente
+}
+
+export type ActivityActionType =
+  | 'PRODUTO_ADICIONADO'
+  | 'PRODUTO_EDITADO'
+  | 'PRODUTO_REMOVIDO'
+  | 'SABOR_ADICIONADO'
+  | 'SABOR_EDITADO'
+  | 'SABOR_REMOVIDO'
+  | 'MARCA_ADICIONADA'
+  | 'MARCA_EDITADA'
+  | 'MARCA_REMOVIDA'
+  | 'CUPOM_CRIADO'
+  | 'CUPOM_EDITADO'
+  | 'CUPOM_REMOVIDO'
+  | 'ERRO_PERMISSAO'
+  | 'ERRO_BANCO_DADOS';
+
+export interface ActivityLogEntry {
+  id: string;
+  action: ActivityActionType;
+  actionLabel: string;
+  entity: 'product_models' | 'flavor_variants' | 'brands' | 'coupons' | 'settings' | 'auth';
+  entityName: string;
+  details: string;
+  author: string;
+  authorEmail?: string;
+  status: 'sucesso' | 'erro' | 'alerta';
+  errorMessage?: string;
+  timestamp: string;
 }

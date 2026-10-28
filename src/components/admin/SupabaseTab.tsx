@@ -140,12 +140,51 @@ CREATE TABLE IF NOT EXISTS public.audit_logs (
     notes TEXT
 );
 
+-- 8. TABELA DE PERFIS DE CLIENTES E USUÁRIOS
+CREATE TABLE IF NOT EXISTS public.customer_profiles (
+    id TEXT PRIMARY KEY,
+    email TEXT NOT NULL UNIQUE,
+    full_name TEXT NOT NULL,
+    phone TEXT,
+    cpf TEXT,
+    role TEXT DEFAULT 'customer' CHECK (role IN ('customer', 'owner')) NOT NULL,
+    address_cep TEXT,
+    address_street TEXT,
+    address_number TEXT,
+    address_neighborhood TEXT,
+    address_complement TEXT,
+    address_city TEXT,
+    address_state TEXT,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
+    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
+-- 9. TABELA DE HISTÓRICO DE PEDIDOS DE CLIENTES
+CREATE TABLE IF NOT EXISTS public.customer_orders (
+    id TEXT PRIMARY KEY,
+    customer_id TEXT NOT NULL REFERENCES public.customer_profiles(id) ON DELETE CASCADE,
+    reference_id TEXT NOT NULL,
+    items JSONB NOT NULL,
+    subtotal NUMERIC(10, 2) NOT NULL,
+    discount NUMERIC(10, 2) DEFAULT 0 NOT NULL,
+    total NUMERIC(10, 2) NOT NULL,
+    payment_method TEXT NOT NULL,
+    delivery_type TEXT DEFAULT 'delivery' NOT NULL,
+    address_summary TEXT,
+    status TEXT DEFAULT 'recebido' NOT NULL,
+    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+);
+
 -- ÍNDICES PARA ALTA PERFORMANCE
 CREATE INDEX IF NOT EXISTS idx_product_models_brand_id ON public.product_models(brand_id);
 CREATE INDEX IF NOT EXISTS idx_flavor_variants_model_id ON public.flavor_variants(model_id);
 CREATE INDEX IF NOT EXISTS idx_flavor_variants_stock ON public.flavor_variants(in_stock);
 CREATE INDEX IF NOT EXISTS idx_coupons_code ON public.coupons(code);
 CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs(created_at DESC);
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_email ON public.customer_profiles(email);
+CREATE INDEX IF NOT EXISTS idx_customer_profiles_role ON public.customer_profiles(role);
+CREATE INDEX IF NOT EXISTS idx_customer_orders_customer_id ON public.customer_orders(customer_id);
+CREATE INDEX IF NOT EXISTS idx_customer_orders_created_at ON public.customer_orders(created_at DESC);
 
 -- HABILITAR ROW LEVEL SECURITY (RLS)
 ALTER TABLE public.brands ENABLE ROW LEVEL SECURITY;
@@ -155,6 +194,8 @@ ALTER TABLE public.banners ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customer_profiles ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.customer_orders ENABLE ROW LEVEL SECURITY;
 
 -- POLÍTICAS: LEITURA PÚBLICA PARA CLIENTES
 CREATE POLICY "Public Read Brands" ON public.brands FOR SELECT USING (true);
@@ -163,6 +204,8 @@ CREATE POLICY "Public Read Flavors" ON public.flavor_variants FOR SELECT USING (
 CREATE POLICY "Public Read Banners" ON public.banners FOR SELECT USING (true);
 CREATE POLICY "Public Read Coupons" ON public.coupons FOR SELECT USING (true);
 CREATE POLICY "Public Read Settings" ON public.store_settings FOR SELECT USING (true);
+CREATE POLICY "Public Read Customer Profiles" ON public.customer_profiles FOR SELECT USING (true);
+CREATE POLICY "Public Read Customer Orders" ON public.customer_orders FOR SELECT USING (true);
 
 -- POLÍTICAS: ADMINISTRAÇÃO TOTAL VIA ANON KEY COM CHAVE DO SUPABASE
 CREATE POLICY "Admin Full Brands" ON public.brands FOR ALL USING (true) WITH CHECK (true);
@@ -171,7 +214,9 @@ CREATE POLICY "Admin Full Flavors" ON public.flavor_variants FOR ALL USING (true
 CREATE POLICY "Admin Full Banners" ON public.banners FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Admin Full Coupons" ON public.coupons FOR ALL USING (true) WITH CHECK (true);
 CREATE POLICY "Admin Full Settings" ON public.store_settings FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full AuditLogs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);`;
+CREATE POLICY "Admin Full AuditLogs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Admin Full Customer Profiles" ON public.customer_profiles FOR ALL USING (true) WITH CHECK (true);
+CREATE POLICY "Admin Full Customer Orders" ON public.customer_orders FOR ALL USING (true) WITH CHECK (true);`;
 
 const SEED_SQL = `-- ==============================================================================
 -- PODWAVE CATALOG - SUPABASE SEED DATA
@@ -218,6 +263,178 @@ ON CONFLICT (id) DO UPDATE SET
     discount_type = EXCLUDED.discount_type,
     value = EXCLUDED.value;`;
 
+const RLS_ROLES_SQL = `-- ==============================================================================
+-- PODWAVE CATALOG - SUPABASE MIGRATION: RLS ROLE-BASED ACCESS CONTROL & VIPS
+-- Migration: 20261025000002_role_based_access_control_and_vips.sql
+-- Description:
+--   1. Permissões de escrita no catálogo restritas a Administradores (role: 'admin' ou 'owner').
+--   2. Funções de segurança PostgreSQL: is_admin(), is_vip(), get_user_role().
+--   3. Suporte a Clientes VIP com desconto automático configurável.
+-- ==============================================================================
+
+-- 1. ATUALIZAR CONSTRAINT DE ROLE NA TABELA customer_profiles
+ALTER TABLE public.customer_profiles 
+    DROP CONSTRAINT IF EXISTS customer_profiles_role_check;
+
+ALTER TABLE public.customer_profiles 
+    ADD CONSTRAINT customer_profiles_role_check 
+    CHECK (role IN ('customer', 'vip', 'admin', 'owner'));
+
+ALTER TABLE public.customer_profiles
+    ADD COLUMN IF NOT EXISTS vip_discount_custom NUMERIC(5, 2) DEFAULT NULL;
+
+ALTER TABLE public.store_settings
+    ADD COLUMN IF NOT EXISTS vip_discount_percent NUMERIC(5, 2) DEFAULT 10.00;
+
+-- 2. FUNÇÃO SECURITY DEFINER: is_admin()
+CREATE OR REPLACE FUNCTION public.is_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1 
+    FROM public.customer_profiles
+    WHERE id = auth.uid()::text
+      AND role IN ('admin', 'owner')
+  );
+END;
+$$;
+
+-- 3. FUNÇÃO SECURITY DEFINER: is_vip()
+CREATE OR REPLACE FUNCTION public.is_vip()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  RETURN EXISTS (
+    SELECT 1 
+    FROM public.customer_profiles
+    WHERE id = auth.uid()::text
+      AND role = 'vip'
+  );
+END;
+$$;
+
+-- 4. FUNÇÃO SECURITY DEFINER: get_user_role()
+CREATE OR REPLACE FUNCTION public.get_user_role()
+RETURNS TEXT
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public
+STABLE
+AS $$
+DECLARE
+  current_role TEXT;
+BEGIN
+  IF auth.uid() IS NULL THEN
+    RETURN 'anon';
+  END IF;
+
+  SELECT role INTO current_role
+  FROM public.customer_profiles
+  WHERE id = auth.uid()::text;
+
+  RETURN COALESCE(current_role, 'customer');
+END;
+$$;
+
+-- Permissões de execução para os papéis do Supabase
+GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.is_vip() TO anon, authenticated, service_role;
+GRANT EXECUTE ON FUNCTION public.get_user_role() TO anon, authenticated, service_role;
+
+-- 5. ATUALIZAÇÃO DAS POLÍTICAS DE RLS PARA O CATÁLOGO (APENAS ADMIN PODE MODIFICAR)
+-- PRODUCT_MODELS
+ALTER TABLE public.product_models ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admin Insert Product Models" ON public.product_models;
+DROP POLICY IF EXISTS "Admin Update Product Models" ON public.product_models;
+DROP POLICY IF EXISTS "Admin Delete Product Models" ON public.product_models;
+
+CREATE POLICY "Admin Insert Product Models" ON public.product_models FOR INSERT WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Update Product Models" ON public.product_models FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Delete Product Models" ON public.product_models FOR DELETE USING (public.is_admin());
+
+-- BRANDS
+ALTER TABLE public.brands ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admin Insert Brands" ON public.brands;
+DROP POLICY IF EXISTS "Admin Update Brands" ON public.brands;
+DROP POLICY IF EXISTS "Admin Delete Brands" ON public.brands;
+
+CREATE POLICY "Admin Insert Brands" ON public.brands FOR INSERT WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Update Brands" ON public.brands FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Delete Brands" ON public.brands FOR DELETE USING (public.is_admin());
+
+-- FLAVOR_VARIANTS
+ALTER TABLE public.flavor_variants ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admin Insert Flavors" ON public.flavor_variants;
+DROP POLICY IF EXISTS "Admin Update Flavors" ON public.flavor_variants;
+DROP POLICY IF EXISTS "Admin Delete Flavors" ON public.flavor_variants;
+
+CREATE POLICY "Admin Insert Flavors" ON public.flavor_variants FOR INSERT WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Update Flavors" ON public.flavor_variants FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Delete Flavors" ON public.flavor_variants FOR DELETE USING (public.is_admin());
+
+-- BANNERS
+ALTER TABLE public.banners ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admin Insert Banners" ON public.banners;
+DROP POLICY IF EXISTS "Admin Update Banners" ON public.banners;
+DROP POLICY IF EXISTS "Admin Delete Banners" ON public.banners;
+
+CREATE POLICY "Admin Insert Banners" ON public.banners FOR INSERT WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Update Banners" ON public.banners FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Delete Banners" ON public.banners FOR DELETE USING (public.is_admin());
+
+-- COUPONS
+ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admin Insert Coupons" ON public.coupons;
+DROP POLICY IF EXISTS "Admin Update Coupons" ON public.coupons;
+DROP POLICY IF EXISTS "Admin Delete Coupons" ON public.coupons;
+
+CREATE POLICY "Admin Insert Coupons" ON public.coupons FOR INSERT WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Update Coupons" ON public.coupons FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Delete Coupons" ON public.coupons FOR DELETE USING (public.is_admin());
+
+-- STORE_SETTINGS
+ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Admin Insert Settings" ON public.store_settings;
+DROP POLICY IF EXISTS "Admin Update Settings" ON public.store_settings;
+
+CREATE POLICY "Admin Insert Settings" ON public.store_settings FOR INSERT WITH CHECK (public.is_admin());
+CREATE POLICY "Admin Update Settings" ON public.store_settings FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+
+-- 6. POLÍTICAS DE RLS PARA CUSTOMER_PROFILES
+ALTER TABLE public.customer_profiles ENABLE ROW LEVEL SECURITY;
+DROP POLICY IF EXISTS "Users can read own or admin read all" ON public.customer_profiles;
+CREATE POLICY "Users can read own or admin read all" 
+  ON public.customer_profiles FOR SELECT 
+  USING (id = auth.uid()::text OR public.is_admin());
+
+DROP POLICY IF EXISTS "Users can update own or admin update all" ON public.customer_profiles;
+CREATE POLICY "Users can update own or admin update all" 
+  ON public.customer_profiles FOR UPDATE 
+  USING (id = auth.uid()::text OR public.is_admin())
+  WITH CHECK (id = auth.uid()::text OR public.is_admin());
+
+-- 7. GARANTIR QUE OS E-MAILS DE PROPRIETÁRIO TENHAM O CARGO 'owner'
+UPDATE public.customer_profiles
+SET role = 'owner'
+WHERE email IN ('duailibe32@gmail.com', 'proprietario@podwave.com', 'admin@podwave.com');`;
+
 export const SupabaseTab: React.FC = () => {
   const {
     brands,
@@ -246,7 +463,7 @@ export const SupabaseTab: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoadingFromCloud, setIsLoadingFromCloud] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
-  const [activeSqlView, setActiveSqlView] = useState<'schema' | 'seed'>('schema');
+  const [activeSqlView, setActiveSqlView] = useState<'schema' | 'seed' | 'rls_roles'>('schema');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const notify = (msg: string) => {
@@ -308,7 +525,12 @@ export const SupabaseTab: React.FC = () => {
     }
   };
 
-  const currentSql = activeSqlView === 'schema' ? SCHEMA_SQL : SEED_SQL;
+  const currentSql =
+    activeSqlView === 'schema'
+      ? SCHEMA_SQL
+      : activeSqlView === 'seed'
+      ? SEED_SQL
+      : RLS_ROLES_SQL;
 
   const handleCopySql = () => {
     navigator.clipboard.writeText(currentSql);
@@ -318,7 +540,12 @@ export const SupabaseTab: React.FC = () => {
   };
 
   const handleDownloadSql = () => {
-    const filename = activeSqlView === 'schema' ? '20261025000000_initial_schema.sql' : 'seed.sql';
+    const filename =
+      activeSqlView === 'schema'
+        ? '20261025000000_initial_schema.sql'
+        : activeSqlView === 'seed'
+        ? 'seed.sql'
+        : '20261025000002_role_based_access_control_and_vips.sql';
     const blob = new Blob([currentSql], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -706,27 +933,38 @@ export const SupabaseTab: React.FC = () => {
         </div>
 
         {/* Tab switch for SQL files */}
-        <div className="flex items-center gap-2 border-b border-[#8423DA]/20 pb-2">
+        <div className="flex items-center gap-2 border-b border-[#8423DA]/20 pb-2 overflow-x-auto">
           <button
             onClick={() => setActiveSqlView('schema')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeSqlView === 'schema'
                 ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white shadow-md'
                 : 'bg-[#141838] text-gray-400 hover:text-white'
             }`}
           >
-            1. Migration: 20261025000000_initial_schema.sql (Estrutura, RLS e Índices)
+            1. Migration: initial_schema.sql (Estrutura)
           </button>
 
           <button
             onClick={() => setActiveSqlView('seed')}
-            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer ${
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeSqlView === 'seed'
                 ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white shadow-md'
                 : 'bg-[#141838] text-gray-400 hover:text-white'
             }`}
           >
-            2. Seed: seed.sql (Dados Padrão da Loja)
+            2. Seed: seed.sql (Dados Iniciais)
+          </button>
+
+          <button
+            onClick={() => setActiveSqlView('rls_roles')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeSqlView === 'rls_roles'
+                ? 'bg-gradient-to-r from-[#00DFFF] to-[#8423DA] text-white shadow-md font-black'
+                : 'bg-[#141838] text-gray-400 hover:text-[#00DFFF]'
+            }`}
+          >
+            3. Migration: RLS & Cargos (is_admin, is_vip & Permissões)
           </button>
         </div>
 
@@ -735,7 +973,13 @@ export const SupabaseTab: React.FC = () => {
           <div className="flex items-center justify-between px-4 py-2.5 bg-[#11152A] border-b border-white/10 text-xs">
             <div className="flex items-center gap-2 text-gray-300 font-mono text-[11px]">
               <Database className="w-3.5 h-3.5 text-[#00DFFF]" />
-              <span>{activeSqlView === 'schema' ? 'supabase/migrations/20261025000000_initial_schema.sql' : 'supabase/seed.sql'}</span>
+              <span>
+                {activeSqlView === 'schema'
+                  ? 'supabase/migrations/20261025000000_initial_schema.sql'
+                  : activeSqlView === 'seed'
+                  ? 'supabase/seed.sql'
+                  : 'supabase/migrations/20261025000002_role_based_access_control_and_vips.sql'}
+              </span>
             </div>
             <button
               onClick={handleCopySql}

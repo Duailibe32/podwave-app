@@ -23,6 +23,9 @@ export const CustomerProfileModal: React.FC = () => {
   const {
     currentUser,
     isOwner,
+    isAdmin,
+    isVip,
+    settings,
     isProfileModalOpen,
     closeProfileModal,
     logoutUser,
@@ -150,9 +153,19 @@ export const CustomerProfileModal: React.FC = () => {
                     <Crown className="w-3 h-3 text-amber-400" />
                     Proprietário
                   </span>
+                ) : currentUser.role === 'admin' ? (
+                  <span className="px-2.5 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/50 text-purple-300 text-[10px] font-black flex items-center gap-1 shadow-sm">
+                    <ShieldCheck className="w-3 h-3 text-purple-400" />
+                    Administrador
+                  </span>
+                ) : isVip ? (
+                  <span className="px-2.5 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[10px] font-bold flex items-center gap-1">
+                    <Sparkles className="w-3 h-3 text-[#00DFFF]" />
+                    Cliente VIP ({currentUser.vipDiscountCustom || settings.vipDiscountPercent || 10}% OFF)
+                  </span>
                 ) : (
-                  <span className="px-2.5 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[10px] font-bold">
-                    Cliente VIP PodWave
+                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 border border-white/20 text-[#A5A5B8] text-[10px] font-bold">
+                    Cliente PodWave
                   </span>
                 )}
               </div>
@@ -171,12 +184,12 @@ export const CustomerProfileModal: React.FC = () => {
           </button>
         </div>
 
-        {/* Owner Quick Access Shortcut */}
-        {isOwner && (
+        {/* Admin Quick Access Shortcut */}
+        {isAdmin && (
           <div className="px-6 py-2.5 bg-gradient-to-r from-amber-500/10 via-[#8423DA]/10 to-[#00DFFF]/10 border-b border-[#8423DA]/25 flex items-center justify-between text-xs">
             <span className="text-amber-200 text-[11px] font-semibold flex items-center gap-1.5">
               <ShieldCheck className="w-4 h-4 text-amber-400" />
-              Você tem permissão de Dono para gerenciar a loja
+              {isOwner ? 'Você tem permissão de Dono da loja' : 'Você tem permissão de Administrador'}
             </span>
             <button
               type="button"
