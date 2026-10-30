@@ -18,7 +18,7 @@ Arquivo: supabase/migrations/20261030020000_customer_service_history.sql. Adicio
 
 RLS e privilégios permitem somente SELECT/INSERT/UPDATE ao proprietário financeiro autenticado. DELETE não é concedido. Não altera as políticas existentes, vendas, quantidades, parcelas, pagamentos ou dados históricos. As notas e alterações são registradas no mesmo fluxo de auditoria confirmado do banco.
 
-O SQL não foi executado no projeto real. O PR deve permanecer em rascunho até revisar/instalar a tabela e atualizar o código no AI Studio. Antes da instalação, a área de atendimentos informa a pendência sem bloquear a ficha financeira.
+O usuário confirmou a instalação pelo SQL Editor com “Success. No rows returned”. O agente não acessou nem alterou diretamente o banco real. O PR segue sem integração por orientação explícita do usuário; a revisão atual compatibilizou a branch com a main atualizada. Antes da instalação, a área de atendimentos informa a pendência sem bloquear a ficha financeira. Esta revisão não muda o SQL instalado nem exige executá-lo novamente.
 
 ## Situação do pedido
 
@@ -31,3 +31,5 @@ Foco de teclado visível nos controles, com cores adequadas para temas escuro/cl
 ## Verificação
 
 node scripts/test-service-history.cjs: instalação idempotente, pré-requisitos, autorização, autoria confiável, vínculo real, motivo, versão concorrente, correção/invalidação, conteúdo antes/depois na auditoria, impossibilidade de exclusão e estados da linha do tempo. PostgreSQL em memória; nenhum dado real alterado. Também devem passar os testes anteriores, verificação de tipos e build. Conferência visual/de teclado no dispositivo real permanece pendente.
+
+Revisão da main atualizada: conflito de importações na conta resolvido preservando os componentes existentes. Atualizar atendimentos agora preserva os campos ainda não salvos e seu identificador de repetição; o salvamento aguarda a consulta da lista para evitar que uma resposta antiga esconda um registro recém-criado. Teste adicional: node scripts/test-service-history-drafts.cjs. Correção de versão desatualizada orienta a reabrir Corrigir após atualizar, mantendo os campos digitados.

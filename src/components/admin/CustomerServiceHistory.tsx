@@ -14,7 +14,10 @@ export function CustomerServiceHistory({customer}:{customer:CustomerFinancialFil
   useEffect(()=>{if(editing){formRef.current?.scrollIntoView({behavior:'auto',block:'center'});reasonRef.current?.focus();}},[editing?.id,voiding]);
   const signature=JSON.stringify(customer.records.map(r=>[r.origin,r.id]));
   useEffect(()=>{
-    const version=++generation.current;setNotes([]);setError('');setBody('');setReason('');setEditing(null);setVoiding(false);setSource('');setDate(today());requestId.current=crypto.randomUUID();
+    const version=++generation.current;setError('');
+    // A list refresh must preserve the unsaved form and its retry identifier.
+    // The parent keys this component by customer, so changing customers remounts it.
+    if(!requestId.current)requestId.current=crypto.randomUUID();
     if(!isOwner)return;
     setLoading(true);
     void listServiceNotes(customer.records).then(rows=>{if(generation.current===version)setNotes(rows);}).catch(e=>{if(generation.current===version)setError(e.message);}).finally(()=>{if(generation.current===version)setLoading(false);});
@@ -23,7 +26,7 @@ export function CustomerServiceHistory({customer}:{customer:CustomerFinancialFil
   if(!isOwner)return null;
   const confirmed=customer.records.filter(r=>r.syncStatus==='synced');
   const save=async(e:React.FormEvent)=>{
-    e.preventDefault();if(busy)return;
+    e.preventDefault();if(busy || loading)return;
     const version=generation.current;
     const origin=confirmed.find(r=>r.key===source);
     if(!editing && !origin){setError('Escolha um registro confirmado no banco.');return;}
@@ -47,7 +50,7 @@ export function CustomerServiceHistory({customer}:{customer:CustomerFinancialFil
       <label className="block text-xs">Data do atendimento<input type="date" required value={date} disabled={busy || voiding} onChange={e=>{setDate(e.target.value);if(!editing)requestId.current=crypto.randomUUID();}} className="block rounded-lg bg-[#181C3D] p-2 mt-1" /></label>
       <label className="block text-xs">Observação interna<textarea required maxLength={4000} value={body} disabled={busy || voiding} onChange={e=>{setBody(e.target.value);if(!editing)requestId.current=crypto.randomUUID();}} className="block w-full rounded-lg bg-[#181C3D] p-3 mt-1" rows={3} /></label>
       <label className="block text-xs">Motivo do registro, correção ou invalidação<input ref={reasonRef} required minLength={3} maxLength={500} value={reason} disabled={busy} onChange={e=>{setReason(e.target.value);if(!editing)requestId.current=crypto.randomUUID();}} className="block w-full rounded-lg bg-[#181C3D] p-2 mt-1" /></label>
-      <div className="flex gap-3"><button type="submit" disabled={busy || (!editing && !confirmed.length)} className={button+(voiding?' text-rose-300':' text-cyan-300')}>{busy?'Salvando...':voiding?'Confirmar invalidação':'Salvar atendimento'}</button>{editing && <button type="button" disabled={busy} onClick={()=>{setEditing(null);setVoiding(false);setBody('');setReason('');setDate(today());setError('');}} className={button}>Cancelar</button>}</div>
+      <div className="flex gap-3"><button type="submit" disabled={busy || loading || (!editing && !confirmed.length)} className={button+(voiding?' text-rose-300':' text-cyan-300')}>{busy?'Salvando...':voiding?'Confirmar invalidação':'Salvar atendimento'}</button>{editing && <button type="button" disabled={busy} onClick={()=>{setEditing(null);setVoiding(false);setBody('');setReason('');setDate(today());setError('');}} className={button}>Cancelar</button>}</div>
     </form>
     <p className="text-xs text-gray-400">{loading?'Carregando...':`${notes.length} atendimento(s) exibido(s). Até os 100 mais recentes desta ficha.`}</p>
     {notes.map(note=><article key={note.id} className="rounded-lg border border-white/10 p-3 space-y-2 text-sm"><div className="flex flex-wrap justify-between gap-2"><span>{note.occurred_on.split('-').reverse().join('/')} · {note.is_void?'Invalidado':'Ativo'}</span>{!note.is_void && <div className="flex gap-3"><button disabled={busy} onClick={()=>{setEditing(note);setVoiding(false);setBody(note.body);setDate(note.occurred_on);setReason('');setError('');}} className="text-cyan-300">Corrigir</button><button disabled={busy} onClick={()=>{setEditing(note);setVoiding(true);setBody(note.body);setDate(note.occurred_on);setReason('');setError('');}} className="text-rose-300">Invalidar</button></div>}</div><p className="whitespace-pre-wrap break-words">{note.body}</p><p className="text-xs text-gray-400 break-all">Origem: {note.source_kind} · {note.source_id}<br/>Criado por: {note.created_by} · {new Date(note.created_at).toLocaleString('pt-BR')}<br/>Última alteração: {note.updated_by} · versão {note.version}<br/>Motivo: {note.change_reason}</p></article>)}

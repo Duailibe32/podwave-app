@@ -30,6 +30,6 @@ export async function createServiceNote(input: ServiceNoteInput): Promise<Custom
 export async function updateServiceNote(note: CustomerServiceNote, changes: {body:string;occurred_on:string;change_reason:string;is_void:boolean}): Promise<CustomerServiceNote> {
   const client=getSupabaseClient();if(!client)throw new Error('Conecte o Supabase para corrigir o atendimento.');
   const {data,error}=await client.from('customer_service_notes').update({...changes,version:note.version+1}).eq('id',note.id).eq('version',note.version).select('*').maybeSingle();
-  if(error)throw message(error);if(!data)throw new Error('Atendimento alterado ou não autorizado. Recarregue o histórico antes de tentar novamente.');
+  if(error)throw message(error);if(!data)throw new Error('Atendimento alterado ou não autorizado. Atualize o histórico e reabra Corrigir antes de tentar novamente; seus campos foram mantidos.');
   return data as CustomerServiceNote;
 }
