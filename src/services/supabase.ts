@@ -97,7 +97,6 @@ export function isMissingTableError(err: unknown): boolean {
   return (
     code === '42P01' ||
     code === 'PGRST205' ||
-    msg.includes('schema cache') ||
     msg.includes('not find the table') ||
     (msg.includes('relation') && msg.includes('does not exist'))
   );
@@ -1280,6 +1279,46 @@ export async function supabaseGetCurrentAuthUser(): Promise<UserProfile | null> 
 // MEU NEGÓCIO: VENDAS MANUAIS
 // -------------------------------------------------------------
 
+// Versioned envelope for app fields with no dedicated deployed column.
+// Plain notes remain readable; user text is stored verbatim inside the envelope.
+interface FinancialNoteFields {
+  deliveryType?: ManualSaleEntry['deliveryType'];
+  orderStatus?: ManualSaleEntry['orderStatus'];
+  invoiceOrRef?: string;
+  shippingCost?: number;
+  otherCosts?: number;
+  receivingStatus?: MerchandisePurchaseEntry['receivingStatus'];
+  originType?: CashMovementEntry['originType'];
+  referenceId?: string;
+}
+const FINANCIAL_NOTES_PREFIX = 'podwave:financial-notes:v1:';
+
+function writeFinancialNotes(notes: string | undefined, fields: FinancialNoteFields): string {
+  return FINANCIAL_NOTES_PREFIX + JSON.stringify({ notes: notes ?? null, fields });
+}
+
+function readFinancialNotes(value: unknown): { notes?: string; fields: FinancialNoteFields } {
+  if (typeof value !== 'string') return { fields: {} };
+  if (value.startsWith(FINANCIAL_NOTES_PREFIX)) {
+    try {
+      const parsed = JSON.parse(value.slice(FINANCIAL_NOTES_PREFIX.length));
+      if (parsed && (parsed.notes === null || typeof parsed.notes === 'string') &&
+          parsed.fields && typeof parsed.fields === 'object' && !Array.isArray(parsed.fields)) {
+        const fields = parsed.fields;
+        const strings = ['deliveryType', 'invoiceOrRef', 'referenceId'];
+        const valid = strings.every((key) => fields[key] === undefined || typeof fields[key] === 'string') &&
+          ['shippingCost', 'otherCosts'].every((key) => fields[key] === undefined ||
+            (typeof fields[key] === 'number' && Number.isFinite(fields[key]) && fields[key] >= 0)) &&
+          (fields.orderStatus === undefined || ['pendente', 'confirmado', 'entregue', 'cancelado'].includes(fields.orderStatus)) &&
+          (fields.receivingStatus === undefined || ['aguardando', 'parcialmente_recebido', 'recebido'].includes(fields.receivingStatus)) &&
+          (fields.originType === undefined || ['venda', 'despesa', 'compra_estoque', 'aporte_inicial', 'retirada_pro_labore', 'ajuste_saldo', 'transferencia', 'avulso'].includes(fields.originType));
+        if (valid) return { notes: parsed.notes ?? undefined, fields };
+      }
+    } catch { /* Preserve malformed/ordinary notes as user text. */ }
+  }
+  return { notes: value || undefined, fields: {} };
+}
+
 export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]> {
   const client = getSupabaseClient();
   if (!client) return [];
@@ -1288,7 +1327,7 @@ export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]>
     const { data, error } = await client
       .from('manual_sales')
       .select('*')
-      .order('sale_date', { ascending: false });
+      .order('date', { ascending: false });
 
     if (error) {
       if (isMissingTableError(error)) return [];
@@ -1300,25 +1339,25 @@ export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]>
 
     return data.map((row) => ({
       id: row.id,
-      saleDate: row.sale_date,
+      saleDate: row.date,
       customerName: row.customer_name || undefined,
-      customerPhone: row.customer_phone || undefined,
-      deliveryType: row.delivery_type || 'Entrega Própria',
+      customerPhone: row.customer_contact || undefined,
+      deliveryType: readFinancialNotes(row.notes).fields.deliveryType ?? 'Entrega Própria',
       deliveryFee: Number(row.delivery_fee) || 0,
       discount: Number(row.discount) || 0,
-      grossTotal: Number(row.gross_total) || 0,
-      netTotal: Number(row.net_total) || 0,
+      grossTotal: Number(row.subtotal) || 0,
+      netTotal: Number(row.total) || 0,
       amountReceived: Number(row.amount_received) || 0,
       amountPending: Number(row.amount_pending) || 0,
       paymentStatus: (row.payment_status as 'pago' | 'parcial' | 'pendente') || 'pago',
       paymentMethod: row.payment_method || 'Pix',
-      orderStatus: (row.order_status as 'pendente' | 'confirmado' | 'entregue' | 'cancelado') || 'confirmado',
-      receivedDate: row.received_date || undefined,
+      orderStatus: readFinancialNotes(row.notes).fields.orderStatus ?? 'confirmado',
+      receivedDate: row.payment_date || undefined,
       dueDate: row.due_date || undefined,
       items: Array.isArray(row.items) ? row.items : [],
-      receipts: Array.isArray(row.receipts) ? row.receipts : [],
+      receipts: Array.isArray(row.payments) ? row.payments : [],
       installments: Array.isArray(row.installments) ? row.installments : [],
-      notes: row.notes || undefined,
+      notes: readFinancialNotes(row.notes).notes,
       createdAt: row.created_at,
     }));
   } catch (err) {
@@ -1334,25 +1373,23 @@ export async function saveManualSaleToSupabase(sale: ManualSaleEntry): Promise<b
   try {
     const payload = {
       id: sale.id,
-      sale_date: sale.saleDate || new Date().toISOString(),
-      customer_name: sale.customerName || null,
-      customer_phone: sale.customerPhone || null,
-      delivery_type: sale.deliveryType,
+      date: sale.saleDate || new Date().toISOString(),
+      customer_name: sale.customerName ?? '',
+      customer_contact: sale.customerPhone || null,
       delivery_fee: sale.deliveryFee,
       discount: sale.discount,
-      gross_total: sale.grossTotal,
-      net_total: sale.netTotal,
+      subtotal: sale.grossTotal,
+      total: sale.netTotal,
       amount_received: sale.amountReceived,
       amount_pending: sale.amountPending,
       payment_status: sale.paymentStatus,
       payment_method: sale.paymentMethod,
-      order_status: sale.orderStatus || 'confirmado',
-      received_date: sale.receivedDate || null,
+      payment_date: sale.receivedDate || null,
       due_date: sale.dueDate || null,
       items: sale.items || [],
-      receipts: sale.receipts || [],
+      payments: sale.receipts || [],
       installments: sale.installments || [],
-      notes: sale.notes || null,
+      notes: writeFinancialNotes(sale.notes, { deliveryType: sale.deliveryType, orderStatus: sale.orderStatus }),
       updated_at: new Date().toISOString(),
     };
 
@@ -1398,7 +1435,7 @@ export async function fetchManualExpensesFromSupabase(): Promise<ManualExpenseEn
     const { data, error } = await client
       .from('manual_expenses')
       .select('*')
-      .order('expense_date', { ascending: false });
+      .order('date', { ascending: false });
 
     if (error) {
       if (isMissingTableError(error)) return [];
@@ -1410,9 +1447,9 @@ export async function fetchManualExpensesFromSupabase(): Promise<ManualExpenseEn
 
     return data.map((row) => ({
       id: row.id,
-      expenseDate: row.expense_date,
+      expenseDate: row.date,
       category: row.category,
-      description: row.description,
+      description: row.title,
       amount: Number(row.amount) || 0,
       amountPaid: Number(row.amount_paid) || 0,
       amountPending: Number(row.amount_pending) || 0,
@@ -1437,9 +1474,9 @@ export async function saveManualExpenseToSupabase(expense: ManualExpenseEntry): 
   try {
     const payload = {
       id: expense.id,
-      expense_date: expense.expenseDate || new Date().toISOString().split('T')[0],
+      date: expense.expenseDate || new Date().toISOString().split('T')[0],
       category: expense.category,
-      description: expense.description,
+      title: expense.description,
       amount: expense.amount,
       amount_paid: expense.amountPaid,
       amount_pending: expense.amountPending,
@@ -1494,7 +1531,7 @@ export async function fetchMerchandisePurchasesFromSupabase(): Promise<Merchandi
     const { data, error } = await client
       .from('merchandise_purchases')
       .select('*')
-      .order('purchase_date', { ascending: false });
+      .order('date', { ascending: false });
 
     if (error) {
       if (isMissingTableError(error)) return [];
@@ -1506,25 +1543,25 @@ export async function fetchMerchandisePurchasesFromSupabase(): Promise<Merchandi
 
     return data.map((row) => ({
       id: row.id,
-      purchaseDate: row.purchase_date,
-      supplierName: row.supplier_name,
+      purchaseDate: row.date,
+      supplierName: row.supplier,
       supplierContact: row.supplier_contact || undefined,
-      invoiceOrRef: row.invoice_or_ref || undefined,
-      itemsSubtotal: Number(row.items_subtotal) || Number(row.total_cost) || 0,
-      shippingCost: Number(row.shipping_cost) || 0,
-      otherCosts: Number(row.other_costs) || 0,
+      invoiceOrRef: readFinancialNotes(row.notes).fields.invoiceOrRef,
+      itemsSubtotal: Number(row.subtotal) || 0,
+      shippingCost: readFinancialNotes(row.notes).fields.shippingCost ?? (Number(row.freight_or_extra_cost) || 0),
+      otherCosts: readFinancialNotes(row.notes).fields.otherCosts ?? 0,
       discount: Number(row.discount) || 0,
-      totalCost: Number(row.total_cost) || 0,
+      totalCost: Number(row.total) || 0,
       amountPaid: Number(row.amount_paid) || 0,
       amountPending: Number(row.amount_pending) || 0,
       paymentStatus: (row.payment_status as 'pago' | 'parcial' | 'pendente') || 'pago',
       paymentMethod: row.payment_method || 'Boleto',
-      receivingStatus: (row.receiving_status as 'aguardando' | 'parcialmente_recebido' | 'recebido') || 'recebido',
+      receivingStatus: readFinancialNotes(row.notes).fields.receivingStatus ?? 'recebido',
       dueDate: row.due_date || undefined,
       items: Array.isArray(row.items) ? row.items : [],
       payments: Array.isArray(row.payments) ? row.payments : [],
       installments: Array.isArray(row.installments) ? row.installments : [],
-      notes: row.notes || undefined,
+      notes: readFinancialNotes(row.notes).notes,
       createdAt: row.created_at,
     }));
   } catch (err) {
@@ -1540,25 +1577,22 @@ export async function saveMerchandisePurchaseToSupabase(purchase: MerchandisePur
   try {
     const payload = {
       id: purchase.id,
-      purchase_date: purchase.purchaseDate || new Date().toISOString().split('T')[0],
-      supplier_name: purchase.supplierName,
+      date: purchase.purchaseDate || new Date().toISOString().split('T')[0],
+      supplier: purchase.supplierName,
       supplier_contact: purchase.supplierContact || null,
-      invoice_or_ref: purchase.invoiceOrRef || null,
-      items_subtotal: purchase.itemsSubtotal,
-      shipping_cost: purchase.shippingCost,
-      other_costs: purchase.otherCosts,
+      subtotal: purchase.itemsSubtotal,
+      freight_or_extra_cost: purchase.shippingCost + purchase.otherCosts,
       discount: purchase.discount,
-      total_cost: purchase.totalCost,
+      total: purchase.totalCost,
       amount_paid: purchase.amountPaid,
       amount_pending: purchase.amountPending,
       payment_status: purchase.paymentStatus,
       payment_method: purchase.paymentMethod,
-      receiving_status: purchase.receivingStatus,
       due_date: purchase.dueDate || null,
       items: purchase.items || [],
       payments: purchase.payments || [],
       installments: purchase.installments || [],
-      notes: purchase.notes || null,
+      notes: writeFinancialNotes(purchase.notes, { invoiceOrRef: purchase.invoiceOrRef, shippingCost: purchase.shippingCost, otherCosts: purchase.otherCosts, receivingStatus: purchase.receivingStatus }),
       updated_at: new Date().toISOString(),
     };
 
@@ -1604,7 +1638,7 @@ export async function fetchCashMovementsFromSupabase(): Promise<CashMovementEntr
     const { data, error } = await client
       .from('cash_movements')
       .select('*')
-      .order('movement_date', { ascending: false });
+      .order('date', { ascending: false });
 
     if (error) {
       if (isMissingTableError(error)) return [];
@@ -1616,16 +1650,16 @@ export async function fetchCashMovementsFromSupabase(): Promise<CashMovementEntr
 
     return data.map((row) => ({
       id: row.id,
-      movementDate: row.movement_date,
-      type: row.type as 'entrada' | 'saida',
-      originType: row.origin_type,
-      referenceId: row.reference_id || undefined,
+      movementDate: row.date,
+      type: (row.movement_type === 'transferencia' ? 'saida' : row.movement_type) as 'entrada' | 'saida',
+      originType: readFinancialNotes(row.notes).fields.originType ?? (row.movement_type === 'transferencia' ? 'transferencia' : 'avulso'),
+      referenceId: readFinancialNotes(row.notes).fields.referenceId,
       category: row.category || undefined,
       accountChannel: row.account_channel || 'pix_banco',
-      destinationAccountChannel: row.destination_account_channel || undefined,
+      destinationAccountChannel: row.destination_channel || undefined,
       amount: Number(row.amount) || 0,
       description: row.description,
-      notes: row.notes || undefined,
+      notes: readFinancialNotes(row.notes).notes,
       createdAt: row.created_at,
     }));
   } catch (err) {
@@ -1641,16 +1675,14 @@ export async function saveCashMovementToSupabase(movement: CashMovementEntry): P
   try {
     const payload = {
       id: movement.id,
-      movement_date: movement.movementDate || new Date().toISOString(),
-      type: movement.type,
-      origin_type: movement.originType,
-      reference_id: movement.referenceId || null,
-      category: movement.category || null,
+      date: movement.movementDate || new Date().toISOString(),
+      movement_type: movement.type,
+      category: movement.category ?? '',
       account_channel: movement.accountChannel,
-      destination_account_channel: movement.destinationAccountChannel || null,
+      destination_channel: movement.destinationAccountChannel || null,
       amount: movement.amount,
       description: movement.description,
-      notes: movement.notes || null,
+      notes: writeFinancialNotes(movement.notes, { originType: movement.originType, referenceId: movement.referenceId }),
     };
 
     const { error } = await client.from('cash_movements').upsert(payload);
@@ -1775,10 +1807,10 @@ export async function fetchManualCommitmentsFromSupabase(): Promise<ManualCommit
 
     return data.map((row) => ({
       id: row.id,
-      type: row.type as 'a_pagar' | 'a_receber',
-      description: row.description,
-      counterpartyName: row.counterparty_name,
-      counterpartyContact: row.counterparty_contact || undefined,
+      type: row.commitment_type as 'a_pagar' | 'a_receber',
+      description: row.title,
+      counterpartyName: row.person_or_supplier,
+      counterpartyContact: row.contact || undefined,
       category: row.category || 'Outros',
       totalAmount: Number(row.total_amount) || 0,
       amountPaid: Number(row.amount_paid) || 0,
@@ -1807,16 +1839,16 @@ export async function saveManualCommitmentToSupabase(commitment: ManualCommitmen
   try {
     const payload = {
       id: commitment.id,
-      type: commitment.type,
-      description: commitment.description,
-      counterparty_name: commitment.counterpartyName,
-      counterparty_contact: commitment.counterpartyContact || null,
+      commitment_type: commitment.type,
+      title: commitment.description,
+      person_or_supplier: commitment.counterpartyName,
+      contact: commitment.counterpartyContact || null,
       category: commitment.category || 'Outros',
       total_amount: commitment.totalAmount,
       amount_paid: commitment.amountPaid,
       amount_pending: commitment.amountPending,
       issue_date: commitment.issueDate || new Date().toISOString().slice(0, 10),
-      due_date: commitment.dueDate || null,
+      due_date: commitment.dueDate || '',
       payment_method: commitment.paymentMethod || 'Pix',
       account_channel: commitment.accountChannel || 'pix_banco',
       payment_status: commitment.paymentStatus,
