@@ -891,27 +891,27 @@ export const MyPendingAccountsSection: React.FC = () => {
           {/* Tabela de Alta Densidade */}
           <div className="rounded-3xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse">
+              <table className="w-full text-left border-collapse tabular-nums">
                 <thead>
-                  <tr className="bg-[#141838]/80 border-b border-[#8423DA]/20 text-[11px] font-bold text-gray-400 uppercase tracking-wider">
-                    <th className="py-3 px-4">Tipo</th>
-                    <th className="py-3 px-4">Descrição / Origem</th>
-                    <th className="py-3 px-4">Contraparte</th>
-                    <th className="py-3 px-4">Vencimento</th>
-                    <th className="py-3 px-4 text-right">Valor Total</th>
-                    <th className="py-3 px-4 text-right">Já Quitado</th>
-                    <th className="py-3 px-4 text-right">Saldo Pendente</th>
-                    <th className="py-3 px-4 text-center">Status / Urgência</th>
-                    <th className="py-3 px-4 text-center">Ações</th>
+                  <tr className="bg-[#121633] border-b border-[#8423DA]/25 text-[10px] font-extrabold text-[#C4C6D8] uppercase tracking-wider select-none">
+                    <th className="py-3.5 px-4">Tipo</th>
+                    <th className="py-3.5 px-4">Descrição / Origem</th>
+                    <th className="py-3.5 px-4">Contraparte</th>
+                    <th className="py-3.5 px-4">Vencimento</th>
+                    <th className="py-3.5 px-4 text-right">Valor Total</th>
+                    <th className="py-3.5 px-4 text-right">Já Quitado</th>
+                    <th className="py-3.5 px-4 text-right">Saldo Pendente</th>
+                    <th className="py-3.5 px-4 text-center">Status / Urgência</th>
+                    <th className="py-3.5 px-4 text-center">Ações</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5 text-xs text-gray-300">
+                <tbody className="divide-y divide-[#8423DA]/15 text-xs text-gray-200">
                   {paginatedAccounts.length === 0 ? (
                     <tr>
-                      <td colSpan={9} className="py-12 text-center text-gray-500">
+                      <td colSpan={9} className="py-12 text-center text-gray-400">
                         <Clock className="w-8 h-8 mx-auto mb-2 opacity-40 text-[#00DFFF]" />
-                        <p className="font-semibold text-gray-400">Nenhuma conta pendente encontrada.</p>
-                        <p className="text-[11px] mt-0.5">
+                        <p className="font-semibold text-gray-300">Nenhuma conta pendente encontrada.</p>
+                        <p className="text-[11px] text-[#A5A5B8] mt-0.5">
                           Tudo que for lançado com valor em aberto nas vendas, gastos, compras ou compromissos avulsos aparecerá aqui.
                         </p>
                       </td>
@@ -923,10 +923,10 @@ export const MyPendingAccountsSection: React.FC = () => {
                       return (
                         <tr
                           key={item.id}
-                          className="hover:bg-white/[0.02] transition-colors group"
+                          className="hover:bg-[#141838]/60 transition-colors group"
                         >
                           {/* Tipo */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
+                          <td className="py-3.5 px-4 whitespace-nowrap align-middle">
                             <span
                               className={`inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-[10px] font-black uppercase tracking-wider ${
                                 isReceivable
@@ -944,10 +944,10 @@ export const MyPendingAccountsSection: React.FC = () => {
                           </td>
 
                           {/* Descrição / Origem */}
-                          <td className="py-3.5 px-4 min-w-[200px]">
+                          <td className="py-3.5 px-4 min-w-[200px] align-middle">
                             <div className="font-bold text-white line-clamp-1">{item.description}</div>
-                            <div className="flex items-center gap-1.5 text-[10px] text-gray-400 mt-0.5">
-                              <span className="capitalize px-1.5 py-0.2 rounded bg-white/5 text-gray-300">
+                            <div className="flex items-center gap-1.5 text-[10px] text-[#A5A5B8] mt-0.5">
+                              <span className="capitalize px-1.5 py-0.5 rounded bg-[#141838] border border-white/10 text-gray-200 font-medium">
                                 {item.originType === 'venda'
                                   ? 'Venda de Balcão'
                                   : item.originType === 'despesa'
@@ -961,39 +961,39 @@ export const MyPendingAccountsSection: React.FC = () => {
                           </td>
 
                           {/* Contraparte (Cliente / Fornecedor) */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
-                            <div className="font-semibold text-gray-200">{item.counterpartyName}</div>
+                          <td className="py-3.5 px-4 whitespace-nowrap align-middle">
+                            <div className="font-semibold text-white">{item.counterpartyName}</div>
                             {item.counterpartyContact && (
-                              <div className="text-[10px] text-gray-500">{item.counterpartyContact}</div>
+                              <div className="text-[10px] text-[#A5A5B8] font-mono">{item.counterpartyContact}</div>
                             )}
                           </td>
 
                           {/* Data de Vencimento */}
-                          <td className="py-3.5 px-4 whitespace-nowrap">
+                          <td className="py-3.5 px-4 whitespace-nowrap align-middle tabular-nums">
                             {item.dueDate ? (
                               <div className="text-gray-200 font-semibold flex items-center gap-1.5">
-                                <Calendar className="w-3.5 h-3.5 text-gray-500" />
+                                <Calendar className="w-3.5 h-3.5 text-[#00DFFF]/80" />
                                 <span>{item.dueDate.split('-').reverse().join('/')}</span>
                               </div>
                             ) : (
-                              <span className="text-gray-500 italic text-[11px]">Sem data</span>
+                              <span className="text-gray-400 italic text-[11px]">Sem data</span>
                             )}
                           </td>
 
                           {/* Valor Total */}
-                          <td className="py-3.5 px-4 text-right font-medium text-gray-300 whitespace-nowrap">
+                          <td className="py-3.5 px-4 text-right font-semibold text-gray-200 whitespace-nowrap align-middle tabular-nums">
                             {formatBRL(item.totalAmount)}
                           </td>
 
                           {/* Já Quitado */}
-                          <td className="py-3.5 px-4 text-right font-medium text-emerald-400 whitespace-nowrap">
+                          <td className="py-3.5 px-4 text-right font-bold text-emerald-400 whitespace-nowrap align-middle tabular-nums">
                             {formatBRL(item.amountPaid)}
                           </td>
 
                           {/* Saldo Pendente */}
-                          <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                          <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                             <span
-                              className={`font-black text-sm ${
+                              className={`font-heading font-black text-sm ${
                                 isReceivable ? 'text-[#10B981]' : 'text-rose-400'
                               }`}
                             >
@@ -1302,14 +1302,40 @@ export const MyPendingAccountsSection: React.FC = () => {
         </div>
       )}
       {deletingItem && (
-        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
-          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-commitment-title" className="w-full max-w-md rounded-2xl bg-[#11152A] border border-rose-500/30 p-6 space-y-4">
-            <h3 id="delete-commitment-title" className="text-lg font-bold text-white">Excluir conta pendente?</h3>
-            <p className="text-sm text-gray-300">Excluir “{deletingItem.description}”, de {formatBRL(deletingItem.totalAmount)}? Esta ação não registra pagamento nem recebimento.</p>
-            {deleteError && <p role="alert" className="text-sm text-rose-300">{deleteError}</p>}
-            <div className="flex justify-end gap-3">
-              <button autoFocus disabled={isDeleting} onClick={() => setDeletingItem(null)} className="px-4 py-2 rounded-xl border border-white/20 text-white">Cancelar</button>
-              <button disabled={isDeleting} onClick={confirmDeleteCommitment} className="px-4 py-2 rounded-xl bg-rose-600 text-white disabled:opacity-50">{isDeleting ? 'Excluindo...' : 'Excluir conta'}</button>
+        <div className="fixed inset-0 z-[100] bg-black/80 backdrop-blur-sm flex items-center justify-center p-4 animate-in fade-in duration-200">
+          <div
+            role="alertdialog"
+            aria-modal="true"
+            aria-labelledby="delete-commitment-title"
+            className="w-full max-w-md rounded-3xl bg-[#090C19] border border-rose-500/40 p-6 shadow-2xl space-y-4"
+          >
+            <h3 id="delete-commitment-title" className="font-heading text-lg font-black text-white">
+              Excluir conta pendente?
+            </h3>
+            <p className="text-xs sm:text-sm text-gray-200 leading-relaxed">
+              Excluir “{deletingItem.description}”, de <strong className="text-white tabular-nums">{formatBRL(deletingItem.totalAmount)}</strong>? Esta ação não registra pagamento nem recebimento.
+            </p>
+            {deleteError && (
+              <p role="alert" className="p-3 rounded-xl bg-rose-500/10 border border-rose-500/30 text-xs font-semibold text-rose-300">
+                {deleteError}
+              </p>
+            )}
+            <div className="flex justify-end gap-3 pt-2">
+              <button
+                autoFocus
+                disabled={isDeleting}
+                onClick={() => setDeletingItem(null)}
+                className="px-4 py-2 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 border border-white/15 text-gray-200 hover:text-white text-xs font-bold transition-colors cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                disabled={isDeleting}
+                onClick={confirmDeleteCommitment}
+                className="px-5 py-2 rounded-xl bg-rose-600 hover:bg-rose-500 text-white text-xs font-black shadow-lg shadow-rose-600/30 transition-all cursor-pointer disabled:opacity-50"
+              >
+                {isDeleting ? 'Excluindo...' : 'Excluir conta'}
+              </button>
             </div>
           </div>
         </div>

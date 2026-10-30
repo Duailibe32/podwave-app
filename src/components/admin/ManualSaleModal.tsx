@@ -491,7 +491,11 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
           </div>
 
           {/* SEÇÃO 2: ITENS DA VENDA (MÚLTIPLOS PRODUTOS) */}
-          {saleToEdit && !saleToEdit.stockManaged && <p className="text-sm text-amber-300">Venda histórica: os itens são preservados e não haverá baixa retroativa no estoque. Você pode atualizar os demais dados.</p>}
+          {saleToEdit && !saleToEdit.stockManaged && (
+            <p className="p-3.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-xs font-semibold text-amber-300 leading-relaxed">
+              Venda histórica: os itens são preservados e não haverá baixa retroativa no estoque. Você pode atualizar os demais dados.
+            </p>
+          )}
           <div inert={Boolean(saleToEdit && !saleToEdit.stockManaged)} className="p-4 sm:p-5 rounded-2xl bg-[#0D1022] border border-[#8423DA]/20 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs font-bold text-[#00DFFF] uppercase tracking-wider">
@@ -573,12 +577,12 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
                 return (
                   <div
                     key={item.id}
-                    className="p-3.5 rounded-xl bg-[#141838] border border-[#8423DA]/25 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center"
+                    className="p-3.5 rounded-xl bg-[#141838] border border-[#8423DA]/25 grid grid-cols-1 sm:grid-cols-12 gap-3 items-center tabular-nums"
                   >
                     {/* Descrição / Produto */}
                     <div className="sm:col-span-5 space-y-1">
                       <div className="flex items-center justify-between">
-                        <label className="text-[10px] font-bold text-gray-400">
+                        <label className="text-[10px] font-bold text-[#C4C6D8]">
                           Item #{index + 1} - Produto / Descrição *
                         </label>
                       </div>
@@ -593,14 +597,14 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
                       {item.flavorName && (
                         <div className="text-[10px] text-[#00DFFF] flex items-center gap-1 font-semibold">
                           <span>Sabor:</span>
-                          <span className="text-gray-300">{item.flavorName}</span>
+                          <span className="text-gray-200">{item.flavorName}</span>
                         </div>
                       )}
                     </div>
 
                     {/* Quantidade */}
                     <div className="sm:col-span-2 space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400">Qtd *</label>
+                      <label className="text-[10px] font-bold text-[#C4C6D8]">Qtd *</label>
                       <input
                         type="number"
                         min="1"
@@ -609,13 +613,13 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
                           handleUpdateItem(item.id, { quantity: Math.max(1, parseInt(e.target.value) || 1) })
                         }
                         required
-                        className="w-full px-3 py-2 rounded-lg bg-[#090C19] border border-[#8423DA]/30 text-xs text-white text-center font-bold focus:outline-none focus:border-[#00DFFF]"
+                        className="w-full px-3 py-2 rounded-lg bg-[#090C19] border border-[#8423DA]/30 text-xs text-white text-center font-bold tabular-nums focus:outline-none focus:border-[#00DFFF]"
                       />
                     </div>
 
                     {/* Preço Unitário */}
                     <div className="sm:col-span-2 space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400">Preço Unit. (R$) *</label>
+                      <label className="text-[10px] font-bold text-[#C4C6D8]">Preço Unit. (R$) *</label>
                       <input
                         type="number"
                         step="0.01"
@@ -625,15 +629,15 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
                           handleUpdateItem(item.id, { unitPrice: parseFloat(e.target.value) || 0 })
                         }
                         required
-                        className="w-full px-3 py-2 rounded-lg bg-[#090C19] border border-[#8423DA]/30 text-xs text-white text-right font-bold focus:outline-none focus:border-[#00DFFF]"
+                        className="w-full px-3 py-2 rounded-lg bg-[#090C19] border border-[#8423DA]/30 text-xs text-white text-right font-bold tabular-nums focus:outline-none focus:border-[#00DFFF]"
                       />
                     </div>
 
                     {/* Custo Unitário (Opcional - Nunca forçar zero) */}
                     <div className="sm:col-span-2 space-y-1">
-                      <label className="text-[10px] font-bold text-gray-400 flex items-center justify-between">
+                      <label className="text-[10px] font-bold text-[#C4C6D8] flex items-center justify-between">
                         <span>Custo Unit.</span>
-                        <span className="text-[9px] text-gray-500">(Opcional)</span>
+                        <span className="text-[9px] text-gray-400">(Opcional)</span>
                       </label>
                       <input
                         type="number"
@@ -646,7 +650,7 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
                             unitCost: e.target.value === '' ? '' : parseFloat(e.target.value) || 0,
                           })
                         }
-                        className="w-full px-3 py-2 rounded-lg bg-[#090C19] border border-[#8423DA]/30 text-xs text-gray-300 placeholder-gray-600 text-right focus:outline-none focus:border-[#00DFFF]"
+                        className="w-full px-3 py-2 rounded-lg bg-[#090C19] border border-[#8423DA]/30 text-xs text-gray-200 placeholder-gray-500 text-right tabular-nums focus:outline-none focus:border-[#00DFFF]"
                         title="Deixe em branco se o custo for desconhecido"
                       />
                     </div>

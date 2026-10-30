@@ -429,9 +429,9 @@ export const UserManagementTab: React.FC = () => {
           </div>
         ) : (
           <div className="overflow-x-auto">
-            <table className="w-full text-left border-collapse">
+            <table className="w-full text-left border-collapse tabular-nums">
               <thead>
-                <tr className="border-b border-[#8423DA]/20 bg-[#11152A]/80 text-[11px] uppercase tracking-wider text-gray-400 font-bold">
+                <tr className="border-b border-[#8423DA]/25 bg-[#121633] text-[10px] uppercase tracking-wider text-[#C4C6D8] font-extrabold select-none">
                   <th className="py-3.5 px-4 sm:px-6">Usuário</th>
                   <th className="py-3.5 px-4">Cargo Atual</th>
                   <th className="py-3.5 px-4">Benefício / Acesso</th>
@@ -439,7 +439,7 @@ export const UserManagementTab: React.FC = () => {
                   <th className="py-3.5 px-4 sm:px-6 text-right">Alterar Cargo / Ação</th>
                 </tr>
               </thead>
-              <tbody className="divide-y divide-[#8423DA]/10 text-xs">
+              <tbody className="divide-y divide-[#8423DA]/15 text-xs">
                 {filteredUsers.map((user) => {
                   const isCurrent = user.id === currentUser?.id;
                   const isAdminRole = user.role === 'admin' || user.role === 'owner';

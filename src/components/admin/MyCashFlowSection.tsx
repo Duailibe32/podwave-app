@@ -1173,9 +1173,9 @@ export const MyCashFlowSection: React.FC = () => {
       {/* 6. SUPERPLANILHA TABLE */}
       <div className="rounded-3xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full text-left border-collapse text-xs">
+          <table className="w-full text-left border-collapse text-xs tabular-nums">
             <thead>
-              <tr className="bg-[#080811] border-b border-white/5 text-[11px] text-gray-400 font-bold uppercase tracking-wider">
+              <tr className="bg-[#121633] border-b border-[#8423DA]/25 text-[10px] text-[#C4C6D8] font-extrabold uppercase tracking-wider select-none">
                 <th
                   onClick={() => setSortDirection((prev) => (prev === 'desc' ? 'asc' : 'desc'))}
                   className="py-3.5 px-4 cursor-pointer hover:text-white transition-colors select-none"
@@ -1198,16 +1198,16 @@ export const MyCashFlowSection: React.FC = () => {
                 <th className="py-3.5 px-4 text-center">Ações</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/5">
+            <tbody className="divide-y divide-[#8423DA]/15">
               {paginatedMovements.length === 0 ? (
                 <tr>
                   <td colSpan={8} className="py-14 text-center">
                     <div className="max-w-md mx-auto space-y-2">
-                      <ArrowLeftRight className="w-10 h-10 text-gray-600 mx-auto" />
+                      <ArrowLeftRight className="w-10 h-10 text-gray-500 mx-auto" />
                       <h4 className="font-bold text-white text-sm">
                         Nenhuma movimentação financeira encontrada
                       </h4>
-                      <p className="text-xs text-gray-500">
+                      <p className="text-xs text-[#A5A5B8]">
                         Os pagamentos recebidos de vendas e desembolsos de despesas/compras aparecerão aqui automaticamente na data em que forem quitados.
                       </p>
                     </div>
@@ -1219,17 +1219,17 @@ export const MyCashFlowSection: React.FC = () => {
                   return (
                     <tr
                       key={m.id}
-                      className={`hover:bg-white/[0.02] transition-colors group ${
+                      className={`hover:bg-[#141838]/60 transition-colors group ${
                         m.isPriorToReferenceDate ? 'opacity-65' : ''
                       }`}
                     >
                       {/* Date */}
-                      <td className="py-3.5 px-4 whitespace-nowrap text-gray-300 font-medium">
+                      <td className="py-3.5 px-4 whitespace-nowrap text-gray-200 font-semibold align-middle tabular-nums">
                         {formatDateTime(m.effectiveDate)}
                       </td>
 
                       {/* Description */}
-                      <td className="py-3.5 px-4 max-w-xs">
+                      <td className="py-3.5 px-4 max-w-xs align-middle">
                         <div className="font-bold text-white truncate" title={m.description}>
                           {m.description}
                         </div>
@@ -1239,14 +1239,14 @@ export const MyCashFlowSection: React.FC = () => {
                             Anterior à data base inicial (não duplica saldo)
                           </div>
                         ) : m.notes ? (
-                          <div className="text-[11px] text-gray-500 truncate" title={m.notes}>
+                          <div className="text-[11px] text-[#A5A5B8] truncate" title={m.notes}>
                             {m.notes}
                           </div>
                         ) : null}
                       </td>
 
                       {/* Origin Badge */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
+                      <td className="py-3.5 px-4 whitespace-nowrap align-middle">
                         <span
                           className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${badge.bg}`}
                         >
@@ -1255,18 +1255,18 @@ export const MyCashFlowSection: React.FC = () => {
                       </td>
 
                       {/* Category */}
-                      <td className="py-3.5 px-4 whitespace-nowrap text-gray-400">
+                      <td className="py-3.5 px-4 whitespace-nowrap text-gray-300 align-middle">
                         <span className="truncate max-w-[140px] block" title={m.category}>
                           {m.category || '—'}
                         </span>
                       </td>
 
                       {/* Channel / Conta */}
-                      <td className="py-3.5 px-4 whitespace-nowrap">
+                      <td className="py-3.5 px-4 whitespace-nowrap align-middle">
                         {m.type === 'transferencia' ? (
-                          <div className="flex items-center gap-1.5 text-[11px] text-[#C084FC]">
+                          <div className="flex items-center gap-1.5 text-[11px] text-[#C084FC] font-medium">
                             <span>{getChannelLabel(m.accountChannel)}</span>
-                            <span className="text-gray-500">→</span>
+                            <span className="text-gray-400">→</span>
                             <span>
                               {m.destinationAccountChannel
                                 ? getChannelLabel(m.destinationAccountChannel)
@@ -1274,7 +1274,7 @@ export const MyCashFlowSection: React.FC = () => {
                             </span>
                           </div>
                         ) : (
-                          <div className="flex items-center gap-1.5 text-gray-300">
+                          <div className="flex items-center gap-1.5 text-gray-200 font-medium">
                             {getChannelIcon(m.accountChannel)}
                             <span>{getChannelLabel(m.accountChannel)}</span>
                           </div>
@@ -1282,7 +1282,7 @@ export const MyCashFlowSection: React.FC = () => {
                       </td>
 
                       {/* Amount */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-heading font-black text-sm">
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-heading font-black text-sm align-middle tabular-nums">
                         {m.type === 'entrada' && (
                           <span className="text-[#10B981] flex items-center justify-end gap-1">
                             <span>+</span> {formatBRL(m.amount)}
@@ -1301,10 +1301,10 @@ export const MyCashFlowSection: React.FC = () => {
                       </td>
 
                       {/* Accumulated Balance */}
-                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-heading font-black text-xs text-white">
+                      <td className="py-3.5 px-4 text-right whitespace-nowrap font-heading font-black text-xs text-white align-middle tabular-nums">
                         <span
                           className={
-                            (m.accumulatedBalance ?? 0) >= 0 ? 'text-gray-200' : 'text-rose-400'
+                            (m.accumulatedBalance ?? 0) >= 0 ? 'text-gray-100' : 'text-rose-400'
                           }
                         >
                           {formatBRL(m.accumulatedBalance ?? 0)}
