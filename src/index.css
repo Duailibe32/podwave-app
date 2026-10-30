@@ -63,7 +63,7 @@
 
 /* Custom glowing effects */
 /* Keep native controls and long location links inside the checkout flex item. */
-.mobile-checkout-form :is(input:not([type="checkbox"]), select, textarea) {
+:is(.mobile-checkout-form, .customer-address-form) :is(input:not([type="checkbox"]), select, textarea) {
   min-width: 0;
   max-width: 100%;
 }
@@ -74,7 +74,7 @@
 
 @media (max-width: 639px) {
   /* A 16px font avoids the automatic form-field zoom in iOS Safari. */
-  .mobile-checkout-form :is(input:not([type="checkbox"]), select, textarea) {
+  :is(.mobile-checkout-form, .customer-address-form) :is(input:not([type="checkbox"]), select, textarea) {
     font-size: 16px;
   }
 }
