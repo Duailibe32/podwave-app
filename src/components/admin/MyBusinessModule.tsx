@@ -22,6 +22,7 @@ import {
   ChevronRight,
   ExternalLink,
   Info,
+  Users,
 } from 'lucide-react';
 
 import { MySalesSection } from './MySalesSection';
@@ -31,6 +32,7 @@ import { MyCashFlowSection } from './MyCashFlowSection';
 import { MyPendingAccountsSection } from './MyPendingAccountsSection';
 import { BusinessOverviewDashboard } from './BusinessOverviewDashboard';
 import { BusinessReportsSection } from './BusinessReportsSection';
+import { CustomerFinancialSection } from './CustomerFinancialSection';
 
 export const MyBusinessModule: React.FC = () => {
   const {
@@ -42,6 +44,7 @@ export const MyBusinessModule: React.FC = () => {
     isLoadingBusinessData,
     fetchBusinessData,
     supabaseStatus,
+    isOwner,
   } = useCatalog();
 
   const [activeSection, setActiveSection] = useState<BusinessSection>('visao_geral');
@@ -118,6 +121,8 @@ export const MyBusinessModule: React.FC = () => {
     },
   ];
 
+  if (isOwner) sectionsList.splice(2,0,{id:'clientes',label:'Clientes',icon:<Users className="w-4 h-4" />});
+
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
       {/* HEADER DO MÓDULO */}
@@ -165,7 +170,7 @@ export const MyBusinessModule: React.FC = () => {
         </div>
       </div>
 
-      {/* SUB-NAVEGAÇÃO: 7 SEÇÕES (RESPONSIVA & HORIZONTAL COM SCROLL) */}
+      {/* Navegação responsiva; Clientes disponível somente ao proprietário. */}
       <div className="overflow-x-auto no-scrollbar pb-1">
         <div className="flex items-center gap-2 min-w-max p-1.5 rounded-2xl bg-[#0D1022] border border-[#8423DA]/20">
           {sectionsList.map((sec) => {
@@ -210,6 +215,7 @@ export const MyBusinessModule: React.FC = () => {
         {/* 2. MINHAS VENDAS */}
         {/* ========================================================================= */}
         {activeSection === 'vendas' && <MySalesSection />}
+        {activeSection === 'clientes' && isOwner && <CustomerFinancialSection />}
 
         {/* ========================================================================= */}
         {/* 3. MEUS GASTOS */}
