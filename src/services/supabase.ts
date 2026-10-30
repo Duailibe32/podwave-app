@@ -18,6 +18,7 @@ import {
   CashMovementEntry,
   InitialChannelBalanceRecord,
   ManualCommitmentEntry,
+  PasskeyItem,
 } from '../types/catalog';
 
 // Storage keys for runtime Supabase credentials if configured via UI
@@ -1469,6 +1470,27 @@ export async function fetchAllCustomerOrdersFromSupabase(): Promise<{
  */
 export function translateSupabaseAuthError(errorMsg: string): string {
   const msg = (errorMsg || '').toLowerCase();
+  if (msg.includes('notallowederror') || msg.includes('user cancelled') || msg.includes('user canceled') || msg.includes('operation was not allowed') || msg.includes('abort') || msg.includes('cancel')) {
+    return 'Autenticação biométrica cancelada pelo usuário ou fechada no dispositivo.';
+  }
+  if (msg.includes('notfounderror') || msg.includes('credential_not_found') || msg.includes('no credential found') || msg.includes('webauthn_credential_not_found')) {
+    return 'Nenhuma Passkey encontrada para este dispositivo. Acesse sua conta por senha ou código e cadastre sua Passkey em Minha Conta → Segurança.';
+  }
+  if (msg.includes('webauthn_challenge_expired') || msg.includes('challenge expired') || msg.includes('timeout')) {
+    return 'O tempo limite da leitura biométrica expirou. Tente novamente.';
+  }
+  if (msg.includes('passkey') && (msg.includes('disabled') || msg.includes('not enabled') || msg.includes('unsupported') || msg.includes('not supported'))) {
+    return 'O suporte a Passkeys precisa estar ativado no painel do Supabase (Authentication → Passkeys / WebAuthn).';
+  }
+  if (msg.includes('securityerror') || msg.includes('relying party') || msg.includes('rp id') || msg.includes('origin')) {
+    return 'Domínio WebAuthn não autorizado. Verifique se o endereço HTTPS da aplicação está cadastrado como Relying Party ID no Supabase.';
+  }
+  if (msg.includes('notsupportederror') || msg.includes('not supported on this device') || msg.includes('authenticator not available')) {
+    return 'Seu navegador ou dispositivo não possui suporte a biometria/Passkey (WebAuthn).';
+  }
+  if (msg.includes('session missing') || msg.includes('authsessionmissingerror')) {
+    return 'Sessão expirada. Entre com sua senha ou código antes de cadastrar uma Passkey.';
+  }
   if (msg.includes('invalid login credentials') || msg.includes('invalid credentials')) {
     return 'E-mail ou senha incorretos. Verifique suas credenciais.';
   }
@@ -1964,6 +1986,360 @@ export async function supabaseVerifyOtp(
       success: false,
       message: translateSupabaseAuthError(err?.message || 'Falha ao validar código OTP.'),
       isOwner: false,
+    };
+  }
+}
+
+// ==============================================================================
+// AUTENTICAÇÃO COM PASSKEY (WEBAUTHN / BIOMETRIA / FACE ID / TOUCH ID)
+// Utiliza a API oficial do Supabase Auth:
+// - supabase.auth.signInWithPasskey()
+// - supabase.auth.registerPasskey()
+// - supabase.auth.passkey.list()
+// - supabase.auth.passkey.update()
+// - supabase.auth.passkey.delete()
+// ==============================================================================
+
+/**
+ * Verifica se o dispositivo e navegador atual oferecem suporte a Passkeys e WebAuthn
+ */
+export async function isPasskeyPlatformSupported(): Promise<{ supported: boolean; reason?: string }> {
+  if (typeof window === 'undefined') {
+    return { supported: false, reason: 'Ambiente não suportado (SSR).' };
+  }
+  if (!window.isSecureContext) {
+    return {
+      supported: false,
+      reason: 'Passkeys exigem conexão segura HTTPS ou localhost.',
+    };
+  }
+  if (
+    typeof window.PublicKeyCredential === 'undefined' ||
+    typeof window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable !== 'function'
+  ) {
+    return {
+      supported: false,
+      reason: 'Este navegador não suporta a tecnologia WebAuthn / Passkeys.',
+    };
+  }
+  try {
+    const available = await window.PublicKeyCredential.isUserVerifyingPlatformAuthenticatorAvailable();
+    return {
+      supported: Boolean(available),
+      reason: available
+        ? undefined
+        : 'Nenhum autenticador biométrico local (Face ID, Touch ID, Windows Hello ou PIN) detectado neste dispositivo.',
+    };
+  } catch {
+    return {
+      supported: true,
+    };
+  }
+}
+
+/**
+ * Realiza autenticação com Face ID, Digital ou Passkey via API oficial do Supabase Auth
+ * supabase.auth.signInWithPasskey()
+ */
+export async function supabaseSignInWithPasskey(): Promise<SupabaseAuthResponse> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      success: false,
+      message: 'O Supabase não está configurado. Conecte sua URL e chave anônima (anon public key) nas configurações.',
+      isOwner: false,
+    };
+  }
+
+  if (typeof window !== 'undefined' && !window.isSecureContext) {
+    return {
+      success: false,
+      message: 'Passkeys exigem conexão segura HTTPS ou localhost. Acesse a aplicação por um endereço seguro.',
+      isOwner: false,
+    };
+  }
+
+  try {
+    const { data, error } = await client.auth.signInWithPasskey();
+
+    if (error) {
+      return {
+        success: false,
+        message: translateSupabaseAuthError(error.message || String(error)),
+        isOwner: false,
+      };
+    }
+
+    if (!data?.user) {
+      return {
+        success: false,
+        message: 'Nenhum usuário retornado após leitura da Passkey.',
+        isOwner: false,
+      };
+    }
+
+    const email = data.user.email?.toLowerCase().trim();
+    if (!email) {
+      return {
+        success: false,
+        message: 'A Passkey autenticou, mas o e-mail associado não foi identificado.',
+        isOwner: false,
+      };
+    }
+
+    // Recupera o perfil real no Supabase (sem confiar em dados administrativos do localStorage)
+    let profile = await fetchCustomerProfileFromSupabase(email);
+    if (!profile) {
+      profile = {
+        id: data.user.id,
+        email,
+        fullName:
+          data.user.user_metadata?.full_name ||
+          data.user.user_metadata?.name ||
+          email.split('@')[0],
+        phoneWhatsapp: data.user.user_metadata?.phone || '',
+        role: 'customer',
+        createdAt: data.user.created_at || new Date().toISOString(),
+      };
+      try {
+        await upsertCustomerProfileToSupabase(profile);
+      } catch {
+        // Fallback local se estiver offline
+      }
+    }
+
+    const isOwner = profile.role === 'owner';
+    const isAdmin = profile.role === 'admin' || isOwner;
+
+    return {
+      success: true,
+      message: isAdmin
+        ? 'Login biométrico realizado com sucesso! Bem-vindo de volta ao Painel Administrativo.'
+        : `Olá, ${profile.fullName}! Acesso validado com sucesso via Passkey.`,
+      user: profile,
+      isOwner,
+    };
+  } catch (err: any) {
+    const rawMsg = err?.message || err?.name || String(err);
+    return {
+      success: false,
+      message: translateSupabaseAuthError(rawMsg),
+      isOwner: false,
+    };
+  }
+}
+
+/**
+ * Registra uma nova Passkey para o usuário autenticado na sessão atual
+ * supabase.auth.registerPasskey()
+ */
+export async function supabaseRegisterPasskey(
+  friendlyName?: string
+): Promise<{ success: boolean; message: string; passkey?: PasskeyItem }> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      success: false,
+      message: 'O Supabase não está configurado.',
+    };
+  }
+
+  // Verifica se há sessão ativa no Supabase
+  const { data: sessionData } = await client.auth.getSession();
+  if (!sessionData?.session?.user) {
+    return {
+      success: false,
+      message: 'Sessão expirada ou não autenticada. Entre com sua senha ou código antes de cadastrar uma Passkey.',
+    };
+  }
+
+  try {
+    const { data, error } = await client.auth.registerPasskey();
+
+    if (error) {
+      return {
+        success: false,
+        message: translateSupabaseAuthError(error.message || String(error)),
+      };
+    }
+
+    if (!data?.id) {
+      return {
+        success: false,
+        message: 'O Supabase não retornou a confirmação da Passkey cadastrada.',
+      };
+    }
+
+    let resolvedName = friendlyName?.trim();
+    if (!resolvedName) {
+      const userAgent = typeof navigator !== 'undefined' ? navigator.userAgent : '';
+      if (/iPhone|iPad|iPod/.test(userAgent)) {
+        resolvedName = 'Apple Face ID / Touch ID';
+      } else if (/Android/.test(userAgent)) {
+        resolvedName = 'Android Biometria / PIN';
+      } else if (/Macintosh/.test(userAgent)) {
+        resolvedName = 'Mac Touch ID';
+      } else if (/Windows/.test(userAgent)) {
+        resolvedName = 'Windows Hello';
+      } else {
+        resolvedName = 'Passkey Dispositivo';
+      }
+    }
+
+    // Se informou ou gerou nome amigável, atualiza via API oficial do Supabase
+    if (resolvedName && client.auth.passkey?.update) {
+      try {
+        await client.auth.passkey.update({
+          passkeyId: data.id,
+          friendlyName: resolvedName,
+        });
+      } catch (updateErr) {
+        console.warn('[Passkey] Aviso ao atualizar nome amigável da Passkey:', updateErr);
+      }
+    }
+
+    const passkeyItem: PasskeyItem = {
+      id: data.id,
+      friendlyName: resolvedName || data.friendly_name || 'Passkey Dispositivo',
+      createdAt: data.created_at || new Date().toISOString(),
+    };
+
+    return {
+      success: true,
+      message: 'Passkey cadastrada com sucesso! Agora você pode entrar com biometria ou PIN neste dispositivo.',
+      passkey: passkeyItem,
+    };
+  } catch (err: any) {
+    const rawMsg = err?.message || err?.name || String(err);
+    return {
+      success: false,
+      message: translateSupabaseAuthError(rawMsg),
+    };
+  }
+}
+
+/**
+ * Lista as Passkeys cadastradas pelo usuário autenticado atual
+ * supabase.auth.passkey.list()
+ */
+export async function supabaseListPasskeys(): Promise<{
+  success: boolean;
+  passkeys: PasskeyItem[];
+  error?: string;
+}> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { success: false, passkeys: [], error: 'Supabase não conectado.' };
+  }
+
+  const { data: sessionData } = await client.auth.getSession();
+  if (!sessionData?.session?.user) {
+    return { success: false, passkeys: [], error: 'Usuário não autenticado.' };
+  }
+
+  try {
+    if (!client.auth.passkey?.list) {
+      return { success: false, passkeys: [], error: 'API de Passkeys não disponível nesta versão.' };
+    }
+
+    const { data, error } = await client.auth.passkey.list();
+    if (error) {
+      return {
+        success: false,
+        passkeys: [],
+        error: translateSupabaseAuthError(error.message || String(error)),
+      };
+    }
+
+    const list: PasskeyItem[] = (data || []).map((p: any) => ({
+      id: String(p.id),
+      friendlyName: p.friendly_name || 'Passkey Dispositivo',
+      createdAt: p.created_at || new Date().toISOString(),
+      lastUsedAt: p.last_used_at || undefined,
+    }));
+
+    return {
+      success: true,
+      passkeys: list,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      passkeys: [],
+      error: translateSupabaseAuthError(err?.message || String(err)),
+    };
+  }
+}
+
+/**
+ * Renomeia uma Passkey cadastrada
+ * supabase.auth.passkey.update()
+ */
+export async function supabaseUpdatePasskeyFriendlyName(
+  passkeyId: string,
+  friendlyName: string
+): Promise<{ success: boolean; message: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, message: 'Supabase não conectado.' };
+
+  const cleanName = friendlyName.trim().slice(0, 120);
+  if (!cleanName) return { success: false, message: 'Informe um nome válido para o dispositivo.' };
+
+  try {
+    const { error } = await client.auth.passkey.update({
+      passkeyId,
+      friendlyName: cleanName,
+    });
+
+    if (error) {
+      return {
+        success: false,
+        message: translateSupabaseAuthError(error.message || String(error)),
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Nome do dispositivo atualizado com sucesso!',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: translateSupabaseAuthError(err?.message || String(err)),
+    };
+  }
+}
+
+/**
+ * Exclui uma Passkey cadastrada após confirmação do usuário
+ * supabase.auth.passkey.delete()
+ */
+export async function supabaseDeletePasskey(
+  passkeyId: string
+): Promise<{ success: boolean; message: string }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, message: 'Supabase não conectado.' };
+
+  try {
+    const { error } = await client.auth.passkey.delete({
+      passkeyId,
+    });
+
+    if (error) {
+      return {
+        success: false,
+        message: translateSupabaseAuthError(error.message || String(error)),
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Passkey removida com sucesso deste dispositivo!',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: translateSupabaseAuthError(err?.message || String(err)),
     };
   }
 }

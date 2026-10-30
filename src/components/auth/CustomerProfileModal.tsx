@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
-import { CustomerAddress } from '../../types/catalog';
+import { CustomerAddress, PasskeyItem } from '../../types/catalog';
 import { OrderNotificationSettings } from '../../context/OrderNotificationsContext';
 import { OrderStatusTimeline } from '../OrderStatusTimeline';
 import {
@@ -40,6 +40,15 @@ import {
   Star,
   MessageCircle,
   AlertCircle,
+  Fingerprint,
+  Smartphone,
+  Laptop,
+  Trash2,
+  Edit3,
+  Plus,
+  ShieldAlert,
+  KeyRound,
+  Check,
 } from 'lucide-react';
 
 export const CustomerProfileModal: React.FC = () => {
@@ -54,9 +63,14 @@ export const CustomerProfileModal: React.FC = () => {
     logoutUser,
     updateCustomerProfile,
     setCurrentView,
+    registerPasskey,
+    listPasskeys,
+    updatePasskeyName,
+    deletePasskey,
+    checkPasskeySupport,
   } = useCatalog();
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'loyalty' | 'orders'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'loyalty' | 'orders' | 'security'>('profile');
   React.useEffect(() => {
     const openOrders = () => setActiveTab('orders');
     const openLoyalty = () => setActiveTab('loyalty');
@@ -119,6 +133,97 @@ export const CustomerProfileModal: React.FC = () => {
       loadAuthenticatedOrders();
     }
   }, [isProfileModalOpen, activeTab, currentUser?.id, loadAuthenticatedOrders]);
+
+  // Passkey / WebAuthn States & Handlers
+  const [passkeys, setPasskeys] = useState<PasskeyItem[]>([]);
+  const [isLoadingPasskeys, setIsLoadingPasskeys] = useState(false);
+  const [isRegisteringPasskey, setIsRegisteringPasskey] = useState(false);
+  const [passkeyFeedback, setPasskeyFeedback] = useState<{ type: 'success' | 'error'; msg: string } | null>(null);
+  const [isPasskeySupported, setIsPasskeySupported] = useState<boolean | null>(null);
+  const [editingPasskeyId, setEditingPasskeyId] = useState<string | null>(null);
+  const [editingPasskeyName, setEditingPasskeyName] = useState('');
+  const [isRenamingPasskey, setIsRenamingPasskey] = useState(false);
+  const [deletingPasskeyId, setDeletingPasskeyId] = useState<string | null>(null);
+  const [isDeletingPasskey, setIsDeletingPasskey] = useState(false);
+
+  const loadPasskeys = React.useCallback(async () => {
+    setIsLoadingPasskeys(true);
+    setPasskeyFeedback(null);
+    try {
+      const res = await listPasskeys();
+      setPasskeys(res.passkeys || []);
+    } catch {
+      // errors handled by service/context
+    } finally {
+      setIsLoadingPasskeys(false);
+    }
+  }, [listPasskeys]);
+
+  React.useEffect(() => {
+    if (isProfileModalOpen && activeTab === 'security') {
+      checkPasskeySupport().then((res) => setIsPasskeySupported(res.supported));
+      loadPasskeys();
+    }
+  }, [isProfileModalOpen, activeTab, checkPasskeySupport, loadPasskeys]);
+
+  const handleRegisterPasskey = async () => {
+    setIsRegisteringPasskey(true);
+    setPasskeyFeedback(null);
+    try {
+      const res = await registerPasskey();
+      if (res.success) {
+        setPasskeyFeedback({ type: 'success', msg: res.message });
+        await loadPasskeys();
+      } else {
+        setPasskeyFeedback({ type: 'error', msg: res.message });
+      }
+    } catch (err: any) {
+      setPasskeyFeedback({
+        type: 'error',
+        msg: err?.message || 'Falha ao cadastrar Passkey no dispositivo.',
+      });
+    } finally {
+      setIsRegisteringPasskey(false);
+    }
+  };
+
+  const handleStartRename = (pk: PasskeyItem) => {
+    setEditingPasskeyId(pk.id);
+    setEditingPasskeyName(pk.friendlyName || '');
+  };
+
+  const handleSaveRename = async () => {
+    if (!editingPasskeyId) return;
+    setIsRenamingPasskey(true);
+    try {
+      const res = await updatePasskeyName(editingPasskeyId, editingPasskeyName.trim());
+      if (res.success) {
+        setEditingPasskeyId(null);
+        setEditingPasskeyName('');
+        await loadPasskeys();
+      } else {
+        setPasskeyFeedback({ type: 'error', msg: res.message });
+      }
+    } finally {
+      setIsRenamingPasskey(false);
+    }
+  };
+
+  const handleConfirmDelete = async () => {
+    if (!deletingPasskeyId) return;
+    setIsDeletingPasskey(true);
+    try {
+      const res = await deletePasskey(deletingPasskeyId);
+      if (res.success) {
+        setDeletingPasskeyId(null);
+        await loadPasskeys();
+      } else {
+        setPasskeyFeedback({ type: 'error', msg: res.message });
+      }
+    } finally {
+      setIsDeletingPasskey(false);
+    }
+  };
 
   React.useEffect(() => {
     if (currentUser) {
@@ -415,6 +520,19 @@ export const CustomerProfileModal: React.FC = () => {
           >
             <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
             <span className="truncate">Pedidos ({orders.length})</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('security')}
+            className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeTab === 'security'
+                ? 'bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] text-white shadow-md'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <Fingerprint className="w-3.5 h-3.5 shrink-0 text-[#00DFFF]" />
+            <span className="truncate">Segurança</span>
           </button>
         </div>
 
@@ -1193,6 +1311,280 @@ export const CustomerProfileModal: React.FC = () => {
                   })}
                 </div>
               )}
+            </div>
+          )}
+
+          {/* ===================== TAB: SEGURANÇA & PASSKEYS (WEBAUTHN) ===================== */}
+          {activeTab === 'security' && (
+            <div className="space-y-5 text-xs animate-in fade-in duration-200">
+              {/* Header Box */}
+              <div className="p-4 rounded-2xl bg-gradient-to-br from-[#141838] to-[#0D1022] border border-[#8423DA]/30 space-y-2">
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#8423DA]/30 to-[#00DFFF]/30 border border-[#00DFFF]/50 flex items-center justify-center text-[#00DFFF]">
+                      <Fingerprint className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <h4 className="font-heading font-black text-white text-sm">
+                        Minhas Passkeys (Face ID & Biometria)
+                      </h4>
+                      <p className="text-[11px] text-[#A5A5B8]">
+                        Autenticação moderna sem senhas vinculada ao seu dispositivo
+                      </p>
+                    </div>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadPasskeys}
+                    disabled={isLoadingPasskeys}
+                    className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-300 hover:text-white transition cursor-pointer"
+                    title="Atualizar lista de Passkeys"
+                  >
+                    <RefreshCw className={`w-3.5 h-3.5 ${isLoadingPasskeys ? 'animate-spin text-[#00DFFF]' : ''}`} />
+                  </button>
+                </div>
+
+                {/* Platform Support Status Badge */}
+                {isPasskeySupported === false && (
+                  <div className="p-2.5 rounded-xl bg-amber-500/15 border border-amber-500/35 text-amber-200 text-[11px] flex items-center gap-2">
+                    <AlertCircle className="w-4 h-4 text-amber-400 shrink-0" />
+                    <span>
+                      Este navegador ou dispositivo não possui suporte completo a WebAuthn biométrico ou está operando fora de contexto HTTPS seguro.
+                    </span>
+                  </div>
+                )}
+              </div>
+
+              {/* Passkey Feedback Banner */}
+              {passkeyFeedback && (
+                <div
+                  className={`p-3 rounded-xl text-xs flex items-center gap-2 ${
+                    passkeyFeedback.type === 'success'
+                      ? 'bg-emerald-500/15 border border-emerald-500/40 text-emerald-300'
+                      : 'bg-rose-500/15 border border-rose-500/40 text-rose-300'
+                  }`}
+                >
+                  {passkeyFeedback.type === 'success' ? (
+                    <CheckCircle2 className="w-4 h-4 shrink-0 text-emerald-400" />
+                  ) : (
+                    <AlertCircle className="w-4 h-4 shrink-0 text-rose-400" />
+                  )}
+                  <span>{passkeyFeedback.msg}</span>
+                </div>
+              )}
+
+              {/* Action Button: Cadastrar uma Passkey neste dispositivo */}
+              <div className="p-4 rounded-2xl bg-[#090C1B] border border-[#00DFFF]/30 shadow-lg space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                  <div>
+                    <h5 className="font-bold text-white text-xs flex items-center gap-1.5">
+                      <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
+                      Novo Acesso Biométrico
+                    </h5>
+                    <p className="text-[11px] text-[#A5A5B8] mt-0.5">
+                      Vincule este smartphone ou computador à sua conta PodWave
+                    </p>
+                  </div>
+
+                  <button
+                    type="button"
+                    onClick={handleRegisterPasskey}
+                    disabled={isRegisteringPasskey || isPasskeySupported === false}
+                    className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:brightness-110 active:scale-95 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#8423DA]/25 transition cursor-pointer disabled:opacity-50"
+                  >
+                    {isRegisteringPasskey ? (
+                      <RefreshCw className="w-4 h-4 animate-spin" />
+                    ) : (
+                      <Fingerprint className="w-4 h-4 text-[#00DFFF]" />
+                    )}
+                    <span>
+                      {isRegisteringPasskey
+                        ? 'Aguardando biometria...'
+                        : 'Cadastrar uma Passkey neste dispositivo'}
+                    </span>
+                  </button>
+                </div>
+              </div>
+
+              {/* List of Registered Passkeys */}
+              <div className="space-y-3">
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-white text-xs uppercase tracking-wider text-[11px]">
+                    Dispositivos Cadastrados ({passkeys.length})
+                  </span>
+                  <span className="text-[10px] text-[#A5A5B8]">
+                    Gerenciado com segurança via Supabase WebAuthn
+                  </span>
+                </div>
+
+                {isLoadingPasskeys ? (
+                  <div className="p-8 rounded-2xl bg-[#141838]/40 border border-[#8423DA]/20 flex flex-col items-center justify-center gap-2 text-center">
+                    <RefreshCw className="w-5 h-5 animate-spin text-[#00DFFF]" />
+                    <p className="text-gray-400 text-xs">Carregando suas chaves cadastradas...</p>
+                  </div>
+                ) : passkeys.length === 0 ? (
+                  <div className="p-6 rounded-2xl bg-[#141838]/30 border border-dashed border-[#8423DA]/30 flex flex-col items-center justify-center text-center space-y-2">
+                    <div className="w-12 h-12 rounded-2xl bg-white/5 flex items-center justify-center text-gray-400">
+                      <Fingerprint className="w-6 h-6 text-[#A5A5B8]" />
+                    </div>
+                    <p className="text-white font-bold text-xs">Nenhuma Passkey cadastrada ainda</p>
+                    <p className="text-[11px] text-[#A5A5B8] max-w-sm">
+                      Clique no botão acima para registrar seu Face ID, Touch ID, impressão digital ou chave de segurança para login instantâneo.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="space-y-2.5">
+                    {passkeys.map((pk) => {
+                      const isEditing = editingPasskeyId === pk.id;
+                      const isDeleting = deletingPasskeyId === pk.id;
+
+                      const isMobile =
+                        pk.friendlyName?.toLowerCase().includes('iphone') ||
+                        pk.friendlyName?.toLowerCase().includes('android') ||
+                        pk.friendlyName?.toLowerCase().includes('celular') ||
+                        pk.friendlyName?.toLowerCase().includes('face id');
+
+                      return (
+                        <div
+                          key={pk.id}
+                          className="p-3.5 rounded-2xl bg-[#141838]/60 border border-[#8423DA]/30 hover:border-[#00DFFF]/40 transition space-y-2"
+                        >
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="flex items-center gap-3 min-w-0">
+                              <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#8423DA]/20 to-[#00DFFF]/20 border border-[#00DFFF]/30 flex items-center justify-center text-[#00DFFF] shrink-0">
+                                {isMobile ? (
+                                  <Smartphone className="w-4 h-4" />
+                                ) : (
+                                  <Laptop className="w-4 h-4" />
+                                )}
+                              </div>
+                              <div className="min-w-0">
+                                {isEditing ? (
+                                  <div className="flex items-center gap-2">
+                                    <input
+                                      type="text"
+                                      value={editingPasskeyName}
+                                      onChange={(e) => setEditingPasskeyName(e.target.value)}
+                                      placeholder="Nome do dispositivo"
+                                      className="p-1.5 rounded-lg bg-[#0D1022] border border-[#00DFFF]/50 text-white text-xs focus:outline-none"
+                                      autoFocus
+                                    />
+                                    <button
+                                      type="button"
+                                      onClick={handleSaveRename}
+                                      disabled={isRenamingPasskey}
+                                      className="p-1.5 rounded-lg bg-emerald-500/20 text-emerald-300 hover:bg-emerald-500/30 transition cursor-pointer"
+                                      title="Salvar nome"
+                                    >
+                                      {isRenamingPasskey ? (
+                                        <RefreshCw className="w-3.5 h-3.5 animate-spin" />
+                                      ) : (
+                                        <Check className="w-3.5 h-3.5" />
+                                      )}
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setEditingPasskeyId(null)}
+                                      className="p-1.5 rounded-lg bg-white/10 text-gray-300 hover:bg-white/20 transition cursor-pointer"
+                                      title="Cancelar"
+                                    >
+                                      <X className="w-3.5 h-3.5" />
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <div className="flex items-center gap-2">
+                                    <p className="font-bold text-white text-xs truncate">
+                                      {pk.friendlyName || 'Dispositivo Biométrico'}
+                                    </p>
+                                    <button
+                                      type="button"
+                                      onClick={() => handleStartRename(pk)}
+                                      className="p-1 text-gray-400 hover:text-[#00DFFF] transition cursor-pointer"
+                                      title="Renomear Passkey"
+                                    >
+                                      <Edit3 className="w-3 h-3" />
+                                    </button>
+                                  </div>
+                                )}
+                                <p className="text-[10px] text-[#A5A5B8] flex items-center gap-2 mt-0.5">
+                                  <span>Cadastrado em: {new Date(pk.createdAt).toLocaleDateString('pt-BR')}</span>
+                                  {pk.lastUsedAt && (
+                                    <>
+                                      <span>•</span>
+                                      <span>Último uso: {new Date(pk.lastUsedAt).toLocaleDateString('pt-BR')}</span>
+                                    </>
+                                  )}
+                                </p>
+                              </div>
+                            </div>
+
+                            {/* Delete Action with Confirmation */}
+                            <div>
+                              {isDeleting ? (
+                                <div className="flex items-center gap-1.5 bg-rose-500/10 p-1.5 rounded-xl border border-rose-500/30">
+                                  <span className="text-[10px] text-rose-300 font-bold hidden sm:inline">
+                                    Confirmar exclusão?
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={handleConfirmDelete}
+                                    disabled={isDeletingPasskey}
+                                    className="px-2 py-1 rounded-lg bg-rose-500 hover:bg-rose-600 text-white text-[10px] font-bold transition cursor-pointer flex items-center gap-1"
+                                  >
+                                    {isDeletingPasskey ? (
+                                      <RefreshCw className="w-3 h-3 animate-spin" />
+                                    ) : (
+                                      <Trash2 className="w-3 h-3" />
+                                    )}
+                                    <span>Sim</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => setDeletingPasskeyId(null)}
+                                    className="px-2 py-1 rounded-lg bg-white/10 hover:bg-white/20 text-gray-300 text-[10px] transition cursor-pointer"
+                                  >
+                                    Não
+                                  </button>
+                                </div>
+                              ) : (
+                                <button
+                                  type="button"
+                                  onClick={() => setDeletingPasskeyId(pk.id)}
+                                  className="p-2 rounded-xl text-gray-400 hover:text-rose-400 hover:bg-rose-500/10 transition cursor-pointer"
+                                  title="Remover esta Passkey"
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </button>
+                              )}
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* Informative Guidance & Security Explanation */}
+              <div className="p-4 rounded-2xl bg-[#080811]/70 border border-[#8423DA]/20 text-[11px] text-[#A5A5B8] space-y-2">
+                <div className="flex items-center gap-2 text-white font-bold text-xs">
+                  <ShieldCheck className="w-4 h-4 text-[#00DFFF]" />
+                  <span>Como funciona a segurança por Passkey no PodWave?</span>
+                </div>
+                <p className="leading-relaxed">
+                  As Passkeys utilizam a tecnologia oficial <strong>WebAuthn FIDO2</strong>. Sua chave privada fica protegida pelo hardware de segurança do seu próprio aparelho (chip Secure Enclave da Apple ou TPM do Windows/Android).
+                </p>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 pt-1 text-[10px]">
+                  <div className="p-2.5 rounded-xl bg-white/5 border border-white/5">
+                    <strong className="text-white block mb-0.5">iPhone, iPad & Mac</strong>
+                    <span>Use Face ID ou Touch ID. Suas chaves sincronizam com o iCloud com criptografia de ponta a ponta.</span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-white/5 border border-white/5">
+                    <strong className="text-white block mb-0.5">Android & Windows</strong>
+                    <span>Use leitor de impressão digital, reconhecimento biométrico ou Windows Hello integrado ao sistema operacional.</span>
+                  </div>
+                </div>
+              </div>
             </div>
           )}
         </div>

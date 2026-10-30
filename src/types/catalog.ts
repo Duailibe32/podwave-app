@@ -270,6 +270,13 @@ export interface UserProfile {
   loyaltyCard?: LoyaltyCardData; // Cartão de fidelidade digital controlado manualmente pelo admin
 }
 
+export interface PasskeyItem {
+  id: string;
+  friendlyName?: string;
+  createdAt: string;
+  lastUsedAt?: string;
+}
+
 export type ActivityActionType =
   | 'PRODUTO_ADICIONADO'
   | 'PRODUTO_EDITADO'

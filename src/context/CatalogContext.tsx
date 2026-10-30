@@ -29,6 +29,7 @@ import {
   InitialCashBalanceConfig,
   ManualCommitmentEntry,
   SyncStatus,
+  PasskeyItem,
 } from '../types/catalog';
 import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, AVAILABLE_COUPONS } from '../data/initialData';
 import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
@@ -65,6 +66,12 @@ import {
   supabaseSignInWithGoogle,
   supabaseSendOtp,
   supabaseVerifyOtp,
+  supabaseSignInWithPasskey,
+  supabaseRegisterPasskey,
+  supabaseListPasskeys,
+  supabaseUpdatePasskeyFriendlyName,
+  supabaseDeletePasskey,
+  isPasskeyPlatformSupported,
   supabaseResetPasswordForEmail,
   supabaseGetCurrentAuthUser,
   translateSupabaseAuthError,
@@ -195,6 +202,12 @@ interface CatalogContextType {
   signInWithGoogle: () => Promise<{ success: boolean; message: string }>;
   sendOtpCode: (email: string) => Promise<{ success: boolean; message: string }>;
   verifyOtpCode: (email: string, token: string) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
+  signInWithPasskey: () => Promise<{ success: boolean; message: string; isOwner: boolean }>;
+  registerPasskey: (friendlyName?: string) => Promise<{ success: boolean; message: string; passkey?: PasskeyItem }>;
+  listPasskeys: () => Promise<{ success: boolean; passkeys: PasskeyItem[]; error?: string }>;
+  updatePasskeyName: (passkeyId: string, friendlyName: string) => Promise<{ success: boolean; message: string }>;
+  deletePasskey: (passkeyId: string) => Promise<{ success: boolean; message: string }>;
+  checkPasskeySupport: () => Promise<{ supported: boolean; reason?: string }>;
   logoutUser: () => void;
   resetPassword: (email: string) => Promise<{ success: boolean; message: string }>;
   updateCustomerProfile: (data: Partial<UserProfile>) => Promise<boolean>;
@@ -1024,6 +1037,84 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       message: res.message,
       isOwner: false,
     };
+  };
+
+  // LOGIN COM PASSKEY (BIOMETRIA / FACE ID / TOUCH ID / WINDOWS HELLO)
+  const signInWithPasskey = async (): Promise<{ success: boolean; message: string; isOwner: boolean }> => {
+    setIsAuthChecking(true);
+    setAuthErrorMessage(null);
+    const res = await supabaseSignInWithPasskey();
+    setIsAuthChecking(false);
+
+    if (res.success && res.user) {
+      setCurrentUser(res.user);
+      toast.success(
+        `Bem-vindo, ${res.user.fullName || 'ao PodWave'}!`,
+        res.isOwner ? 'Sessão de Administrador autenticada com Passkey.' : 'Login biométrico validado com sucesso.'
+      );
+      return res;
+    }
+
+    setAuthErrorMessage(res.message);
+    toast.error('Falha no login com Passkey', res.message);
+    return {
+      success: false,
+      message: res.message,
+      isOwner: false,
+    };
+  };
+
+  // CADASTRAR PASSKEY NESTE DISPOSITIVO
+  const registerPasskey = async (
+    friendlyName?: string
+  ): Promise<{ success: boolean; message: string; passkey?: PasskeyItem }> => {
+    setIsAuthChecking(true);
+    const res = await supabaseRegisterPasskey(friendlyName);
+    setIsAuthChecking(false);
+
+    if (res.success) {
+      toast.success('Passkey cadastrada!', res.message);
+    } else {
+      toast.error('Erro ao cadastrar Passkey', res.message);
+    }
+    return res;
+  };
+
+  // LISTAR PASSKEYS DO USUÁRIO ATUAL
+  const listPasskeys = async (): Promise<{ success: boolean; passkeys: PasskeyItem[]; error?: string }> => {
+    return await supabaseListPasskeys();
+  };
+
+  // ATUALIZAR NOME DA PASSKEY
+  const updatePasskeyName = async (
+    passkeyId: string,
+    friendlyName: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const res = await supabaseUpdatePasskeyFriendlyName(passkeyId, friendlyName);
+    if (res.success) {
+      toast.success('Passkey atualizada', res.message);
+    } else {
+      toast.error('Erro ao renomear', res.message);
+    }
+    return res;
+  };
+
+  // EXCLUIR PASSKEY
+  const deletePasskey = async (
+    passkeyId: string
+  ): Promise<{ success: boolean; message: string }> => {
+    const res = await supabaseDeletePasskey(passkeyId);
+    if (res.success) {
+      toast.info('Passkey removida', res.message);
+    } else {
+      toast.error('Erro ao excluir', res.message);
+    }
+    return res;
+  };
+
+  // CHECAR SUPORTE DE PLATAFORMA
+  const checkPasskeySupport = async (): Promise<{ supported: boolean; reason?: string }> => {
+    return await isPasskeyPlatformSupported();
   };
 
   // LOGOUT SEGURO
@@ -4243,6 +4334,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         signInWithGoogle,
         sendOtpCode,
         verifyOtpCode,
+        signInWithPasskey,
+        registerPasskey,
+        listPasskeys,
+        updatePasskeyName,
+        deletePasskey,
+        checkPasskeySupport,
         logoutUser,
         resetPassword,
         updateCustomerProfile,
