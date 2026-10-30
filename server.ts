@@ -18,27 +18,9 @@ app.use(express.urlencoded({ extended: true, limit: '50mb' }));
 // -------------------------------------------------------------
 // API: Fetch External URL to Base64 (CORS helper for Canvas Studio)
 // -------------------------------------------------------------
-app.post('/api/ai/fetch-url-base64', async (req, res) => {
-  try {
-    const { url } = req.body;
-    if (!url || typeof url !== 'string' || !url.startsWith('http')) {
-      return res.status(400).json({ error: 'URL inválida.' });
-    }
-
-    const fetched = await fetch(url);
-    if (!fetched.ok) {
-      return res.status(400).json({ error: `Falha ao carregar imagem externa: ${fetched.statusText}` });
-    }
-
-    const contentType = fetched.headers.get('content-type') || 'image/jpeg';
-    const arrayBuffer = await fetched.arrayBuffer();
-    const base64 = Buffer.from(arrayBuffer).toString('base64');
-    const dataUrl = `data:${contentType};base64,${base64}`;
-
-    return res.json({ success: true, dataUrl, mimeType: contentType });
-  } catch (error: any) {
-    return res.status(500).json({ error: error?.message || 'Erro ao converter URL para base64.' });
-  }
+// This unused proxy was an unauthenticated SSRF surface. It intentionally performs no fetch.
+app.post('/api/ai/fetch-url-base64', (_req, res) => {
+  return res.status(410).json({ error: 'Recurso indisponível neste ambiente.' });
 });
 
 // -------------------------------------------------------------
@@ -71,3 +53,4 @@ setupFrontend().catch((err) => {
   console.error('[PodWave Server] Erro fatal ao iniciar:', err);
   process.exit(1);
 });
+

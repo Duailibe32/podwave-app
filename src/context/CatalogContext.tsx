@@ -1,5 +1,5 @@
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
-import { createClient, SupabaseClient } from '@supabase/supabase-js';
+import { SupabaseClient } from '@supabase/supabase-js';
 import { toast } from './ToastContext';
 import {
   Brand,
@@ -100,8 +100,6 @@ import {
   fetchManualCommitmentsFromSupabase,
   saveManualCommitmentToSupabase,
   deleteManualCommitmentFromSupabase,
-  syncOrderFlavorStockInSupabase,
-  upsertManualSaleDirectToSupabase,
 } from '../services/supabase';
 import {
   acquireOrderActionLock,
@@ -126,15 +124,7 @@ export const isSupabaseEnvConfigured = Boolean(
   !VITE_SUPABASE_ANON_KEY.includes('your-anon-public-key')
 );
 
-export const supabaseClient: SupabaseClient | null = isSupabaseEnvConfigured
-  ? createClient(VITE_SUPABASE_URL, VITE_SUPABASE_ANON_KEY, {
-      auth: {
-        persistSession: true,
-        autoRefreshToken: true,
-      },
-    })
-  : null;
-
+export const supabaseClient = getSupabaseClient();
 
 const STORAGE_KEY = 'podwave_catalog_state_v4';
 const CART_STORAGE_KEY = 'podwave_cart_state_v2';
@@ -440,18 +430,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 
   const updateSupabaseCredentials = (url: string, key: string) => {
-    saveSupabaseCredentials(url, key);
+    if (!saveSupabaseCredentials(url, key)) {
+      setSupabaseStatus('error');
+      setSupabaseStatusMessage('Use uma URL HTTPS e uma chave pública anon/publishable. A conexão definida na hospedagem não pode ser substituída neste navegador.');
+      return;
+    }
     const updated = getSupabaseCredentials();
     setSupabaseCreds(updated);
     if (updated.isConfigured) {
-      try {
-        const freshClient = createClient(updated.url, updated.anonKey, {
-          auth: { persistSession: true, autoRefreshToken: true },
-        });
-        setActiveSupabaseClient(freshClient);
-      } catch {
-        setActiveSupabaseClient(getSupabaseClient());
-      }
+      setActiveSupabaseClient(getSupabaseClient());
       setSupabaseStatus('testing');
       setSupabaseStatusMessage('Verificando conexão...');
       testSupabaseConnection().then((res) => {
@@ -505,6 +492,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isAutoSyncing, setIsAutoSyncing] = useState<boolean>(false);
   const [lastSyncedAt, setLastSyncedAt] = useState<Date | null>(null);
   const isInitialLoadDoneRef = useRef(false);
+  const hasRemoteCatalogRef = useRef(false);
 
   const setIsAutoSyncEnabled = (enabled: boolean) => {
     setIsAutoSyncEnabledState(enabled);
@@ -518,39 +506,24 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const ACTIVE_USER_STORAGE_KEY = 'podwave_logged_in_user_v3';
 
   // User State (strictly authenticated via Supabase Auth)
-  const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
-        if (stored) {
-          const parsed: UserProfile = JSON.parse(stored);
-          return parsed;
-        }
-      } catch {
-        // ignore invalid JSON
-      }
-    }
-    return null;
-  });
+  const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
+  const authenticatedIdentityRef = useRef(currentUser);
+  authenticatedIdentityRef.current = currentUser;
+  const businessCacheKey = (key: string) => 'podwave_private:' + encodeURIComponent(supabaseCreds.url) + ':' + (currentUser?.id || 'signed-out') + ':' + key;
+  const businessCacheIdentity = businessCacheKey('owner');
+  const [businessCacheOwner, setBusinessCacheOwner] = useState<string | null>(null);
   const isOwner = currentUser?.role === 'owner';
   const isAdmin = currentUser?.role === 'admin' || isOwner;
   const isVip = currentUser?.role === 'vip';
   const isCustomer = currentUser?.role === 'customer' || (!isAdmin && !isVip);
   const isAdminAuthenticated = isAdmin;
 
-  // Sync currentUser with localStorage
+  // Remove the legacy identity cache; only Supabase Auth restores identity.
   useEffect(() => {
-    if (currentUser) {
-      if (typeof window !== 'undefined') {
-        localStorage.setItem(ACTIVE_USER_STORAGE_KEY, JSON.stringify(currentUser));
-      }
-    } else {
-      if (typeof window !== 'undefined') {
-        localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
-      }
-    }
-  }, [currentUser]);
+    localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
+    sessionStorage.removeItem(ADMIN_AUTH_KEY);
+  }, []);
 
   // Modals for Auth and Profile
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -558,39 +531,24 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isProfileModalOpen, setIsProfileModalOpen] = useState(false);
 
   // Auth checking state & messages
-  const [isAuthChecking, setIsAuthChecking] = useState(false);
+  const [isAuthChecking, setIsAuthChecking] = useState(true);
   const [authErrorMessage, setAuthErrorMessage] = useState<string | null>(null);
 
   // User Management State (for Admins to view/add/edit users & roles)
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
 
-  const mergeUserWithLocalLoyalty = (user: UserProfile): UserProfile => {
-    const localMap = loadLocalLoyaltyCardsMap();
-    const localCard = localMap[user.id];
-    const remoteCard = user.loyaltyCard;
-
-    if (localCard && remoteCard) {
-      const localTime = localCard.updatedAt ? new Date(localCard.updatedAt).getTime() : 0;
-      const remoteTime = remoteCard.updatedAt ? new Date(remoteCard.updatedAt).getTime() : 0;
-      return {
-        ...user,
-        loyaltyCard: localTime >= remoteTime ? localCard : remoteCard,
-      };
-    }
-    if (localCard || remoteCard) {
-      return {
-        ...user,
-        loyaltyCard: localCard || remoteCard,
-      };
-    }
-    return user;
-  };
+  // Local caches are never authoritative for rewards or permissions.
+  const mergeUserWithLocalLoyalty = (user: UserProfile): UserProfile => user;
 
   const fetchAllUsers = async () => {
+    const requestedIdentity = authenticatedIdentityRef.current;
+    const requestedProject = getSupabaseCredentials().url;
+    if (!requestedIdentity || !['owner','admin'].includes(requestedIdentity.role)) return;
     setIsLoadingUsers(true);
     try {
       const remoteUsers = await fetchAllCustomerProfilesFromSupabase();
+      if (authenticatedIdentityRef.current?.id !== requestedIdentity.id || getSupabaseCredentials().url !== requestedProject || !['owner','admin'].includes(authenticatedIdentityRef.current?.role || '')) return;
       const mapById = new Map<string, UserProfile>();
 
       if (remoteUsers && remoteUsers.length > 0) {
@@ -645,6 +603,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateUserRole = async (userId: string, newRole: UserRole, customDiscount?: number): Promise<boolean> => {
     const ok = await updateCustomerRoleInSupabase(userId, newRole, customDiscount);
+    if (!ok) return false;
     setAllUsers((prev) =>
       prev.map((u) =>
         u.id === userId
@@ -708,6 +667,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       author: authorLabel,
     });
 
+    // Do not report or cache a privileged mutation until the server confirms it.
+    const remoteOk = await updateCustomerLoyaltyInSupabase(userId, nextCard, currentCard);
+    if (!remoteOk) {
+      toast.error('Alteração não confirmada', 'O servidor recusou a atualização. Nenhum benefício foi alterado neste dispositivo.');
+      return false;
+    }
     // 1. Atualiza imediatamente o armazenamento local e o estado da aplicação para resposta instantânea
     const localMap = loadLocalLoyaltyCardsMap();
     localMap[userId] = nextCard;
@@ -723,18 +688,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (currentUser && currentUser.id === userId) {
       setCurrentUser((prev) => (prev ? { ...prev, loyaltyCard: nextCard } : null));
-    }
-
-    // 2. Sincroniza com o Supabase (com fallback de upsert caso o perfil ainda não exista na tabela)
-    if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-      let remoteOk = await updateCustomerLoyaltyInSupabase(userId, nextCard);
-      if (!remoteOk) {
-        remoteOk = await upsertCustomerProfileToSupabase({
-          ...targetUser,
-          loyaltyCard: nextCard,
-        });
-      }
-      console.log('[Loyalty Context] Sincronização remota concluída:', { userId, success: remoteOk });
     }
 
     addActivityLog({
@@ -781,102 +734,55 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const openProfileModal = () => setIsProfileModalOpen(true);
   const closeProfileModal = () => setIsProfileModalOpen(false);
 
-  // Sync user state to localStorage
+  // Verify identity remotely. An outdated async response cannot restore a signed-out user.
   useEffect(() => {
-    if (typeof window !== 'undefined') {
-      if (currentUser) {
-        localStorage.setItem(ACTIVE_USER_STORAGE_KEY, JSON.stringify(currentUser));
-        if (currentUser.role === 'owner' || currentUser.role === 'admin') {
-          sessionStorage.setItem(ADMIN_AUTH_KEY, 'true');
-        } else {
-          sessionStorage.removeItem(ADMIN_AUTH_KEY);
-        }
-      } else {
-        localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
-        sessionStorage.removeItem(ADMIN_AUTH_KEY);
-      }
-    }
-  }, [currentUser]);
-
-  // Sincronização e restauração da sessão real com Supabase Auth
-  useEffect(() => {
-    let isMounted = true;
-
-    const restoreSession = async () => {
-      if (!supabaseCreds.isConfigured) return;
+    let mounted = true;
+    let generation = 0;
+    setCurrentUser(null);
+    const client = getSupabaseClient();
+    const refresh = async () => {
+      const attempt = ++generation;
       setIsAuthChecking(true);
       try {
-        const authUser = await supabaseGetCurrentAuthUser();
-        if (isMounted && authUser) {
-          setCurrentUser(authUser);
-        }
-      } catch (err) {
-        console.warn('[Supabase Auth] Erro ao recuperar sessão ativa:', err);
+        const user = await supabaseGetCurrentAuthUser();
+        if (mounted && generation === attempt) setCurrentUser(user);
+      } catch {
+        if (mounted && generation === attempt) setCurrentUser(null);
       } finally {
-        if (isMounted) setIsAuthChecking(false);
+        if (mounted && generation === attempt) setIsAuthChecking(false);
       }
     };
-
-    restoreSession();
-
-    const client = getSupabaseClient();
-    if (client) {
-      const { data: authListener } = client.auth.onAuthStateChange(async (event, session) => {
-        if (!isMounted) return;
-
-        if (event === 'SIGNED_IN' && session?.user?.email) {
-          const cleanEmail = session.user.email.toLowerCase().trim();
-          let profile = await fetchCustomerProfileFromSupabase(cleanEmail);
-          if (!profile) {
-            profile = {
-              id: session.user.id,
-              email: cleanEmail,
-              fullName:
-                session.user.user_metadata?.full_name ||
-                session.user.user_metadata?.name ||
-                cleanEmail.split('@')[0],
-              phoneWhatsapp: session.user.user_metadata?.phone || '',
-              role: 'customer',
-              createdAt: session.user.created_at || new Date().toISOString(),
-            };
-            try {
-              await upsertCustomerProfileToSupabase(profile);
-            } catch (err) {
-              console.warn('[Supabase Auth] Falha ao criar perfil automático:', err);
-            }
-          }
-          if (profile && isMounted) {
-            setCurrentUser(profile);
-          }
-        } else if (event === 'SIGNED_OUT') {
-          if (isMounted) {
-            setCurrentUser(null);
-            if (typeof window !== 'undefined') {
-              localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
-              sessionStorage.removeItem(ADMIN_AUTH_KEY);
-            }
-          }
-        }
-      });
-
-      return () => {
-        isMounted = false;
-        authListener?.subscription?.unsubscribe();
-      };
+    if (!client) {
+      setIsAuthChecking(false);
+      return () => { mounted = false; };
     }
-
+    const { data: listener } = client.auth.onAuthStateChange((event, session) => {
+      if (!mounted) return;
+      if (event === 'SIGNED_OUT' || !session?.user) {
+        ++generation;
+        setCurrentUser(null);
+        setIsAuthChecking(false);
+      } else {
+        // Defer calls outside the auth event callback.
+        void Promise.resolve().then(() => { if (mounted) void refresh(); });
+      }
+    });
+    void refresh();
     return () => {
-      isMounted = false;
+      mounted = false;
+      ++generation;
+      listener.subscription.unsubscribe();
     };
-  }, [supabaseCreds.isConfigured]);
+  }, [supabaseCreds.url, supabaseCreds.anonKey, supabaseCreds.isConfigured]);
 
   // Carregar histórico de pedidos do Supabase caso o cliente esteja conectado
   useEffect(() => {
     if (currentUser?.id && supabaseCreds.isConfigured && supabaseStatus === 'connected') {
-      fetchCustomerOrdersFromSupabase(currentUser.id).then((remoteOrders) => {
+      const requestedId = currentUser.id;
+      fetchCustomerOrdersFromSupabase(requestedId).then((remoteOrders) => {
         if (remoteOrders && remoteOrders.length > 0) {
           setCurrentUser((prev) => {
-            if (!prev) return null;
+            if (!prev || prev.id !== requestedId) return prev;
             return {
               ...prev,
               orderHistory: remoteOrders,
@@ -1137,28 +1043,29 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     const updated: UserProfile = {
       ...currentUser,
-      ...data,
+      fullName: data.fullName ?? currentUser.fullName,
+      phoneWhatsapp: data.phoneWhatsapp ?? currentUser.phoneWhatsapp,
+      cpf: data.cpf ?? currentUser.cpf,
       address: data.address ? { ...currentUser.address, ...data.address } : currentUser.address,
     };
 
-    setCurrentUser(updated);
-
-    // Salvar no Supabase
     try {
       const saved = await upsertCustomerProfileToSupabase(updated);
-      if (saved) {
-        toast.success('Perfil salvo com sucesso!', 'Seus dados e endereços foram atualizados.');
-      } else {
-        toast.warning('Perfil salvo localmente', 'Não foi possível sincronizar com o banco remoto.');
+      if (!saved) {
+        toast.error('Perfil não confirmado', 'O servidor não confirmou a alteração. Dados antigos de benefícios podem exigir revisão pelo proprietário.');
+        return false;
       }
+      setCurrentUser(updated);
+      toast.success('Perfil salvo com sucesso!', 'Dados confirmados no servidor.');
+      return true;
     } catch {
-      toast.warning('Perfil salvo localmente', 'Sincronização com o banco indisponível.');
+      toast.error('Perfil não confirmado', 'Não foi possível confirmar a gravação no servidor.');
+      return false;
     }
-    return true;
   };
 
   // CENTRAL DE PEDIDOS — ESTADO & AÇÕES ADMINISTRATIVAS
-  const LOCAL_CATALOG_ORDERS_KEY = 'podwave_local_catalog_orders_v1';
+  const LOCAL_CATALOG_ORDERS_KEY = businessCacheKey('podwave_local_catalog_orders_v1');
 
   const loadLocalCatalogOrders = (): CustomerOrderHistoryItem[] => {
     if (typeof window === 'undefined') return [];
@@ -1218,6 +1125,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   );
 
   const fetchAllCatalogOrders = React.useCallback(async () => {
+    const requestedIdentity = authenticatedIdentityRef.current;
+    const requestedProject = getSupabaseCredentials().url;
     if (!isAdmin) {
       setAllCatalogOrders([]);
       setCatalogOrdersError(null);
@@ -1232,6 +1141,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         allUsers.length > 0 ? Promise.resolve(allUsers) : fetchAllCustomerProfilesFromSupabase(),
       ]);
 
+      if (!requestedIdentity || authenticatedIdentityRef.current?.id !== requestedIdentity.id || getSupabaseCredentials().url !== requestedProject || !['owner','admin'].includes(authenticatedIdentityRef.current?.role || '')) return;
       const profilesToUse =
         remoteProfiles && remoteProfiles.length > 0 ? remoteProfiles : allUsers;
 
@@ -1244,39 +1154,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         mapById.set(ord.id, enrichOrderWithProfile(ord, profilesToUse));
       }
 
-      // Preserva pedidos locais ou versões locais mais recentes (evita perder status/pagamento/selo caso o banco esteja offline ou com RLS restrita)
-      const localCached = loadLocalCatalogOrders();
-      for (const locOrd of localCached) {
-        const existingRemote = mapById.get(locOrd.id);
-        if (!existingRemote) {
-          mapById.set(locOrd.id, enrichOrderWithProfile(locOrd, profilesToUse));
-        } else {
-          const locVer = Number(locOrd.version) || 1;
-          const remVer = Number(existingRemote.version) || 1;
-          const locTime = locOrd.updatedAt ? new Date(locOrd.updatedAt).getTime() : 0;
-          const remTime = existingRemote.updatedAt ? new Date(existingRemote.updatedAt).getTime() : 0;
-          if (locVer > remVer || locTime > remTime) {
-            mapById.set(locOrd.id, enrichOrderWithProfile(locOrd, profilesToUse));
-          }
-        }
-      }
-
-      // Include current session user's orders if any exist in memory and were not yet synced
-      if (currentUser?.orderHistory) {
-        for (const ownOrd of currentUser.orderHistory) {
-          const existing = mapById.get(ownOrd.id);
-          if (!existing) {
-            mapById.set(
-              ownOrd.id,
-              enrichOrderWithProfile(
-                { ...ownOrd, customerId: ownOrd.customerId || currentUser.id },
-                profilesToUse
-              )
-            );
-          }
-        }
-      }
-
+      // Server-confirmed records are authoritative; local timestamps cannot override them.
       const sorted = Array.from(mapById.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
@@ -1413,11 +1291,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Salvar pedido persistente no Supabase
     const savedRemotely = await saveCustomerOrderToSupabase(orderItem, currentUser.id);
-    if (!savedRemotely && (supabaseCreds.isConfigured || Boolean(activeSupabaseClient))) {
+    if (!savedRemotely) {
       toast.warning(
         'Atenção ao registrar pedido',
-        'Não foi possível confirmar a gravação do pedido no servidor remoto. Tente novamente ou envie pelo WhatsApp.'
+        'O servidor não confirmou a gravação. Nenhum novo registro foi salvo neste dispositivo.'
       );
+      return;
     }
 
     const updatedOrders = [orderItem, ...(currentUser.orderHistory || [])];
@@ -1483,95 +1362,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return { success: false, error: transition.error || 'Transição de status inválida.' };
       }
 
-      const applyLocalAndRemoteOrderStock = async (
-        targetOrder: CustomerOrderHistoryItem,
-        mode: 'deduct' | 'restore'
-      ) => {
-        const validItems = (targetOrder.items || []).filter(
-          (i) => i && i.modelId && i.flavorId && Number(i.quantity) > 0
-        );
-        if (validItems.length === 0) return;
-
-        // Agrupa por flavorId
-        const deltaByFlavor = new Map<string, { modelId: string; qty: number }>();
-        for (const item of validItems) {
-          const prev = deltaByFlavor.get(item.flavorId);
-          deltaByFlavor.set(item.flavorId, {
-            modelId: item.modelId,
-            qty: (prev?.qty || 0) + Math.max(1, Math.round(Number(item.quantity) || 1)),
-          });
-        }
-
-        const nowStamp = new Date().toISOString();
-        const historyEntries: VariantHistoryEntry[] = [];
-
-        setModels((prevModels) =>
-          prevModels.map((m) => {
-            const hasAffectedFlavor = m.flavors.some((f) => deltaByFlavor.has(f.id));
-            if (!hasAffectedFlavor) return m;
-            return {
-              ...m,
-              flavors: m.flavors.map((f) => {
-                const delta = deltaByFlavor.get(f.id);
-                if (!delta) return f;
-                const prevQty = f.demoQuantity == null ? 0 : Math.max(0, Number(f.demoQuantity));
-                const nextQty =
-                  mode === 'deduct'
-                    ? Math.max(0, prevQty - delta.qty)
-                    : prevQty + delta.qty;
-                historyEntries.push({
-                  id: `vh-ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
-                  timestamp: nowStamp,
-                  modelId: m.id,
-                  modelName: m.modelName,
-                  brandName: m.brandName,
-                  flavorId: f.id,
-                  flavorName: f.name,
-                  flavorEmoji: f.iconEmoji || '🍇',
-                  previousQuantity: f.demoQuantity ?? 0,
-                  newQuantity: nextQty,
-                  updatedBy: currentUser.email || currentUser.fullName || 'Administrador',
-                  changeType: 'quick_edit',
-                  notes:
-                    mode === 'deduct'
-                      ? `Baixa automática de estoque — Pedido #${targetOrder.referenceId} confirmado`
-                      : `Estorno automático de estoque — Pedido #${targetOrder.referenceId} cancelado`,
-                });
-                return {
-                  ...f,
-                  demoQuantity: nextQty,
-                  inStock: nextQty > 0,
-                  updatedAt: nowStamp,
-                };
-              }),
-            };
-          })
-        );
-
-        if (historyEntries.length > 0) {
-          setVariantHistory((prev) => {
-            const next = [...historyEntries, ...prev].slice(0, 100);
-            try {
-              localStorage.setItem(VARIANT_HISTORY_KEY, JSON.stringify(next));
-            } catch {
-              // ignore
-            }
-            return next;
-          });
-        }
-
-        if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-          await syncOrderFlavorStockInSupabase(
-            validItems.map((i) => ({
-              modelId: i.modelId,
-              flavorId: i.flavorId,
-              quantity: i.quantity,
-            })),
-            mode
-          );
-        }
-      };
-
       const nowIso = new Date().toISOString();
       let stockDeductedFlag = existing.stockDeducted === true;
       let stockDeductedAtIso = existing.stockDeductedAt;
@@ -1598,10 +1388,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           );
           if (built.success && built.sale) {
             let rpcRes = await saveSaleWithStock(built.sale);
-            if (!rpcRes.success && rpcRes.error && /venda foi excluída|venda excluída/i.test(rpcRes.error)) {
-              built.sale.id = `sale-ord-${existing.id}-${Date.now().toString(36)}`;
-              rpcRes = await saveSaleWithStock(built.sale);
-            }
+
             if (rpcRes.success) {
               const trackedSale: ManualSaleEntry = {
                 ...built.sale,
@@ -1622,18 +1409,14 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
               linkedFinancialSaleId = trackedSale.id;
               linkedFinancialRecordedAt = nowIso;
             } else {
-              // Fallback direto na tabela flavor_variants e estado local se a RPC save_sale_with_stock não estiver ativa
-              await applyLocalAndRemoteOrderStock(existing, 'deduct');
-              stockDeductedFlag = true;
-              stockDeductedAtIso = nowIso;
+              return { success: false, error: rpcRes.error || 'O servidor recusou a alteração. Recarregue os dados.' };
             }
           } else {
-            await applyLocalAndRemoteOrderStock(existing, 'deduct');
-            stockDeductedFlag = true;
-            stockDeductedAtIso = nowIso;
+            return { success: false, error: built.error || 'Não foi possível validar os dados. Nenhuma alteração foi aplicada.' };
           }
         } else {
-          await applyLocalAndRemoteOrderStock(existing, 'deduct');
+          if (!existingSale.stockManaged) return { success: false, error: 'Registro antigo sem controle transacional. Requer conferência manual.' };
+          await refreshSaleStock();
           stockDeductedFlag = true;
           stockDeductedAtIso = nowIso;
           linkedFinancialSaleId = existingSale.id;
@@ -1661,10 +1444,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
             );
             await refreshSaleStock();
           } else {
-            await applyLocalAndRemoteOrderStock(existing, 'restore');
+            return { success: false, error: rpcCancel.error || 'O servidor recusou o estorno.' };
           }
         } else {
-          await applyLocalAndRemoteOrderStock(existing, 'restore');
+          return { success: false, error: 'Sem vínculo transacional para conferir o estorno. Recarregue os dados.' };
         }
         stockDeductedFlag = false;
         stockDeductedAtIso = undefined;
@@ -1687,6 +1470,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         financialRecordedAt: linkedFinancialRecordedAt,
       };
 
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+        if (!confirmed) return { success: false, error: 'O servidor não confirmou o registro. Recarregue antes de tentar novamente; uma operação relacionada pode já ter sido gravada.' };
+      }
+
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
         persistLocalCatalogOrders(next);
@@ -1704,10 +1492,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
               }
             : null
         );
-      }
-
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
       }
 
       addActivityLog({
@@ -1793,25 +1577,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         version: (existing.version || 1) + 1,
       };
 
-      setAllCatalogOrders((prev) => {
-        const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
-        persistLocalCatalogOrders(next);
-        return next;
-      });
-
-      if (currentUser.id === ownerCustomerId) {
-        setCurrentUser((prev) =>
-          prev
-            ? {
-                ...prev,
-                orderHistory: (prev.orderHistory || []).map((o) =>
-                  o.id === orderId ? updatedOrder : o
-                ),
-              }
-            : null
-        );
-      }
-
       // Se já houver venda financeira vinculada a este pedido, sincroniza o status de pagamento na venda também
       const linkedSale = findExistingFinancialSaleForOrder(existing, manualSales);
       if (linkedSale) {
@@ -1831,17 +1596,39 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
               ? linkedSale.receivedDate || nowIso.split('T')[0]
               : linkedSale.receivedDate,
         };
+        const savedSale = await saveSaleWithStock(updatedSale);
+        if (!savedSale.success) return { success: false, error: savedSale.error || 'O servidor recusou a alteração.' };
+        updatedSale.stockRevision = savedSale.stockRevision;
         setManualSales((prev) =>
           prev.map((s) => (s.id === linkedSale.id ? updatedSale : s))
         );
-        if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-          void upsertManualSaleDirectToSupabase(updatedSale);
-        }
+
       }
 
       if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+        const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+        if (!confirmed) return { success: false, error: 'O servidor não confirmou o registro. Recarregue antes de tentar novamente; uma operação relacionada pode já ter sido gravada.' };
       }
+
+      setAllCatalogOrders((prev) => {
+        const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
+        persistLocalCatalogOrders(next);
+        return next;
+      });
+
+      if (currentUser.id === ownerCustomerId) {
+        setCurrentUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                orderHistory: (prev.orderHistory || []).map((o) =>
+                  o.id === orderId ? updatedOrder : o
+                ),
+              }
+            : null
+        );
+      }
+
 
       return { success: true, updatedOrder };
     } finally {
@@ -1940,9 +1727,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const idempotencyKey = `stamp-order-${order.id}`;
       const authorLabel = currentUser.fullName || currentUser.email || 'Administrador';
       const localMap = loadLocalLoyaltyCardsMap();
-      const baseCard =
-        localMap[resolvedCustomerId] ||
-        getUserLoyaltyCard(matchedCustomer, defaultGoal, defaultReward);
+      const baseCard = getUserLoyaltyCard(matchedCustomer, defaultGoal, defaultReward);
 
       const updatedCard = applyLoyaltyMutation(baseCard, {
         type: 'add',
@@ -1967,6 +1752,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updatedBy: authorLabel,
         version: (order.version || 1) + 1,
       };
+
+      const cardSaved = await updateCustomerLoyaltyInSupabase(resolvedCustomerId, updatedCard, baseCard);
+      if (!cardSaved) return { success: false, error: 'O servidor não confirmou a alteração. Recarregue os dados.' };
+      const orderSaved = await saveCustomerOrderToSupabase(updatedOrder, resolvedCustomerId);
+      if (!orderSaved) return { success: false, error: 'A atualização do registro falhou. Confira os dados no servidor antes de tentar novamente.' };
 
       localMap[resolvedCustomerId] = updatedCard;
       saveLocalLoyaltyCardsMap(localMap);
@@ -2012,19 +1802,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return next;
       });
 
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        let cardSaved = await updateCustomerLoyaltyInSupabase(
-          resolvedCustomerId,
-          updatedCard
-        );
-        if (!cardSaved && matchedCustomer) {
-          cardSaved = await upsertCustomerProfileToSupabase({
-            ...matchedCustomer,
-            loyaltyCard: updatedCard,
-          });
-        }
-        await saveCustomerOrderToSupabase(updatedOrder, resolvedCustomerId);
-      }
 
       addActivityLog({
         action: 'FIDELIDADE_ATUALIZADA',
@@ -2103,18 +1880,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const nowIso = new Date().toISOString();
       let rpcRes = await saveSaleWithStock(built.sale);
-      if (!rpcRes.success && rpcRes.error && /venda foi excluída|venda excluída/i.test(rpcRes.error)) {
-        built.sale.id = `sale-ord-${order.id}-${Date.now().toString(36)}`;
-        rpcRes = await saveSaleWithStock(built.sale);
-      }
+
       let syncedRemotely = rpcRes.success;
 
-      if (!syncedRemotely) {
-        // Fallback: grava diretamente na tabela manual_sales caso a RPC save_sale_with_stock não esteja instalada ou falhe por item desvinculado
-        syncedRemotely = await upsertManualSaleDirectToSupabase(built.sale);
-      } else {
-        await refreshSaleStock();
-      }
+      if (!syncedRemotely) return { success: false, error: rpcRes.error || 'O servidor recusou a alteração.' };
+      await refreshSaleStock();
 
       const trackedSale: ManualSaleEntry = {
         ...built.sale,
@@ -2151,15 +1921,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         version: (order.version || 1) + 1,
       };
 
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+        if (!confirmed) return { success: false, error: 'O servidor não confirmou o registro. Recarregue antes de tentar novamente; uma operação relacionada pode já ter sido gravada.' };
+      }
+
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === order.id ? updatedOrder : o));
         persistLocalCatalogOrders(next);
         return next;
       });
-
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-      }
 
       addActivityLog({
         action: 'PEDIDO_ATUALIZADO',
@@ -2265,31 +2036,24 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Storage key for activity logs (Auditoria do Catálogo)
-  const ACTIVITY_LOGS_STORAGE_KEY = 'podwave_activity_logs_v2';
+  const ACTIVITY_LOGS_STORAGE_KEY = businessCacheKey('podwave_activity_logs_v2');
 
-  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem(ACTIVITY_LOGS_STORAGE_KEY);
-        if (stored) return JSON.parse(stored);
-      } catch {
-        // ignore
-      }
-    }
-    return [];
-  });
+  const [activityLogs, setActivityLogs] = useState<ActivityLogEntry[]>([]);
 
-  // Salvar logs de atividade no localStorage
+  // Save private logs only after the matching account cache has been hydrated.
   useEffect(() => {
-    if (typeof window !== 'undefined') {
+    if (typeof window !== 'undefined' && isAdmin && businessCacheOwner === businessCacheIdentity) {
       localStorage.setItem(ACTIVITY_LOGS_STORAGE_KEY, JSON.stringify(activityLogs));
     }
-  }, [activityLogs]);
+  }, [activityLogs, isAdmin, businessCacheOwner, businessCacheIdentity]);
 
   // Carregar histórico de atividades do Supabase na inicialização
   useEffect(() => {
-    if (supabaseCreds.isConfigured && supabaseStatus === 'connected') {
+    if (isAdmin && supabaseCreds.isConfigured && supabaseStatus === 'connected') {
+      const requestedId = currentUser?.id;
+      const requestedProject = supabaseCreds.url;
       fetchActivityLogsFromSupabase().then((remoteLogs) => {
+        if (authenticatedIdentityRef.current?.id !== requestedId || getSupabaseCredentials().url !== requestedProject || !['owner','admin'].includes(authenticatedIdentityRef.current?.role || '')) return;
         if (remoteLogs && remoteLogs.length > 0) {
           setActivityLogs((prev) => {
             const map = new Map<string, ActivityLogEntry>();
@@ -2304,7 +2068,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       });
     }
-  }, [supabaseCreds.isConfigured, supabaseStatus]);
+  }, [supabaseCreds.isConfigured, supabaseStatus, isAdmin, currentUser?.id]);
 
   const addActivityLog = (
     entry: Omit<ActivityLogEntry, 'id' | 'timestamp' | 'author'> & { author?: string }
@@ -3313,10 +3077,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const syncToSupabase = async () => {
+    if (!isAdmin || !hasRemoteCatalogRef.current) return { success: false, message: 'Valide o acesso e carregue o catálogo remoto antes de enviar alterações.' };
     return await syncCatalogToSupabase(brands, models, banners, coupons, settings);
   };
 
   const loadFromSupabase = async (): Promise<boolean> => {
+    hasRemoteCatalogRef.current = false;
     try {
       const result = await fetchCatalogFromSupabase();
       if (!result) return false;
@@ -3330,11 +3096,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const { data } = result;
       if (!data) return false;
 
-      if (data.brands && data.brands.length > 0) setBrands(data.brands);
-      if (data.models && data.models.length > 0) setModels(data.models);
-      if (data.banners && data.banners.length > 0) setBanners(data.banners);
-      if (data.coupons && data.coupons.length > 0) setCoupons(data.coupons);
+      if (data.brands) setBrands(data.brands);
+      if (data.models) setModels(data.models);
+      if (data.banners) setBanners(data.banners);
+      if (data.coupons) setCoupons(data.coupons);
       if (data.settings) setSettings(data.settings);
+      hasRemoteCatalogRef.current = true;
 
       setSupabaseStatus('connected');
       setSupabaseStatusMessage('Conectado ao Supabase e catálogo sincronizado com sucesso!');
@@ -3375,10 +3142,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Sincronização Automática em segundo plano com o Supabase quando há alterações locais
   useEffect(() => {
-    if (!isInitialLoadDoneRef.current) {
+    if (!isInitialLoadDoneRef.current || !hasRemoteCatalogRef.current) {
       return;
     }
-    if (!isAutoSyncEnabled || supabaseStatus !== 'connected') {
+    if (!isAdmin || isAuthChecking || !isAutoSyncEnabled || supabaseStatus !== 'connected') {
       return;
     }
 
@@ -3397,57 +3164,17 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }, 1500);
 
     return () => clearTimeout(timer);
-  }, [brands, models, banners, coupons, settings, isAutoSyncEnabled, supabaseStatus]);
+  }, [brands, models, banners, coupons, settings, isAutoSyncEnabled, supabaseStatus, isAdmin, isAuthChecking]);
 
   // -------------------------------------------------------------
   // MEU NEGÓCIO: CONTROLE GERENCIAL E FINANCEIRO MANUAL
   // -------------------------------------------------------------
-  const [manualSales, setManualSales] = useState<ManualSaleEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('podwave_local_manual_sales');
-        if (stored) return JSON.parse(stored);
-      } catch {}
-    }
-    return [];
-  });
-  const [manualExpenses, setManualExpenses] = useState<ManualExpenseEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('podwave_local_manual_expenses');
-        if (stored) return JSON.parse(stored);
-      } catch {}
-    }
-    return [];
-  });
-  const [merchandisePurchases, setMerchandisePurchases] = useState<MerchandisePurchaseEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('podwave_local_merchandise_purchases');
-        if (stored) return JSON.parse(stored);
-      } catch {}
-    }
-    return [];
-  });
-  const [cashMovements, setCashMovements] = useState<CashMovementEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('podwave_local_cash_movements');
-        if (stored) return JSON.parse(stored);
-      } catch {}
-    }
-    return [];
-  });
+  const [manualSales, setManualSales] = useState<ManualSaleEntry[]>([]);
+  const [manualExpenses, setManualExpenses] = useState<ManualExpenseEntry[]>([]);
+  const [merchandisePurchases, setMerchandisePurchases] = useState<MerchandisePurchaseEntry[]>([]);
+  const [cashMovements, setCashMovements] = useState<CashMovementEntry[]>([]);
   const [initialCashBalances, setInitialCashBalances] = useState<InitialChannelBalanceRecord[]>([]);
-  const [manualCommitments, setManualCommitments] = useState<ManualCommitmentEntry[]>(() => {
-    if (typeof window !== 'undefined') {
-      try {
-        const stored = localStorage.getItem('podwave_local_manual_commitments');
-        if (stored) return JSON.parse(stored);
-      } catch {}
-    }
-    return [];
-  });
+  const [manualCommitments, setManualCommitments] = useState<ManualCommitmentEntry[]>([]);
   const [hasDismissedLocalBalancesPrompt, setHasDismissedLocalBalancesPrompt] = useState<boolean>(() => {
     if (typeof window !== 'undefined') {
       return sessionStorage.getItem('podwave_dismiss_local_balances_prompt') === 'true';
@@ -3489,7 +3216,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Fallback: se Supabase ainda não tem a tabela executada, verificar se há dados locais
     if (typeof window !== 'undefined') {
       try {
-        const local = localStorage.getItem('podwave_initial_cash_balances');
+        const local = localStorage.getItem(businessCacheKey('podwave_initial_cash_balances'));
         if (local) {
           const parsed = JSON.parse(local);
           return {
@@ -3533,7 +3260,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (initialCashBalances.length > 0) return false; // Já existem no Supabase
     if (typeof window === 'undefined') return false;
     try {
-      const local = localStorage.getItem('podwave_initial_cash_balances');
+      const local = localStorage.getItem(businessCacheKey('podwave_initial_cash_balances'));
       if (!local) return false;
       const parsed = JSON.parse(local);
       const total =
@@ -3556,54 +3283,54 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Sincronização e persistência local (fallback offline e pré-migration) — exclusiva para sessões administrativas
   useEffect(() => {
-    if (typeof window !== 'undefined' && isAdmin) {
+    if (typeof window !== 'undefined' && isAdmin && businessCacheOwner === businessCacheIdentity) {
       try {
-        localStorage.setItem('podwave_local_manual_sales', JSON.stringify(manualSales));
+        localStorage.setItem(businessCacheKey('podwave_local_manual_sales'), JSON.stringify(manualSales));
       } catch (e) {
         console.warn('Erro ao salvar manualSales no localStorage:', e);
       }
     }
-  }, [manualSales, isAdmin]);
+  }, [manualSales, isAdmin, businessCacheOwner, businessCacheIdentity]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && isAdmin) {
+    if (typeof window !== 'undefined' && isAdmin && businessCacheOwner === businessCacheIdentity) {
       try {
-        localStorage.setItem('podwave_local_manual_expenses', JSON.stringify(manualExpenses));
+        localStorage.setItem(businessCacheKey('podwave_local_manual_expenses'), JSON.stringify(manualExpenses));
       } catch (e) {
         console.warn('Erro ao salvar manualExpenses no localStorage:', e);
       }
     }
-  }, [manualExpenses, isAdmin]);
+  }, [manualExpenses, isAdmin, businessCacheOwner, businessCacheIdentity]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && isAdmin) {
+    if (typeof window !== 'undefined' && isAdmin && businessCacheOwner === businessCacheIdentity) {
       try {
-        localStorage.setItem('podwave_local_merchandise_purchases', JSON.stringify(merchandisePurchases));
+        localStorage.setItem(businessCacheKey('podwave_local_merchandise_purchases'), JSON.stringify(merchandisePurchases));
       } catch (e) {
         console.warn('Erro ao salvar merchandisePurchases no localStorage:', e);
       }
     }
-  }, [merchandisePurchases, isAdmin]);
+  }, [merchandisePurchases, isAdmin, businessCacheOwner, businessCacheIdentity]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && isAdmin) {
+    if (typeof window !== 'undefined' && isAdmin && businessCacheOwner === businessCacheIdentity) {
       try {
-        localStorage.setItem('podwave_local_cash_movements', JSON.stringify(cashMovements));
+        localStorage.setItem(businessCacheKey('podwave_local_cash_movements'), JSON.stringify(cashMovements));
       } catch (e) {
         console.warn('Erro ao salvar cashMovements no localStorage:', e);
       }
     }
-  }, [cashMovements, isAdmin]);
+  }, [cashMovements, isAdmin, businessCacheOwner, businessCacheIdentity]);
 
   useEffect(() => {
-    if (typeof window !== 'undefined' && isAdmin) {
+    if (typeof window !== 'undefined' && isAdmin && businessCacheOwner === businessCacheIdentity) {
       try {
-        localStorage.setItem('podwave_local_manual_commitments', JSON.stringify(manualCommitments));
+        localStorage.setItem(businessCacheKey('podwave_local_manual_commitments'), JSON.stringify(manualCommitments));
       } catch (e) {
         console.warn('Erro ao salvar manualCommitments no localStorage:', e);
       }
     }
-  }, [manualCommitments, isAdmin]);
+  }, [manualCommitments, isAdmin, businessCacheOwner, businessCacheIdentity]);
 
   // Helper para deduplicar pagamentos, recebimentos e parcelas por ID único
   const deduplicateById = <T extends { id?: string }>(arr?: T[]): T[] => {
@@ -3624,7 +3351,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Chave e estrutura para registro de exclusões pendentes (tombstones)
-  const TOMBSTONES_STORAGE_KEY = 'podwave_deleted_record_tombstones';
+  const TOMBSTONES_STORAGE_KEY = businessCacheKey('podwave_deleted_record_tombstones');
   interface TombstoneRecord {
     id: string;
     table: 'sales' | 'expenses' | 'purchases' | 'movements' | 'commitments';
@@ -3674,16 +3401,18 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const hydrateLocalBusinessDataForAdmin = () => {
     if (typeof window === 'undefined') return;
     try {
-      const s = localStorage.getItem('podwave_local_manual_sales');
-      if (s) setManualSales((prev) => (prev.length === 0 ? JSON.parse(s) : prev));
-      const e = localStorage.getItem('podwave_local_manual_expenses');
-      if (e) setManualExpenses((prev) => (prev.length === 0 ? JSON.parse(e) : prev));
-      const p = localStorage.getItem('podwave_local_merchandise_purchases');
-      if (p) setMerchandisePurchases((prev) => (prev.length === 0 ? JSON.parse(p) : prev));
-      const m = localStorage.getItem('podwave_local_cash_movements');
-      if (m) setCashMovements((prev) => (prev.length === 0 ? JSON.parse(m) : prev));
-      const c = localStorage.getItem('podwave_local_manual_commitments');
-      if (c) setManualCommitments((prev) => (prev.length === 0 ? JSON.parse(c) : prev));
+      const logs = localStorage.getItem(ACTIVITY_LOGS_STORAGE_KEY);
+      setActivityLogs(logs ? JSON.parse(logs) : []);
+      const s = localStorage.getItem(businessCacheKey('podwave_local_manual_sales'));
+      setManualSales(s ? JSON.parse(s) : []);
+      const e = localStorage.getItem(businessCacheKey('podwave_local_manual_expenses'));
+      setManualExpenses(e ? JSON.parse(e) : []);
+      const p = localStorage.getItem(businessCacheKey('podwave_local_merchandise_purchases'));
+      setMerchandisePurchases(p ? JSON.parse(p) : []);
+      const m = localStorage.getItem(businessCacheKey('podwave_local_cash_movements'));
+      setCashMovements(m ? JSON.parse(m) : []);
+      const c = localStorage.getItem(businessCacheKey('podwave_local_manual_commitments'));
+      setManualCommitments(c ? JSON.parse(c) : []);
     } catch (err) {
       console.warn('Erro ao restaurar cache local administrativo:', err);
     }
@@ -3754,6 +3483,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (!isAdmin) {
       return;
     }
+    const requestedIdentity = currentUser?.id;
+    const requestedProject = supabaseCreds.url;
     setIsLoadingBusinessData(true);
     try {
       const [sales, expenses, purchases, movements, initialBalances, commitments] = await Promise.all([
@@ -3765,6 +3496,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         fetchManualCommitmentsFromSupabase(),
       ]);
 
+      const identity = authenticatedIdentityRef.current;
+      if (!identity || identity.id !== requestedIdentity || !['owner','admin'].includes(identity.role) || getSupabaseCredentials().url !== requestedProject) return;
       setManualSales((prev) => mergeFinancialRecords(sales, prev));
       setManualExpenses((prev) => mergeFinancialRecords(expenses, prev));
       setMerchandisePurchases((prev) => mergeFinancialRecords(purchases, prev));
@@ -3781,13 +3514,17 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     if (isAdmin) {
       hydrateLocalBusinessDataForAdmin();
+      setBusinessCacheOwner(businessCacheIdentity);
       if (supabaseStatus === 'connected' || Boolean(activeSupabaseClient)) {
         fetchBusinessData();
       }
     } else {
+      setBusinessCacheOwner(null);
+      setAllUsers([]);
+      setActivityLogs([]);
       clearBusinessDataInMemory();
     }
-  }, [isAdmin, supabaseStatus, activeSupabaseClient]);
+  }, [isAdmin, currentUser?.id, supabaseCreds.url, supabaseStatus, activeSupabaseClient]);
 
   const saveManualSale = async (sale: ManualSaleEntry): Promise<{ success: boolean; error?: string }> => {
     const cleanSale: ManualSaleEntry = {
@@ -4030,7 +3767,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (!ok) {
       if (typeof window !== 'undefined') {
-        localStorage.setItem('podwave_initial_cash_balances', JSON.stringify(config));
+        localStorage.setItem(businessCacheKey('podwave_initial_cash_balances'), JSON.stringify(config));
       }
       setInitialCashBalances(finalRecords);
       toast.info('Saldos iniciais salvos localmente (Pendente de sincronização com o Supabase).');
@@ -4040,7 +3777,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // Sucesso no Supabase
     setInitialCashBalances(finalRecords);
     if (typeof window !== 'undefined') {
-      localStorage.setItem('podwave_initial_cash_balances', JSON.stringify(config));
+      localStorage.setItem(businessCacheKey('podwave_initial_cash_balances'), JSON.stringify(config));
     }
     toast.success('Saldos iniciais salvos no Supabase com sucesso!');
     return { success: true };
@@ -4052,7 +3789,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     try {
-      const localStr = localStorage.getItem('podwave_initial_cash_balances');
+      const localStr = localStorage.getItem(businessCacheKey('podwave_initial_cash_balances'));
       if (!localStr) {
         return { success: false, message: 'Nenhum saldo local encontrado para importação.' };
       }
@@ -4471,3 +4208,4 @@ export const useCatalog = () => {
   }
   return context;
 };
+

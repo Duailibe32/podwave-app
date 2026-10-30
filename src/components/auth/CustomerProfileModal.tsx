@@ -685,7 +685,7 @@ export const CustomerProfileModal: React.FC = () => {
                 </div>
 
                 {/* Resumo numérico rápido do histórico */}
-                <div className="grid grid-cols-3 gap-2">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
                   <div className="p-2.5 rounded-xl bg-[#080811]/80 border border-white/10 text-center">
                     <span className="text-[10px] text-[#A5A5B8] block">Prêmios Resgatados</span>
                     <span className="font-heading font-black text-base text-amber-300">
@@ -1033,8 +1033,8 @@ type="text"
                   </h4>
                 </div>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="col-span-2">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
+                  <div className="min-[420px]:col-span-2">
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
@@ -1053,8 +1053,9 @@ type="text"
                         onClick={handleLookupCep}
                       aria-label="Buscar endereço pelo CEP"
                         disabled={isSearchingCep}
-                        className="p-2 rounded-xl bg-[#00DFFF]/20 text-[#00DFFF] hover:bg-[#00DFFF]/30 text-xs font-bold cursor-pointer shrink-0"
-                        title="Buscar CEP"
+                        className="min-h-11 min-w-11 p-2 rounded-xl bg-[#00DFFF]/20 text-[#00DFFF] hover:bg-[#00DFFF]/30 text-xs font-bold cursor-pointer shrink-0"
+                        aria-busy={isSearchingCep}
+                      title="Buscar CEP"
                       >
                         {isSearchingCep ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
                       </button>
@@ -1077,8 +1078,8 @@ type="text"
 
               <p role="status" aria-live="polite" className="text-[11px] text-[#A5A5B8] break-words">{cepMessage || 'Ao buscar, apenas o CEP é consultado no ViaCEP. Você também pode preencher manualmente.'}</p>
 
-                <div className="grid grid-cols-3 gap-2">
-                  <div className="col-span-2">
+                <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
+                  <div className="min-[420px]:col-span-2">
                     <input
                       type="text"
                       autoComplete="shipping address-line1"

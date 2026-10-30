@@ -71,6 +71,7 @@ export const AdminPanel: React.FC = () => {
     settings,
     coupons,
     isAdminAuthenticated,
+    isAuthChecking,
     isAdmin,
     currentUser,
     isOwner,
@@ -869,6 +870,9 @@ export const AdminPanel: React.FC = () => {
   const totalCouponsUsed = coupons.reduce((acc, c) => acc + c.usedCount, 0);
 
   // If user is not authenticated as an admin or owner, render the admin login gate screen
+  if (isAuthChecking) {
+    return <div role="status" className="p-6 text-center text-sm text-gray-300">Verificando acesso...</div>;
+  }
   if (!isAdmin) {
     return <AdminLogin />;
   }
@@ -3693,3 +3697,4 @@ export const AdminPanel: React.FC = () => {
     </div>
   );
 };
+
