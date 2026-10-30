@@ -16,7 +16,8 @@ const { PGlite } = require('@electric-sql/pglite');
     CREATE SCHEMA auth; CREATE SCHEMA app_security;
     CREATE FUNCTION auth.uid() RETURNS uuid LANGUAGE sql AS $$SELECT '11111111-1111-1111-1111-111111111111'::uuid$$;
     CREATE FUNCTION auth.jwt() RETURNS jsonb LANGUAGE sql AS $$SELECT '{"email":"owner@example.test"}'::jsonb$$;
-    CREATE FUNCTION app_security.is_admin() RETURNS boolean LANGUAGE sql AS $$SELECT COALESCE(current_setting('podwave.test_admin',true),'true')='true'$$;
+    CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql AS $$SELECT COALESCE(current_setting('podwave.test_admin',true),'true')='true'$$;
+    CREATE FUNCTION app_security.is_podwave_finance_owner() RETURNS boolean LANGUAGE sql AS $$SELECT COALESCE(current_setting('podwave.test_finance_owner',true),'true')='true'$$;
     GRANT USAGE ON SCHEMA auth,app_security TO authenticated,anon;
     CREATE TABLE brands(id text PRIMARY KEY,name text);
     CREATE TABLE product_models(id text PRIMARY KEY,active boolean NOT NULL DEFAULT true);
@@ -36,7 +37,8 @@ const { PGlite } = require('@electric-sql/pglite');
   for (const t of tables) await db.exec(schema.match(new RegExp(`CREATE TABLE IF NOT EXISTS public\\.${t} \\([\\s\\S]*?\\n\\);`))[0]);
   await db.exec(`INSERT INTO manual_sales(id,date,customer_name,payment_method,items,total) VALUES('historical','2026-10-29','Antigo','Pix','[{"productName":"antigo","quantity":1}]',10);`);
   for (const t of [...tables,'flavor_variants','product_models']) {
-    await db.exec(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY; GRANT SELECT,INSERT,UPDATE,DELETE ON ${t} TO authenticated; CREATE POLICY admin_all ON ${t} TO authenticated USING(app_security.is_admin()) WITH CHECK(app_security.is_admin());`);
+    const authorization = tables.includes(t) ? 'app_security.is_podwave_finance_owner()' : 'public.is_admin()';
+    await db.exec(`ALTER TABLE ${t} ENABLE ROW LEVEL SECURITY; GRANT SELECT,INSERT,UPDATE,DELETE ON ${t} TO authenticated; CREATE POLICY allowed_access ON ${t} TO authenticated USING(${authorization}) WITH CHECK(${authorization});`);
   }
   const migration = fs.readFileSync('supabase/migrations/20261030010000_atomic_sale_stock_and_audit.sql','utf8');
   await db.exec(migration); await db.exec(migration); // Idempotent install; no stock backfill.
@@ -79,9 +81,16 @@ const { PGlite } = require('@electric-sql/pglite');
   assert.equal(audit.operation,'DELETE'); assert.equal(audit.actor_label,'owner@example.test'); assert.equal(audit.before_data.title,'Conta'); assert.equal(audit.after_data,null);
   await assert.rejects(db.exec('DELETE FROM business_audit_events'),/permission denied/);
   await assert.rejects(db.exec("INSERT INTO business_audit_events(operation,entity,record_id) VALUES('INSERT','fake','fake')"),/permission denied/);
-  await db.exec("SELECT set_config('podwave.test_admin','false',false)");
+  // A catalog admin without finance-owner access must not read financial audit or change sales.
+  await db.exec("SELECT set_config('podwave.test_finance_owner','false',false)");
+  assert.equal((await db.query('SELECT public.is_admin() AS admin')).rows[0].admin,true);
   assert.equal((await db.query('SELECT count(*)::int AS n FROM business_audit_events')).rows[0].n,0);
   await assert.rejects(call(sale('forbidden')),/restrito/);
+  // Trigger checks reserved units even when RLS hides the sale from a catalog admin.
+  assert.equal((await db.query('SELECT count(*)::int AS n FROM manual_sales')).rows[0].n,0);
+  await assert.rejects(db.exec("DELETE FROM flavor_variants WHERE id='flavor'"),/vinculadas/);
+  await db.exec("SELECT set_config('podwave.test_admin','false',false)");
+  await assert.rejects(call(sale('customer-forbidden')),/restrito/);
   await db.exec('RESET ROLE; SET ROLE anon');
   await assert.rejects(db.exec('SELECT * FROM business_audit_events'),/permission denied/);
   await db.close();

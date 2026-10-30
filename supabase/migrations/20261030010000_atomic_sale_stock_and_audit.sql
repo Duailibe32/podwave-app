@@ -2,8 +2,8 @@
 -- No backfill: existing sales remain unmanaged and existing quantities are untouched.
 BEGIN;
 DO $$ BEGIN
-  IF to_regprocedure('app_security.is_admin()') IS NULL THEN
-    RAISE EXCEPTION 'Instalação não iniciada: a função de autorização app_security.is_admin() não existe. Confira as funções e políticas reais antes de instalar; não execute migrations antigas para suprir esta dependência.';
+  IF to_regprocedure('app_security.is_podwave_finance_owner()') IS NULL THEN
+    RAISE EXCEPTION 'Instalação não iniciada: a função de autorização app_security.is_podwave_finance_owner() não existe. Confira as funções e políticas reais antes de instalar; não execute migrations antigas para suprir esta dependência.';
   END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='flavor_variants' AND column_name='demo_quantity') THEN
     RAISE EXCEPTION 'Estrutura de estoque não confirmada: flavor_variants.demo_quantity ausente. Nenhuma alteração aplicada.';
@@ -33,7 +33,8 @@ ALTER TABLE public.business_audit_events ENABLE ROW LEVEL SECURITY;
 REVOKE ALL ON public.business_audit_events FROM PUBLIC, anon, authenticated;
 GRANT SELECT ON public.business_audit_events TO authenticated;
 DROP POLICY IF EXISTS "Admin read business audit" ON public.business_audit_events;
-CREATE POLICY "Admin read business audit" ON public.business_audit_events FOR SELECT TO authenticated USING (app_security.is_admin());
+DROP POLICY IF EXISTS "Owner read business audit" ON public.business_audit_events;
+CREATE POLICY "Owner read business audit" ON public.business_audit_events FOR SELECT TO authenticated USING (app_security.is_podwave_finance_owner());
 
 CREATE OR REPLACE FUNCTION app_security.capture_business_audit() RETURNS trigger
 LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
@@ -82,7 +83,7 @@ DECLARE
   qty numeric; old_qty integer; new_qty integer; delta integer; available integer;
   variant_model text; variant_available boolean; model_available boolean;
 BEGIN
-  IF NOT app_security.is_admin() THEN RAISE EXCEPTION 'Acesso restrito a administradores.' USING ERRCODE='42501'; END IF;
+  IF NOT COALESCE(app_security.is_podwave_finance_owner(),false) THEN RAISE EXCEPTION 'Acesso financeiro restrito ao proprietário.' USING ERRCODE='42501'; END IF;
   IF sale_id IS NULL OR sale_id='' OR p_request_id IS NULL OR length(p_request_id)<8 THEN RAISE EXCEPTION 'Identificador da operação inválido.'; END IF;
   PERFORM pg_advisory_xact_lock(hashtextextended(sale_id, 917));
   SELECT * INTO prior FROM public.manual_sales WHERE id=sale_id FOR UPDATE;
@@ -148,7 +149,7 @@ GRANT EXECUTE ON FUNCTION public.save_sale_with_stock(jsonb,integer,text,boolean
 
 -- Stale catalog pushes must not restore quantities already consumed by a sale.
 CREATE OR REPLACE FUNCTION app_security.guard_stock_snapshot() RETURNS trigger
-LANGUAGE plpgsql SET search_path = pg_catalog, public AS $$
+LANGUAGE plpgsql SECURITY DEFINER SET search_path = pg_catalog, public AS $$
 BEGIN
   IF TG_OP='DELETE' THEN
     IF EXISTS(SELECT 1 FROM public.manual_sales WHERE stock_managed AND (stock_allocation->>OLD.id)::integer>0) THEN
