@@ -1,6 +1,8 @@
 import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
 import { UserProfile, UserRole } from '../../types/catalog';
+import { getUserLoyaltyCard } from '../../utils/loyaltyCard';
+import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
 import {
   Users,
   Crown,
@@ -11,6 +13,7 @@ import {
   Search,
   Filter,
   Plus,
+  Minus,
   Trash2,
   Phone,
   Mail,
@@ -23,6 +26,9 @@ import {
   Lock,
   ExternalLink,
   Sliders,
+  Gift,
+  Trophy,
+  RotateCcw,
 } from 'lucide-react';
 
 export const UserManagementTab: React.FC = () => {
@@ -32,6 +38,7 @@ export const UserManagementTab: React.FC = () => {
     isLoadingUsers,
     fetchAllUsers,
     updateUserRole,
+    updateUserLoyalty,
     createUserWithRole,
     deleteUser,
     settings,
@@ -40,7 +47,7 @@ export const UserManagementTab: React.FC = () => {
   } = useCatalog();
 
   const [searchQuery, setSearchQuery] = useState('');
-  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'vip' | 'customer'>('all');
+  const [roleFilter, setRoleFilter] = useState<'all' | 'admin' | 'vip' | 'customer' | 'loyalty'>('all');
   const [isAddModalOpen, setIsAddModalOpen] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
 
@@ -63,6 +70,16 @@ export const UserManagementTab: React.FC = () => {
   const [vipEditUser, setVipEditUser] = useState<UserProfile | null>(null);
   const [customDiscountVal, setCustomDiscountVal] = useState<number>(10);
 
+  // Loyalty manual stamp management modal state
+  const [loyaltyModalUserId, setLoyaltyModalUserId] = useState<string | null>(null);
+  const [loyaltyNoteInput, setLoyaltyNoteInput] = useState<string>('');
+  const [loyaltyRewardInput, setLoyaltyRewardInput] = useState<string>('');
+  const [loyaltyGoalInput, setLoyaltyGoalInput] = useState<number>(10);
+
+  const loyaltyModalUser = loyaltyModalUserId
+    ? allUsers.find((u) => u.id === loyaltyModalUserId) || null
+    : null;
+
   useEffect(() => {
     fetchAllUsers();
   }, []);
@@ -70,6 +87,56 @@ export const UserManagementTab: React.FC = () => {
   const showToast = (type: 'success' | 'error', text: string) => {
     setFeedbackMsg({ type, text });
     setTimeout(() => setFeedbackMsg(null), 4000);
+  };
+
+  const defaultGoal = settings.loyaltyGoalStamps || 10;
+  const defaultReward =
+    settings.loyaltyDefaultReward || 'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
+
+  const openLoyaltyModal = (user: UserProfile) => {
+    const card = getUserLoyaltyCard(user, defaultGoal, defaultReward);
+    setLoyaltyModalUserId(user.id);
+    setLoyaltyRewardInput(card.rewardDescription);
+    setLoyaltyGoalInput(card.goal);
+    setLoyaltyNoteInput('');
+  };
+
+  const handleQuickAddStamp = async (user: UserProfile) => {
+    const card = getUserLoyaltyCard(user, defaultGoal, defaultReward);
+    if (card.stamps >= card.goal) {
+      openLoyaltyModal(user);
+      return;
+    }
+    const ok = await updateUserLoyalty(user.id, {
+      type: 'add',
+      value: 1,
+      note: 'Selo adicionado manualmente pelo painel',
+    });
+    if (ok) {
+      const nextStamps = Math.min(card.goal, card.stamps + 1);
+      showToast(
+        'success',
+        nextStamps >= card.goal
+          ? `🎉 "${user.fullName}" completou ${nextStamps}/${card.goal} selos! Prêmio liberado!`
+          : `+1 selo adicionado para "${user.fullName}" (${nextStamps}/${card.goal} selos).`
+      );
+    }
+  };
+
+  const handleQuickRemoveStamp = async (user: UserProfile) => {
+    const card = getUserLoyaltyCard(user, defaultGoal, defaultReward);
+    if (card.stamps <= 0) return;
+    const ok = await updateUserLoyalty(user.id, {
+      type: 'remove',
+      value: 1,
+      note: 'Ajuste manual (-1 selo)',
+    });
+    if (ok) {
+      showToast(
+        'success',
+        `1 selo removido de "${user.fullName}" (${Math.max(0, card.stamps - 1)}/${card.goal} selos).`
+      );
+    }
   };
 
   // Filtered users list
@@ -85,6 +152,10 @@ export const UserManagementTab: React.FC = () => {
 
     if (roleFilter === 'all') return true;
     if (roleFilter === 'admin') return u.role === 'admin' || u.role === 'owner';
+    if (roleFilter === 'loyalty') {
+      const c = getUserLoyaltyCard(u, defaultGoal, defaultReward);
+      return c.stamps > 0 || c.completedCards > 0;
+    }
     return u.role === roleFilter;
   });
 
@@ -93,6 +164,14 @@ export const UserManagementTab: React.FC = () => {
   const totalAdmins = allUsers.filter((u) => u.role === 'admin' || u.role === 'owner').length;
   const totalVips = allUsers.filter((u) => u.role === 'vip').length;
   const totalCustomers = allUsers.filter((u) => u.role === 'customer').length;
+  const totalWithLoyalty = allUsers.filter((u) => {
+    const c = getUserLoyaltyCard(u, defaultGoal, defaultReward);
+    return c.stamps > 0 || c.completedCards > 0;
+  }).length;
+  const totalRewardsReady = allUsers.filter((u) => {
+    const c = getUserLoyaltyCard(u, defaultGoal, defaultReward);
+    return c.stamps >= c.goal;
+  }).length;
 
   const handleCreateUser = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -260,7 +339,7 @@ export const UserManagementTab: React.FC = () => {
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
         {/* Total Users */}
         <div className="p-5 rounded-2xl bg-[#0D1022] border border-[#8423DA]/30 shadow-lg relative overflow-hidden">
           <div className="flex items-center justify-between">
@@ -300,6 +379,22 @@ export const UserManagementTab: React.FC = () => {
           <div className="mt-3">
             <span className="text-3xl font-heading font-black text-white">{totalVips}</span>
             <span className="text-xs text-amber-300/80 ml-2">com desconto</span>
+          </div>
+        </div>
+
+        {/* Cartão Fidelidade (Selos) */}
+        <div className="p-5 rounded-2xl bg-[#0D1022] border border-[#E53CF3]/40 shadow-lg relative overflow-hidden">
+          <div className="flex items-center justify-between">
+            <span className="text-xs font-bold text-[#E53CF3]">Cartão Fidelidade</span>
+            <div className="w-9 h-9 rounded-xl bg-[#E53CF3]/20 border border-[#E53CF3]/50 flex items-center justify-center text-[#E53CF3]">
+              <Gift className="w-4 h-4" />
+            </div>
+          </div>
+          <div className="mt-3 flex items-baseline gap-2">
+            <span className="text-3xl font-heading font-black text-white">{totalWithLoyalty}</span>
+            <span className="text-xs text-[#E53CF3]/90">
+              {totalRewardsReady > 0 ? `${totalRewardsReady} prêmio(s) liberado(s)` : 'com selos ativos'}
+            </span>
           </div>
         </div>
 
@@ -379,6 +474,17 @@ export const UserManagementTab: React.FC = () => {
             Todos ({totalUsers})
           </button>
           <button
+            onClick={() => setRoleFilter('loyalty')}
+            className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 flex items-center gap-1 ${
+              roleFilter === 'loyalty'
+                ? 'bg-[#E53CF3] text-white font-black'
+                : 'bg-[#141838] text-gray-400 hover:text-[#E53CF3]'
+            }`}
+          >
+            <Gift className="w-3 h-3" />
+            <span>Fidelidade / Selos ({totalWithLoyalty})</span>
+          </button>
+          <button
             onClick={() => setRoleFilter('admin')}
             className={`px-3 py-1.5 rounded-lg text-xs font-bold transition cursor-pointer shrink-0 flex items-center gap-1 ${
               roleFilter === 'admin'
@@ -434,6 +540,7 @@ export const UserManagementTab: React.FC = () => {
                 <tr className="border-b border-[#8423DA]/25 bg-[#121633] text-[10px] uppercase tracking-wider text-[#C4C6D8] font-extrabold select-none">
                   <th className="py-3.5 px-4 sm:px-6">Usuário</th>
                   <th className="py-3.5 px-4">Cargo Atual</th>
+                  <th className="py-3.5 px-4">Cartão Fidelidade (Selos)</th>
                   <th className="py-3.5 px-4">Benefício / Acesso</th>
                   <th className="py-3.5 px-4">WhatsApp</th>
                   <th className="py-3.5 px-4 sm:px-6 text-right">Alterar Cargo / Ação</th>
@@ -445,6 +552,8 @@ export const UserManagementTab: React.FC = () => {
                   const isAdminRole = user.role === 'admin' || user.role === 'owner';
                   const isVipRole = user.role === 'vip';
                   const vipDiscount = user.vipDiscountCustom || settings.vipDiscountPercent || 10;
+                  const loyalty = getUserLoyaltyCard(user, defaultGoal, defaultReward);
+                  const isLoyaltyFull = loyalty.stamps >= loyalty.goal;
 
                   return (
                     <tr
@@ -509,6 +618,67 @@ export const UserManagementTab: React.FC = () => {
                         )}
                       </td>
 
+                      {/* Manual Loyalty Stamps Column */}
+                      <td className="py-4 px-4">
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          {/* -1 Stamp Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleQuickRemoveStamp(user)}
+                            disabled={loyalty.stamps <= 0}
+                            className="w-7 h-7 rounded-lg bg-[#141838] hover:bg-rose-500/20 border border-white/10 hover:border-rose-400/40 text-gray-300 hover:text-rose-300 flex items-center justify-center transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
+                            title="Remover 1 selo"
+                          >
+                            <Minus className="w-3.5 h-3.5" />
+                          </button>
+
+                          {/* Stamp Progress Pill (opens modal on click) */}
+                          <button
+                            type="button"
+                            onClick={() => openLoyaltyModal(user)}
+                            className={`px-2.5 py-1 rounded-xl border font-mono font-black text-xs flex items-center gap-1.5 transition cursor-pointer ${
+                              isLoyaltyFull
+                                ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_12px_rgba(16,185,129,0.3)]'
+                                : loyalty.stamps > 0
+                                ? 'bg-[#8423DA]/25 border-[#00DFFF]/50 text-[#00DFFF] hover:bg-[#8423DA]/40'
+                                : 'bg-[#141838] border-white/10 text-gray-400 hover:text-white'
+                            }`}
+                            title="Abrir Controle Manual de Selos deste cliente"
+                          >
+                            <Gift className={`w-3.5 h-3.5 ${isLoyaltyFull ? 'text-emerald-300' : 'text-[#E53CF3]'}`} />
+                            <span>
+                              {loyalty.stamps}/{loyalty.goal}
+                            </span>
+                            {isLoyaltyFull && (
+                              <span className="text-[9px] uppercase font-sans font-black px-1.5 py-0.2 rounded bg-emerald-400 text-[#080811]">
+                                PRÊMIO
+                              </span>
+                            )}
+                          </button>
+
+                          {/* +1 Stamp Button */}
+                          <button
+                            type="button"
+                            onClick={() => handleQuickAddStamp(user)}
+                            className="px-2 py-1 rounded-lg bg-[#00DFFF]/15 hover:bg-[#00DFFF]/30 border border-[#00DFFF]/40 text-[#00DFFF] font-black text-[10px] flex items-center gap-0.5 transition cursor-pointer"
+                            title={isLoyaltyFull ? 'Abrir modal para resgatar prêmio' : 'Adicionar +1 selo manualmente'}
+                          >
+                            <Plus className="w-3 h-3" />
+                            <span>1 Selo</span>
+                          </button>
+
+                          {loyalty.completedCards > 0 && (
+                            <span
+                              className="text-[10px] text-amber-300 font-bold flex items-center gap-0.5 ml-1"
+                              title={`${loyalty.completedCards} cartão(ões) já concluído(s) e resgatado(s)`}
+                            >
+                              <Trophy className="w-3 h-3 text-amber-400" />
+                              {loyalty.completedCards}
+                            </span>
+                          )}
+                        </div>
+                      </td>
+
                       {/* Benefits */}
                       <td className="py-4 px-4 text-gray-300">
                         {isAdminRole ? (
@@ -546,6 +716,17 @@ export const UserManagementTab: React.FC = () => {
                       {/* Actions */}
                       <td className="py-4 px-4 sm:px-6 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {/* Open Full Loyalty Card Control Modal */}
+                          <button
+                            type="button"
+                            onClick={() => openLoyaltyModal(user)}
+                            className="px-2.5 py-1 rounded-lg bg-[#E53CF3]/15 hover:bg-[#E53CF3]/30 border border-[#E53CF3]/40 text-[#E53CF3] font-bold text-[10px] transition cursor-pointer flex items-center gap-1"
+                            title="Gerenciar Cartão de Fidelidade e Selos deste cliente"
+                          >
+                            <Gift className="w-3 h-3" />
+                            <span>Cartão Fidelidade</span>
+                          </button>
+
                           {/* Role Action Buttons */}
                           {user.role !== 'admin' && user.role !== 'owner' && (
                             <button
@@ -612,6 +793,278 @@ export const UserManagementTab: React.FC = () => {
           </div>
         )}
       </div>
+
+      {/* ===================== MODAL: CONTROLE MANUAL DE SELOS (CARTÃO FIDELIDADE) ===================== */}
+      {loyaltyModalUser && (() => {
+        const activeCard = getUserLoyaltyCard(loyaltyModalUser, defaultGoal, defaultReward);
+        const isCardComplete = activeCard.stamps >= activeCard.goal;
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+            <div className="relative w-full max-w-xl rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/50 shadow-2xl overflow-hidden my-auto max-h-[90vh] flex flex-col">
+              {/* Modal Header */}
+              <div className="p-5 sm:p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#1A1638] border-b border-[#8423DA]/30 flex items-center justify-between">
+                <div className="flex items-center gap-3">
+                  <div className="w-10 h-10 rounded-2xl bg-gradient-to-br from-[#8423DA] to-[#E53CF3] flex items-center justify-center text-white shadow-lg">
+                    <Gift className="w-5 h-5" />
+                  </div>
+                  <div>
+                    <h3 className="font-heading text-base sm:text-lg font-black text-white">
+                      Controle Manual de Selos • Fidelidade
+                    </h3>
+                    <p className="text-xs text-[#A5A5B8]">
+                      Clique nos números do cartão ou use os botões para ajustar os selos de{' '}
+                      <strong className="text-white">{loyaltyModalUser.fullName}</strong>
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setLoyaltyModalUserId(null)}
+                  className="p-2 rounded-xl bg-[#141838] text-gray-400 hover:text-white transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Modal Body */}
+              <div className="p-5 sm:p-6 overflow-y-auto space-y-5 flex-1">
+                {/* Interactive Digital Card Preview */}
+                <DigitalLoyaltyCard
+                  customerName={loyaltyModalUser.fullName}
+                  customerEmail={loyaltyModalUser.email}
+                  card={{
+                    ...activeCard,
+                    goal: loyaltyGoalInput || activeCard.goal,
+                    rewardDescription: loyaltyRewardInput || activeCard.rewardDescription,
+                  }}
+                  interactive={true}
+                  onSelectStampSlot={async (targetStamps) => {
+                    await updateUserLoyalty(loyaltyModalUser.id, {
+                      type: 'set',
+                      value: targetStamps,
+                      goal: loyaltyGoalInput,
+                      rewardDescription: loyaltyRewardInput,
+                      note: loyaltyNoteInput.trim() || `Ajuste direto para ${targetStamps} selo(s)`,
+                    });
+                    setLoyaltyNoteInput('');
+                    showToast(
+                      'success',
+                      `Cartão de "${loyaltyModalUser.fullName}" atualizado para ${targetStamps}/${loyaltyGoalInput} selos!`
+                    );
+                  }}
+                />
+
+                {/* Quick Action Controls Bar */}
+                <div className="p-4 rounded-2xl bg-[#121633] border border-[#8423DA]/30 space-y-3">
+                  <label className="block text-xs font-bold text-gray-200">
+                    Observação da operação (opcional — ex: Pedido #PW-8421)
+                  </label>
+                  <input
+                    type="text"
+                    value={loyaltyNoteInput}
+                    onChange={(e) => setLoyaltyNoteInput(e.target.value)}
+                    placeholder="Ex: Selo referente à compra de 2x Ignite V150..."
+                    className="w-full px-3.5 py-2.5 rounded-xl bg-[#0D1022] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
+                  />
+
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-1">
+                    <button
+                      type="button"
+                      disabled={activeCard.stamps <= 0}
+                      onClick={async () => {
+                        await updateUserLoyalty(loyaltyModalUser.id, {
+                          type: 'remove',
+                          value: 1,
+                          goal: loyaltyGoalInput,
+                          rewardDescription: loyaltyRewardInput,
+                          note: loyaltyNoteInput.trim() || 'Remoção manual (-1 selo)',
+                        });
+                        setLoyaltyNoteInput('');
+                        showToast('success', '1 selo removido com sucesso.');
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-[#181C3D] hover:bg-rose-500/20 border border-white/10 hover:border-rose-400/40 text-gray-200 hover:text-rose-300 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Minus className="w-3.5 h-3.5" />
+                      <span>-1 Selo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={activeCard.stamps >= loyaltyGoalInput}
+                      onClick={async () => {
+                        await updateUserLoyalty(loyaltyModalUser.id, {
+                          type: 'add',
+                          value: 1,
+                          goal: loyaltyGoalInput,
+                          rewardDescription: loyaltyRewardInput,
+                          note: loyaltyNoteInput.trim() || 'Selo validado pelo Admin (+1 selo)',
+                        });
+                        setLoyaltyNoteInput('');
+                        showToast('success', '+1 selo creditado no cartão do cliente!');
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-gradient-to-r from-[#8423DA] to-[#007BFF] hover:brightness-110 text-white font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-md disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+1 Selo</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={activeCard.stamps === 0}
+                      onClick={async () => {
+                        await updateUserLoyalty(loyaltyModalUser.id, {
+                          type: 'reset',
+                          goal: loyaltyGoalInput,
+                          rewardDescription: loyaltyRewardInput,
+                          note: loyaltyNoteInput.trim() || 'Cartão reiniciado manualmente',
+                        });
+                        setLoyaltyNoteInput('');
+                        showToast('success', 'Selos do ciclo atual zerados.');
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-[#181C3D] hover:bg-white/10 border border-white/10 text-gray-300 font-bold text-xs flex items-center justify-center gap-1.5 transition cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed"
+                    >
+                      <RotateCcw className="w-3.5 h-3.5" />
+                      <span>Zerar Selos</span>
+                    </button>
+
+                    <button
+                      type="button"
+                      disabled={!isCardComplete}
+                      onClick={async () => {
+                        await updateUserLoyalty(loyaltyModalUser.id, {
+                          type: 'redeem',
+                          goal: loyaltyGoalInput,
+                          rewardDescription: loyaltyRewardInput,
+                          note:
+                            loyaltyNoteInput.trim() ||
+                            `Prêmio resgatado (${activeCard.rewardDescription})`,
+                        });
+                        setLoyaltyNoteInput('');
+                        showToast(
+                          'success',
+                          `🏆 Prêmio registrado como entregue para "${loyaltyModalUser.fullName}"! Novo ciclo iniciado (0/${loyaltyGoalInput}).`
+                        );
+                      }}
+                      className="py-2.5 px-3 rounded-xl bg-emerald-500 hover:bg-emerald-400 text-[#080811] font-black text-xs flex items-center justify-center gap-1.5 transition cursor-pointer shadow-lg disabled:opacity-35 disabled:cursor-not-allowed"
+                      title="Registra +1 cartão concluído e reinicia a contagem para 0 selos"
+                    >
+                      <Trophy className="w-3.5 h-3.5" />
+                      <span>Resgatar Prêmio</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Custom Reward & Goal Settings for this Customer */}
+                <div className="p-4 rounded-2xl bg-[#121633]/70 border border-white/10 space-y-3">
+                  <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#00DFFF]">
+                    Configuração da Recompensa e Meta
+                  </h4>
+                  <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                    <div className="sm:col-span-3">
+                      <label className="block text-[11px] text-gray-300 font-semibold mb-1">
+                        Recompensa ao completar o cartão
+                      </label>
+                      <input
+                        type="text"
+                        value={loyaltyRewardInput}
+                        onChange={(e) => setLoyaltyRewardInput(e.target.value)}
+                        placeholder="Ex: Brinde Especial ou 50% OFF na 10ª Compra"
+                        className="w-full px-3 py-2 rounded-xl bg-[#0D1022] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-[11px] text-gray-300 font-semibold mb-1">
+                        Meta de Selos
+                      </label>
+                      <input
+                        type="number"
+                        min={3}
+                        max={20}
+                        value={loyaltyGoalInput}
+                        onChange={(e) =>
+                          setLoyaltyGoalInput(Math.max(3, Math.min(20, Number(e.target.value) || 10)))
+                        }
+                        className="w-full px-3 py-2 rounded-xl bg-[#0D1022] border border-[#8423DA]/30 text-[#00DFFF] font-mono font-black text-xs text-center focus:outline-none focus:border-[#00DFFF]"
+                      />
+                    </div>
+                  </div>
+                  <div className="flex justify-end">
+                    <button
+                      type="button"
+                      onClick={async () => {
+                        await updateUserLoyalty(loyaltyModalUser.id, {
+                          type: 'set',
+                          value: Math.min(loyaltyGoalInput, activeCard.stamps),
+                          goal: loyaltyGoalInput,
+                          rewardDescription: loyaltyRewardInput,
+                          note: 'Atualização da meta/recompensa do cartão',
+                        });
+                        showToast('success', 'Configuração do cartão fidelidade salva!');
+                      }}
+                      className="px-4 py-1.5 rounded-xl bg-[#00DFFF]/20 hover:bg-[#00DFFF]/30 border border-[#00DFFF]/40 text-[#00DFFF] text-xs font-bold transition cursor-pointer"
+                    >
+                      Salvar Recompensa / Meta
+                    </button>
+                  </div>
+                </div>
+
+                {/* History of Stamp Operations */}
+                {activeCard.history && activeCard.history.length > 0 && (
+                  <div className="space-y-2">
+                    <h4 className="text-xs font-extrabold uppercase tracking-wider text-[#A5A5B8]">
+                      Histórico Recente de Selos ({activeCard.history.length})
+                    </h4>
+                    <div className="max-h-40 overflow-y-auto space-y-1.5 pr-1">
+                      {activeCard.history.map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-2.5 rounded-xl bg-[#141838] border border-white/5 flex items-center justify-between gap-2 text-[11px]"
+                        >
+                          <div>
+                            <span className="font-bold text-white">
+                              {item.action === 'redeem_reward'
+                                ? '🏆 Prêmio Resgatado'
+                                : item.action === 'reset_card'
+                                ? '🔄 Cartão Zerado'
+                                : item.delta > 0
+                                ? `➕ +${item.delta} selo(s)`
+                                : item.delta < 0
+                                ? `➖ ${item.delta} selo(s)`
+                                : `Ajuste (${item.stampsAfter} selos)`}
+                            </span>
+                            {item.note && (
+                              <span className="text-gray-300 ml-1.5">— {item.note}</span>
+                            )}
+                            <div className="text-[10px] text-gray-400 mt-0.5">
+                              {new Date(item.date).toLocaleString('pt-BR')}
+                              {item.updatedBy ? ` • por ${item.updatedBy}` : ''}
+                            </div>
+                          </div>
+                          <span className="font-mono font-bold text-[#00DFFF] shrink-0">
+                            Saldo: {item.stampsAfter}/{activeCard.goal}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Modal Footer */}
+              <div className="p-4 bg-[#080811] border-t border-[#8423DA]/25 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setLoyaltyModalUserId(null)}
+                  className="px-5 py-2 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 text-white text-xs font-bold transition cursor-pointer"
+                >
+                  Concluir e Fechar
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ===================== MODAL: NOVO USUÁRIO COM CARGO ===================== */}
       {isAddModalOpen && (

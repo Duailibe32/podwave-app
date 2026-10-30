@@ -107,6 +107,8 @@ export interface StoreSettings {
   themePreference: 'dark' | 'light';
   adminPassword?: string;
   vipDiscountPercent?: number; // Desconto padrão (%) para clientes com cargo 'vip' (ex: 10)
+  loyaltyGoalStamps?: number; // Meta padrão de selos do cartão fidelidade (padrão: 10)
+  loyaltyDefaultReward?: string; // Recompensa padrão ao completar o cartão fidelidade
 }
 
 export interface CartItem {
@@ -150,6 +152,8 @@ export interface OrderForm {
   paymentMethod: string;
   notes: string;
   wantsLoyaltyCard: boolean;
+  loyaltyStampsSnapshot?: number;
+  loyaltyGoalSnapshot?: number;
   gpsMapsUrl?: string;
 }
 
@@ -180,6 +184,25 @@ export interface CustomerOrderHistoryItem {
   status: 'recebido' | 'em_separacao' | 'enviado' | 'entregue';
 }
 
+export interface LoyaltyHistoryEntry {
+  id: string;
+  date: string;
+  action: 'add_stamp' | 'remove_stamp' | 'set_stamps' | 'redeem_reward' | 'reset_card';
+  delta: number;
+  stampsAfter: number;
+  note?: string;
+  updatedBy?: string;
+}
+
+export interface LoyaltyCardData {
+  stamps: number; // Quantidade atual de selos no ciclo (0 a goal)
+  goal: number; // Meta de selos para prêmio (padrão: 10)
+  completedCards: number; // Quantos cartões completos já foram resgatados
+  rewardDescription: string; // Descrição do benefício/prêmio ao completar
+  updatedAt?: string;
+  history?: LoyaltyHistoryEntry[];
+}
+
 export interface UserProfile {
   id: string;
   email: string;
@@ -191,6 +214,7 @@ export interface UserProfile {
   orderHistory?: CustomerOrderHistoryItem[];
   createdAt?: string;
   vipDiscountCustom?: number; // Desconto VIP exclusivo personalizado para este cliente
+  loyaltyCard?: LoyaltyCardData; // Cartão de fidelidade digital controlado manualmente pelo admin
 }
 
 export type ActivityActionType =

@@ -8,6 +8,7 @@ import {
   Coupon,
   UserProfile,
   UserRole,
+  LoyaltyCardData,
   CustomerOrderHistoryItem,
   CustomerAddress,
   ActivityLogEntry,
@@ -661,6 +662,44 @@ export async function upsertCustomerProfileToSupabase(profile: UserProfile): Pro
   }
 }
 
+const LOYALTY_NOTE_PREFIX = 'podwave:loyalty:v1:';
+
+function parseLoyaltyCardFromBenefitNote(raw?: string | null): LoyaltyCardData | undefined {
+  if (!raw || typeof raw !== 'string') return undefined;
+  const trimmed = raw.trim();
+  if (!trimmed.startsWith(LOYALTY_NOTE_PREFIX)) return undefined;
+  try {
+    const parsed = JSON.parse(trimmed.slice(LOYALTY_NOTE_PREFIX.length));
+    if (!parsed || typeof parsed !== 'object') return undefined;
+    const goal =
+      typeof parsed.goal === 'number' && parsed.goal >= 3 && parsed.goal <= 30
+        ? Math.round(parsed.goal)
+        : 10;
+    const stamps =
+      typeof parsed.stamps === 'number' && parsed.stamps >= 0
+        ? Math.min(goal, Math.max(0, Math.round(parsed.stamps)))
+        : 0;
+    const completedCards =
+      typeof parsed.completedCards === 'number' && parsed.completedCards >= 0
+        ? Math.round(parsed.completedCards)
+        : 0;
+    const rewardDescription =
+      typeof parsed.rewardDescription === 'string' && parsed.rewardDescription.trim()
+        ? parsed.rewardDescription.trim()
+        : 'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
+    return {
+      stamps,
+      goal,
+      completedCards,
+      rewardDescription,
+      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined,
+      history: Array.isArray(parsed.history) ? parsed.history.slice(0, 25) : [],
+    };
+  } catch {
+    return undefined;
+  }
+}
+
 /**
  * Busca perfil do cliente no Supabase pelo e-mail
  */
@@ -700,6 +739,7 @@ export async function fetchCustomerProfileFromSupabase(email: string): Promise<U
         state: data.address_state || '',
       },
       vipDiscountCustom: data.vip_discount_custom ? Number(data.vip_discount_custom) : undefined,
+      loyaltyCard: parseLoyaltyCardFromBenefitNote(data.vip_benefit_note),
       createdAt: data.created_at,
     };
   } catch (err) {
@@ -746,6 +786,7 @@ export async function fetchAllCustomerProfilesFromSupabase(): Promise<UserProfil
         state: d.address_state || '',
       },
       vipDiscountCustom: d.vip_discount_custom ? Number(d.vip_discount_custom) : undefined,
+      loyaltyCard: parseLoyaltyCardFromBenefitNote(d.vip_benefit_note),
       createdAt: d.created_at,
     }));
   } catch (err) {
@@ -787,6 +828,37 @@ export async function updateCustomerRoleInSupabase(
     return true;
   } catch (err) {
     console.warn('[Supabase] Falha ao atualizar cargo:', err);
+    return false;
+  }
+}
+
+/**
+ * Atualiza manualmente o Cartão de Fidelidade (selos) do cliente no Supabase (exclusivo para Admin/Owner)
+ */
+export async function updateCustomerLoyaltyInSupabase(
+  userId: string,
+  loyaltyCard: LoyaltyCardData
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const serialized = `${LOYALTY_NOTE_PREFIX}${JSON.stringify(loyaltyCard)}`;
+    const { error } = await client
+      .from('customer_profiles')
+      .update({
+        vip_benefit_note: serialized,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+
+    if (error) {
+      console.warn('[Supabase] Aviso ao salvar selos de fidelidade:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    console.warn('[Supabase] Falha ao atualizar cartão fidelidade:', err);
     return false;
   }
 }
