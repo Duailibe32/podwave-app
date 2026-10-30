@@ -53,6 +53,7 @@ import { ProductModel, Brand, FlavorVariant, Coupon, VariantHistoryEntry } from 
 import { AdminLogin } from './AdminLogin';
 import { BannerVisualEditor } from './BannerVisualEditor';
 import { SupabaseTab } from './SupabaseTab';
+import { OwnerAdvancedSettings } from './OwnerAdvancedSettings';
 import { UserManagementTab } from './UserManagementTab';
 import { BusinessAuditSection } from './BusinessAuditSection';
 import { ImageEditorStudioModal } from './ImageEditorStudioModal';
@@ -89,7 +90,6 @@ export const AdminPanel: React.FC = () => {
     deleteCoupon,
     toggleCouponActive,
     updateSettings,
-    resetAllData,
     variantHistory,
     clearVariantHistory,
     updateFlavorQuantity,
@@ -97,9 +97,6 @@ export const AdminPanel: React.FC = () => {
     bulkUpdateVariants,
     globalLowQuantityThreshold,
     setGlobalLowQuantityThreshold,
-    configuredOwnerUid,
-    setConfiguredOwnerUid,
-    activityLogs,
   } = useCatalog();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
@@ -133,25 +130,9 @@ export const AdminPanel: React.FC = () => {
     }
   };
 
-  // State for Owner UID configuration in settings tab (Requested by user)
-  const [ownerUidInput, setOwnerUidInput] = useState(configuredOwnerUid);
-  const [isSettingOwnerUidExpanded, setIsSettingOwnerUidExpanded] = useState(false);
-  const [copiedOwnerUid, setCopiedOwnerUid] = useState(false);
-
-  // Sync ownerUidInput if configuredOwnerUid changes externally
-  React.useEffect(() => {
-    setOwnerUidInput(configuredOwnerUid);
-  }, [configuredOwnerUid]);
-
   const showToast = (msg: string) => {
     setSuccessMessage(msg);
     setTimeout(() => setSuccessMessage(null), 3000);
-  };
-
-  const handleSaveOwnerUid = (e: React.FormEvent) => {
-    e.preventDefault();
-    setConfiguredOwnerUid(ownerUidInput.trim());
-    showToast('UID Exclusivo do Proprietário atualizado com sucesso!');
   };
 
   // --- AI IMAGE STUDIO STATE & HANDLERS ---
@@ -932,19 +913,7 @@ export const AdminPanel: React.FC = () => {
             </div>
 
             <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  if (confirm('Deseja restaurar todo o catálogo para os dados padrão?')) {
-                    resetAllData();
-                    showToast('Dados padrão restaurados com sucesso!');
-                  }
-                }}
-                className="px-3 py-1.5 rounded-xl bg-[#141838] hover:bg-rose-950/60 hover:text-rose-400 border border-transparent hover:border-rose-500/40 text-xs font-semibold text-gray-300 transition-all cursor-pointer flex items-center gap-1.5"
-                title="Restaurar catálogo original"
-              >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Restaurar Padrão</span>
-              </button>
+
 
               <button
                 onClick={() => {
@@ -1007,9 +976,6 @@ export const AdminPanel: React.FC = () => {
               >
                 <Briefcase className="w-3.5 h-3.5" />
                 <span>Meu Negócio</span>
-                <span className="px-1.5 py-0.2 rounded-full bg-[#00DFFF]/20 text-[#00DFFF] text-[10px] font-black">
-                  Novo
-                </span>
               </button>
 
               <button
@@ -1024,7 +990,7 @@ export const AdminPanel: React.FC = () => {
                 }`}
               >
                 <LayoutDashboard className="w-3.5 h-3.5" />
-                <span>Dashboard</span>
+                <span>Resumo do catálogo</span>
               </button>
 
               {/* TAB: GESTÃO DE VARIANTES (SOLICITADO COM PRIORIDADE) */}
@@ -1120,7 +1086,7 @@ export const AdminPanel: React.FC = () => {
                 }`}
               >
                 <History className="w-3.5 h-3.5 text-[#00DFFF]" />
-                <span>Auditoria & Logs ({activityLogs.length + variantHistory.length})</span>
+                <span>Auditoria & Logs</span>
               </button>
 
               <button
@@ -1165,7 +1131,7 @@ export const AdminPanel: React.FC = () => {
                 }`}
               >
                 <Database className="w-3.5 h-3.5 text-[#00DFFF]" />
-                <span>Supabase & SQL</span>
+                <span>Sincronização</span>
               </button>
             </div>
           </div>
@@ -1195,7 +1161,7 @@ export const AdminPanel: React.FC = () => {
                       </span>
                     </h3>
                     <p className="text-xs text-[#A5A5B8]">
-                      Monitoramento automático de disponibilidade demonstrativa individual por sabor
+                      Confira a disponibilidade e os alertas de estoque por sabor.
                     </p>
                   </div>
                 </div>
@@ -1443,33 +1409,7 @@ export const AdminPanel: React.FC = () => {
               </div>
             </div>
 
-            {/* CARD EXPLICATIVO: PERSISTÊNCIA & QUANDO O CATÁLOGO É REDEFINIDO */}
-            <div className="p-5 rounded-3xl bg-gradient-to-r from-[#11152A] via-[#141838] to-[#11152A] border-2 border-emerald-500/30 shadow-xl space-y-2">
-              <div className="flex items-center gap-2.5">
-                <div className="w-8 h-8 rounded-xl bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center text-emerald-400">
-                  <ShieldCheck className="w-4 h-4" />
-                </div>
-                <div>
-                  <h4 className="font-heading text-sm font-black text-white flex items-center gap-2">
-                    Status de Persistência dos Dados &bull; Quando o catálogo é redefinido?
-                  </h4>
-                  <span className="text-[10px] text-emerald-400 font-bold uppercase tracking-wider">
-                    ✓ Armazenamento Ativo & Permanente
-                  </span>
-                </div>
-              </div>
-              <p className="text-xs text-[#A5A5B8] leading-relaxed pt-1">
-                Todas as alterações realizadas no CRUD (cadastro/edição de <strong>Marcas</strong>, <strong>Modelos</strong>, <strong>Sabores</strong>, <strong>Cupons</strong>, <strong>Banners</strong> e <strong>Estoque</strong>) são gravadas de forma <strong>imediata e definitiva</strong> no armazenamento local deste navegador.
-              </p>
-              <div className="p-3 rounded-xl bg-[#0D1022] border border-white/10 text-xs text-gray-300 space-y-1">
-                <p className="font-bold text-white flex items-center gap-1.5">
-                  <span className="text-emerald-400">●</span> Ele NUNCA é redefinido automaticamente.
-                </p>
-                <p className="text-[11px] text-[#A5A5B8]">
-                  Não há expiração de tempo nem perda de dados ao fechar a janela ou atualizar a página. O catálogo só é restaurado para os dados padrão se você (Proprietário) clicar voluntariamente no botão <strong>&ldquo;Restaurar Padrão&rdquo;</strong> (no topo) ou <strong>&ldquo;Restaurar Padrão de Fábrica&rdquo;</strong> (na aba Configurações) e confirmar a ação.
-                </p>
-              </div>
-            </div>
+
           </div>
         )}
 
@@ -2392,122 +2332,10 @@ export const AdminPanel: React.FC = () => {
                 Configurações da Loja & Identidade Visual
               </h2>
               <p className="text-xs text-[#A5A5B8]">
-                Ajuste os dados institucionais, segurança do proprietário e o aviso de maioridade regulatória.
+                Ajuste os dados da loja e suas informações de contato.
               </p>
             </div>
 
-            {/* CARD EXCLUSIVO DE SEGURANÇA: UID DO PROPRIETÁRIO (SOLICITADO PELO USUÁRIO) */}
-            <div className="p-5 rounded-2xl bg-[#0D1022] light:bg-white border-2 border-[#8423DA]/50 shadow-xl space-y-4">
-              <div className="flex items-center justify-between border-b border-[#8423DA]/20 pb-3">
-                <div className="flex items-center gap-2.5">
-                  <Fingerprint className="w-5 h-5 text-[#00DFFF]" />
-                  <div>
-                    <h3 className="font-heading text-sm font-bold text-white light:text-slate-900 flex items-center gap-2">
-                      <span>UID Exclusivo do Proprietário</span>
-                      <span className={`px-2 py-0.5 text-[10px] font-black rounded-full ${
-                        configuredOwnerUid ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-amber-500/20 text-amber-400 border border-amber-500/30'
-                      }`}>
-                        {configuredOwnerUid ? '✓ Configurado' : 'Pendente'}
-                      </span>
-                    </h3>
-                    <p className="text-[11px] text-[#A5A5B8]">
-                      Identificação mestre do Firebase Authentication para acesso administrativo exclusivo (OWNER)
-                    </p>
-                  </div>
-                </div>
-
-                <button
-                  type="button"
-                  onClick={() => setIsSettingOwnerUidExpanded(!isSettingOwnerUidExpanded)}
-                  className="px-3 py-1.5 rounded-xl bg-[#00DFFF]/10 hover:bg-[#00DFFF]/20 border border-[#00DFFF]/40 text-[#00DFFF] font-bold text-xs transition-all cursor-pointer"
-                >
-                  {isSettingOwnerUidExpanded ? 'Recolher' : 'Ajustar'}
-                </button>
-              </div>
-
-              {/* Status Row showing current active owner status */}
-              <div className="p-3.5 rounded-xl bg-[#141838] border border-[#8423DA]/25 flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs">
-                <div>
-                  <span className="text-[10px] text-gray-400 uppercase font-bold tracking-wider block">UID Autorizado no Sistema:</span>
-                  <span className="font-mono font-bold text-white text-xs truncate max-w-xs block">
-                    {configuredOwnerUid || 'Nenhum UID configurado'}
-                  </span>
-                </div>
-                {configuredOwnerUid && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      navigator.clipboard.writeText(configuredOwnerUid);
-                      setCopiedOwnerUid(true);
-                      setTimeout(() => setCopiedOwnerUid(false), 2000);
-                    }}
-                    className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg bg-[#181C38] text-gray-300 hover:text-white border border-[#8423DA]/30 text-[11px] font-semibold cursor-pointer shrink-0"
-                  >
-                    {copiedOwnerUid ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5 text-[#00DFFF]" />}
-                    <span>{copiedOwnerUid ? 'Copiado!' : 'Copiar UID'}</span>
-                  </button>
-                )}
-              </div>
-
-              {/* Form to Adjust / Change the Owner UID */}
-              {isSettingOwnerUidExpanded && (
-                <form onSubmit={handleSaveOwnerUid} className="space-y-3 pt-2 text-xs animate-in fade-in duration-200">
-                  <div>
-                    <label className="block text-gray-200 font-bold mb-1">
-                      ID Exclusivo do Administrador / Proprietário
-                    </label>
-                    <input
-                      type="text"
-                      value={ownerUidInput}
-                      onChange={(e) => setOwnerUidInput(e.target.value)}
-                      placeholder="Ex: admin-master-01"
-                      className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white font-mono text-xs focus:outline-none focus:border-[#00DFFF]"
-                    />
-                    <p className="text-[10px] text-[#A5A5B8] mt-1 leading-relaxed">
-                      Apenas o perfil ou sessão com este ID terá acesso privilegiado de proprietário para editar o catálogo.
-                    </p>
-                  </div>
-
-                  {currentUser?.id && (
-                    <div className="flex items-center justify-between p-2.5 rounded-xl bg-[#181C38] border border-[#8423DA]/20">
-                      <div>
-                        <span className="text-[10px] text-gray-400 block">Sua Sessão de Administrador Atual:</span>
-                        <span className="text-[11px] text-[#00DFFF] font-mono font-bold truncate max-w-[200px] block">
-                          {currentUser.email || currentUser.id}
-                        </span>
-                      </div>
-                      <button
-                        type="button"
-                        onClick={() => setOwnerUidInput(currentUser.id)}
-                        className="px-2.5 py-1 rounded-lg bg-[#00DFFF]/20 text-[#00DFFF] hover:bg-[#00DFFF]/30 text-[11px] font-bold cursor-pointer transition-colors"
-                      >
-                        Usar meu ID Atual
-                      </button>
-                    </div>
-                  )}
-
-                  <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#8423DA]/20">
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setOwnerUidInput('');
-                        setConfiguredOwnerUid('');
-                        showToast('UID desvinculado!');
-                      }}
-                      className="px-3 py-1.5 rounded-xl text-rose-400 hover:bg-rose-500/10 text-xs font-semibold cursor-pointer"
-                    >
-                      Limpar UID
-                    </button>
-                    <button
-                      type="submit"
-                      className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] text-xs font-black shadow-md cursor-pointer hover:brightness-110 active:scale-95"
-                    >
-                      Salvar UID do Proprietário
-                    </button>
-                  </div>
-                </form>
-              )}
-            </div>
 
             <form
               onSubmit={(e) => {
@@ -2586,25 +2414,10 @@ export const AdminPanel: React.FC = () => {
                   Salvar Alterações
                 </button>
 
-                <div className="flex flex-col items-end gap-1">
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (confirm('Atenção: Deseja realmente restaurar todos os dados do catálogo para os valores de demonstração originais de fábrica?')) {
-                        resetAllData();
-                        showToast('Catálogo restaurado para o padrão original!');
-                      }
-                    }}
-                    className="px-3 py-1.5 rounded-xl bg-rose-500/10 hover:bg-rose-500/20 text-rose-400 border border-rose-500/30 text-xs font-semibold cursor-pointer transition"
-                  >
-                    Restaurar Padrão de Fábrica
-                  </button>
-                  <span className="text-[10px] text-gray-500 text-right">
-                    O catálogo nunca reseta sozinho. Esta ação é estritamente manual.
-                  </span>
-                </div>
+
               </div>
             </form>
+            <OwnerAdvancedSettings />
           </div>
         )}
 

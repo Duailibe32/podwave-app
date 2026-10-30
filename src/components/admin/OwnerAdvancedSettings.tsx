@@ -3,7 +3,7 @@ import { useCatalog } from '../../context/CatalogContext';
 import { SupabaseTab } from './SupabaseTab';
 
 export function OwnerAdvancedSettings() {
-  const { isOwner, configuredOwnerUid, setConfiguredOwnerUid, isAutoSyncEnabled, resetAllData } = useCatalog();
+  const { isOwner, currentUser, configuredOwnerUid, setConfiguredOwnerUid, isAutoSyncEnabled, resetAllData } = useCatalog();
   const [expanded, setExpanded] = useState(false);
   const [ownerUid, setOwnerUid] = useState(configuredOwnerUid);
   const [notice, setNotice] = useState('');
@@ -26,7 +26,12 @@ export function OwnerAdvancedSettings() {
         <h3 className="font-bold">Identificação local do proprietário</h3>
         <p className="text-sm text-gray-400">Preferência salva neste navegador. O acesso real continua sendo definido pela sua conta e pelas permissões do Supabase.</p>
         <label className="block text-sm">ID do proprietário<input value={ownerUid} onChange={e => setOwnerUid(e.target.value)} className="mt-1 w-full rounded-lg bg-[#181C3D] p-3 text-xs font-mono" /></label>
-        <button type="submit" className="rounded-xl border border-white/15 px-4 py-2 text-sm">Salvar identificação local</button>
+        <div className="flex flex-wrap gap-3">
+          <button type="submit" className="rounded-xl border border-white/15 px-4 py-2 text-sm">Salvar identificação local</button>
+          {currentUser?.id && <button type="button" onClick={() => setOwnerUid(currentUser.id)} className="text-sm text-cyan-300">Usar meu ID</button>}
+          <button type="button" onClick={() => setOwnerUid('')} className="text-sm text-gray-400">Limpar campo</button>
+          {configuredOwnerUid && <button type="button" onClick={() => {void navigator.clipboard.writeText(configuredOwnerUid).then(() => setNotice('ID copiado.')).catch(() => setNotice('Não foi possível copiar o ID.'));}} className="text-sm text-gray-400">Copiar ID salvo</button>}
+        </div>
       </form>
       <div className="rounded-2xl border border-rose-500/30 p-4 space-y-3">
         <h3 className="font-bold text-rose-300">Restauração do catálogo local</h3>
