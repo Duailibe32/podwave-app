@@ -425,8 +425,21 @@ export async function syncCatalogToSupabase(
       }))
     );
     if (allFlavors.length > 0) {
-      const { error: fErr } = await client.from('flavor_variants').upsert(allFlavors);
-      if (fErr) throw fErr;
+      // Existing quantities are changed only by dedicated stock operations.
+      // A stale catalog snapshot must never replenish products sold elsewhere.
+      const { data: existing, error: readError } = await client.from('flavor_variants').select('id');
+      if (readError) throw readError;
+      const ids = new Set((existing || []).map((f) => f.id));
+      const updates = allFlavors.filter((f) => ids.has(f.id)).map(({ demo_quantity, in_stock, ...metadata }) => metadata);
+      const inserts = allFlavors.filter((f) => !ids.has(f.id));
+      if (updates.length) {
+        const { error } = await client.from('flavor_variants').upsert(updates);
+        if (error) throw error;
+      }
+      if (inserts.length) {
+        const { error } = await client.from('flavor_variants').insert(inserts);
+        if (error) throw error;
+      }
     }
 
     // 4. Upsert Banners
@@ -1340,6 +1353,8 @@ export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]>
     return data.map((row) => ({
       id: row.id,
       saleDate: row.date,
+      stockManaged: row.stock_managed === true,
+      stockRevision: Number(row.stock_revision) || 0,
       customerName: row.customer_name || undefined,
       customerPhone: row.customer_contact || undefined,
       deliveryType: readFinancialNotes(row.notes).fields.deliveryType ?? 'Entrega Própria',
@@ -1366,9 +1381,9 @@ export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]>
   }
 }
 
-export async function saveManualSaleToSupabase(sale: ManualSaleEntry): Promise<boolean> {
+export async function saveSaleWithStock(sale: ManualSaleEntry): Promise<{ success: boolean; error?: string; stockRevision?: number; stockManaged?: boolean }> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) return { success: false, error: 'Conecte o Supabase para conferir e reservar o estoque. A venda não foi registrada.' };
 
   try {
     const payload = {
@@ -1391,19 +1406,29 @@ export async function saveManualSaleToSupabase(sale: ManualSaleEntry): Promise<b
       installments: sale.installments || [],
       notes: writeFinancialNotes(sale.notes, { deliveryType: sale.deliveryType, orderStatus: sale.orderStatus }),
       updated_at: new Date().toISOString(),
+      order_status: sale.orderStatus,
+      stock_managed: sale.stockManaged === true,
     };
 
-    const { error } = await client.from('manual_sales').upsert(payload);
+    const { data, error } = await client.rpc('save_sale_with_stock', {
+      p_sale: payload,
+      p_expected_revision: sale.stockRevision ?? 0,
+      p_request_id: sale.stockRequestId || crypto.randomUUID(),
+      p_delete: false,
+    });
     if (error) {
-      if (isMissingTableError(error)) return false;
       console.warn('[Supabase] Falha ao salvar venda manual:', error.message);
-      return false;
+      return { success: false, error: error.code === 'PGRST202' ? 'O controle de estoque ainda não foi instalado no Supabase. A venda não foi registrada.' : error.message };
     }
-    return true;
+    if (!data?.sale) return { success: false, error: 'O banco não confirmou a venda. Recarregue os dados antes de tentar novamente.' };
+    return { success: true, stockRevision: data.sale.stock_revision, stockManaged: data.sale.stock_managed };
   } catch (err) {
-    if (isMissingTableError(err)) return false;
-    return false;
+    return { success: false, error: 'Não foi possível confirmar a operação. Os dados foram mantidos; recarregue as vendas antes de tentar novamente.' };
   }
+}
+
+export async function saveManualSaleToSupabase(sale: ManualSaleEntry): Promise<boolean> {
+  return (await saveSaleWithStock(sale)).success;
 }
 
 export async function deleteManualSaleFromSupabase(saleId: string): Promise<boolean> {
@@ -1411,7 +1436,13 @@ export async function deleteManualSaleFromSupabase(saleId: string): Promise<bool
   if (!client) return false;
 
   try {
-    const { error } = await client.from('manual_sales').delete().eq('id', saleId);
+    const { data: sale, error: readError } = await client.from('manual_sales').select('stock_revision').eq('id', saleId).maybeSingle();
+    if (readError) return false;
+    if (!sale) return true;
+    const { error } = await client.rpc('save_sale_with_stock', {
+      p_sale: { id: saleId }, p_expected_revision: sale.stock_revision ?? 0,
+      p_request_id: crypto.randomUUID(), p_delete: true,
+    });
     if (error) {
       if (isMissingTableError(error)) return false;
       console.warn('[Supabase] Falha ao deletar venda manual:', error.message);
@@ -1871,21 +1902,33 @@ export async function saveManualCommitmentToSupabase(commitment: ManualCommitmen
   }
 }
 
-export async function deleteManualCommitmentFromSupabase(id: string): Promise<boolean> {
+export async function deleteCommitmentConfirmed(id: string): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) return { success: false, error: 'Conecte o Supabase antes de excluir a conta.' };
 
   try {
-    const { error } = await client.from('manual_commitments').delete().eq('id', id);
+    const { data, error } = await client.from('manual_commitments').delete().eq('id', id).select('id');
     if (error) {
-      if (isMissingTableError(error)) return false;
       console.warn('[Supabase] Falha ao excluir compromisso avulso:', error.message);
-      return false;
+      return { success: false, error: error.message };
     }
-    return true;
+    if (!data?.some((row) => row.id === id)) return { success: false, error: 'O Supabase não confirmou a exclusão. Recarregue os dados e confira a permissão da sua conta.' };
+    return { success: true };
   } catch {
-    return false;
+    return { success: false, error: 'Falha de conexão. A conta foi mantida para você conferir e tentar novamente.' };
   }
+}
+
+export async function deleteManualCommitmentFromSupabase(id: string): Promise<boolean> {
+  return (await deleteCommitmentConfirmed(id)).success;
+}
+
+export async function fetchStockAvailability(): Promise<{ id: string; modelId: string; quantity: number | null; inStock: boolean }[]> {
+  const client = getSupabaseClient();
+  if (!client) throw new Error('Conecte o Supabase para conferir o estoque.');
+  const { data, error } = await client.from('flavor_variants').select('id,model_id,demo_quantity,in_stock');
+  if (error || !data) throw new Error('Não foi possível conferir o estoque atualizado. Tente novamente.');
+  return data.map((f) => ({ id:f.id, modelId:f.model_id, quantity:f.demo_quantity == null ? null : Number(f.demo_quantity), inStock:f.in_stock === true }));
 }
 
 

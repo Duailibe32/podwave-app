@@ -54,7 +54,7 @@ import { AdminLogin } from './AdminLogin';
 import { BannerVisualEditor } from './BannerVisualEditor';
 import { SupabaseTab } from './SupabaseTab';
 import { UserManagementTab } from './UserManagementTab';
-import { ActivityLogsSection } from './ActivityLogsSection';
+import { BusinessAuditSection } from './BusinessAuditSection';
 import { ImageEditorStudioModal } from './ImageEditorStudioModal';
 import { MyBusinessModule } from './MyBusinessModule';
 import { calculateVariantAvailability, calculateVariantsSummary, isNeedsAttention, DEFAULT_LOW_QUANTITY_THRESHOLD } from '../../utils/availability';
@@ -2372,7 +2372,7 @@ export const AdminPanel: React.FC = () => {
 
         {/* ===================== TAB: CENTRAL DE AUDITORIA & LOGS DE ATIVIDADE ===================== */}
         {activeTab === 'historico' && (
-          <ActivityLogsSection />
+          <BusinessAuditSection />
         )}
 
         {/* ===================== TAB 5: BANNERS & DESTAQUES ===================== */}

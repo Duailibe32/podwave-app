@@ -191,9 +191,9 @@ export const MySalesSection: React.FC = () => {
   const handleDeleteConfirm = async () => {
     if (!saleToDelete) return;
     setIsDeleting(true);
-    await removeManualSale(saleToDelete.id);
+    const result = await removeManualSale(saleToDelete.id);
     setIsDeleting(false);
-    setSaleToDelete(null);
+    if (result.success) setSaleToDelete(null);
   };
 
   const handleClearFilters = () => {

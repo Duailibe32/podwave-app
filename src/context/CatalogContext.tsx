@@ -30,6 +30,7 @@ import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_
 import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
 import { openWhatsAppShare } from '../utils/whatsappShare';
 import { calculateVariantAvailability } from '../utils/availability';
+import { cartStockError } from '../utils/stock';
 import { 
   getSupabaseCredentials,
   saveSupabaseCredentials,
@@ -58,6 +59,9 @@ import {
   createAdminOrVipUserInSupabase,
   fetchManualSalesFromSupabase,
   saveManualSaleToSupabase,
+  saveSaleWithStock,
+  fetchStockAvailability,
+  deleteCommitmentConfirmed,
   deleteManualSaleFromSupabase,
   fetchManualExpensesFromSupabase,
   saveManualExpenseToSupabase,
@@ -234,7 +238,7 @@ interface CatalogContextType {
   setIsCheckoutOpen: (open: boolean) => void;
 
   // Checkout & WhatsApp
-  submitOrderViaWhatsapp: (form: OrderForm, customMessage?: string) => void;
+  submitOrderViaWhatsapp: (form: OrderForm, customMessage?: string) => Promise<boolean>;
 
   // Admin Actions: Brands
   addBrand: (brand: Omit<Brand, 'id'>) => void;
@@ -1150,6 +1154,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [cart]);
 
   const addToCart = (product: ProductModel, flavor: FlavorVariant, quantity = 1) => {
+    const current = models.find((m) => m.id === product.id);
+    const currentFlavor = current?.flavors.find((f) => f.id === flavor.id);
+    const existingQuantity = cart.filter((i) => i.modelId === product.id && i.flavorId === flavor.id).reduce((n,i) => n+i.quantity,0);
+    if (!current?.active || !currentFlavor?.inStock || !Number.isInteger(quantity) || quantity<1 || !Number.isInteger(currentFlavor.demoQuantity) || existingQuantity+quantity>(currentFlavor.demoQuantity ?? 0)) {
+      toast.error('Estoque indisponível', 'A quantidade solicitada não está disponível.');
+      return;
+    }
     // Check if the flavor is sold out (status === 'esgotado', demoQuantity === 0, or inStock === false)
     const threshold = flavor.lowQuantityThreshold ?? product.lowQuantityThreshold ?? 3;
     const avail = calculateVariantAvailability(flavor.demoQuantity, threshold);
@@ -1206,6 +1217,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateCartQuantity = (cartItemId: string, delta: number) => {
+    const proposed = cart.map((i) => i.id === cartItemId ? {...i, quantity:i.quantity+delta} : i).filter((i) => i.quantity>0);
+    const error = cartStockError(proposed, models);
+    if (error) { toast.error('Estoque indisponível',error); return; }
     setCart((prev) =>
       prev
         .map((item) => {
@@ -1359,7 +1373,21 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const freeShippingRemaining = Math.max(0, freeShippingGoal - rawTotal);
 
   // Reference implementation for WhatsApp sharing with exact Unicode string
-  const submitOrderViaWhatsapp = (form: OrderForm, customMessage?: string) => {
+  const submitOrderViaWhatsapp = async (form: OrderForm, customMessage?: string): Promise<boolean> => {
+    if (!cart.length) { toast.error('Adicione produtos ao carrinho.'); return false; }
+    try {
+      const stock = await fetchStockAvailability();
+      const latestModels = models.map((m) => ({...m,flavors:m.flavors.map((f) => {
+        const current = stock.find((s) => s.id===f.id && s.modelId===m.id);
+        return {...f,demoQuantity:current?.quantity ?? null,inStock:current?.inStock ?? false};
+      })}));
+      setModels(latestModels);
+      const error = cartStockError(cart,latestModels);
+      if (error) { toast.error('Pedido não enviado',error); return false; }
+    } catch (error) {
+      toast.error('Pedido não enviado',error instanceof Error ? error.message : 'Confira a conexão.');
+      return false;
+    }
     const phone = settings.whatsappNumber || '5586999014685';
     const cleanPhone = phone.replace(/\D/g, '');
 
@@ -1410,6 +1438,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       `Referência ${refId} criada. Abrindo WhatsApp oficial para confirmação...`,
       { durationMs: 5000 }
     );
+    return true;
   };
 
   // Admin CRUD operations: Brands
@@ -1568,6 +1597,17 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const updateFlavor = (modelId: string, flavorId: string, updated: Partial<FlavorVariant>) => {
+    // Explicit stock edits bypass generic catalog sync, which no longer sends snapshots.
+    if (updated.demoQuantity !== undefined || updated.inStock !== undefined) {
+      const client = activeSupabaseClient || getSupabaseClient();
+      if (client) client.from('flavor_variants').update({
+        ...(updated.demoQuantity !== undefined ? {demo_quantity:updated.demoQuantity} : {}),
+        ...(updated.inStock !== undefined ? {in_stock:updated.inStock} : {}),
+        updated_at:new Date().toISOString(),
+      }).eq('id',flavorId).then(({error}) => {
+        if (error) { toast.error('Estoque não confirmado',error.message); void refreshSaleStock(); }
+      });
+    }
     let modelName = '';
     let flavorName = '';
     setModels((prev) =>
@@ -2317,6 +2357,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const [isSyncingPending, setIsSyncingPending] = useState<boolean>(false);
 
+  const refreshSaleStock = async () => {
+    try {
+      const stock = await fetchStockAvailability();
+      setModels((prev) => prev.map((m) => ({...m, flavors:m.flavors.map((f) => {
+        const current = stock.find((s) => s.id===f.id && s.modelId===m.id);
+        return current ? {...f,demoQuantity:current.quantity,inStock:current.inStock,updatedAt:new Date().toISOString()} : f;
+      })})));
+    } catch { toast.warning('Venda confirmada. Recarregue o catálogo para atualizar a exibição do estoque.'); }
+  };
+
   const fetchBusinessData = async () => {
     // Isolamento estrito de sessão: apenas usuários com privilégio de administrador carregam dados financeiros
     if (!isAdmin) {
@@ -2364,12 +2414,19 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       receipts: deduplicateById(sale.receipts),
       installments: deduplicateById(sale.installments),
     };
-    const ok = await saveManualSaleToSupabase(cleanSale);
+    const result = await saveSaleWithStock(cleanSale);
+    if (!result.success) {
+      addActivityLog({action:'ERRO_BANCO_DADOS',actionLabel:'Venda não confirmada',entity:'manual_sales',entityName:cleanSale.id,details:result.error || 'Falha ao conferir estoque.',status:'erro'});
+      return { success: false, error: result.error };
+    }
     const now = new Date().toISOString();
     const trackedSale: ManualSaleEntry = {
       ...cleanSale,
-      _syncStatus: ok ? 'synced' : 'pending_sync',
-      _syncError: ok ? undefined : 'Pendente de sincronização com o banco de dados Supabase.',
+      stockRequestId: undefined,
+      stockManaged: result.stockManaged,
+      stockRevision: result.stockRevision,
+      _syncStatus: 'synced',
+      _syncError: undefined,
       _lastSyncAttempt: now,
     };
 
@@ -2383,24 +2440,22 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return [trackedSale, ...prev];
     });
 
-    if (!ok) {
-      toast.info('Venda salva localmente (Pendente de sincronização com o Supabase).');
-      return { success: true };
-    }
     toast.success('Venda registrada com sucesso no Supabase!');
+    await refreshSaleStock();
     return { success: true };
   };
 
   const removeManualSale = async (id: string): Promise<{ success: boolean; error?: string }> => {
     const ok = await deleteManualSaleFromSupabase(id);
-    setManualSales((prev) => prev.filter((s) => s.id !== id));
     if (!ok) {
-      addTombstone(id, 'sales');
-      toast.info('Venda removida localmente (exclusão pendente no Supabase).');
-      return { success: true };
+      const error = 'O banco não confirmou a exclusão e a devolução do estoque. Recarregue os dados e tente novamente.';
+      toast.error('Venda preservada',error);
+      return { success:false,error };
     }
+    setManualSales((prev) => prev.filter((s) => s.id !== id));
     removeTombstone(id);
     toast.info('Venda removida com sucesso.');
+    await refreshSaleStock();
     return { success: true };
   };
 
@@ -2667,13 +2722,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const removeManualCommitment = async (id: string): Promise<{ success: boolean; error?: string }> => {
-    const ok = await deleteManualCommitmentFromSupabase(id);
-    setManualCommitments((prev) => prev.filter((c) => c.id !== id));
-    if (!ok) {
-      addTombstone(id, 'commitments');
-      toast.info('Compromisso removido localmente (exclusão pendente no Supabase).');
-      return { success: true };
+    const result = await deleteCommitmentConfirmed(id);
+    if (!result.success) {
+      addActivityLog({action:'ERRO_BANCO_DADOS',actionLabel:'Exclusão de conta não confirmada',entity:'manual_commitments',entityName:id,details:result.error || 'Registro preservado.',status:'erro'});
+      return result;
     }
+    setManualCommitments((prev) => prev.filter((c) => c.id !== id));
     removeTombstone(id);
     toast.info('Compromisso financeiro excluído.');
     return { success: true };
@@ -2718,10 +2772,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       // 1. Vendas Manuais
       const pendingSales = manualSales.filter((s) => s._syncStatus !== 'synced');
       for (const sale of pendingSales) {
-        const ok = await saveManualSaleToSupabase(sale);
+        const stockResult = await saveSaleWithStock(sale);
+        const ok = stockResult.success;
         if (ok) {
           setManualSales((prev) =>
-            prev.map((s) => (s.id === sale.id ? { ...s, _syncStatus: 'synced', _syncError: undefined, _lastSyncAttempt: now } : s))
+            prev.map((s) => (s.id === sale.id ? { ...s, stockManaged:stockResult.stockManaged,stockRevision:stockResult.stockRevision, _syncStatus: 'synced', _syncError: undefined, _lastSyncAttempt: now } : s))
           );
           synced++;
         } else {
@@ -2818,6 +2873,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       if (synced > 0) {
+        await refreshSaleStock();
         toast.success(`${synced} registro(s) sincronizado(s) com sucesso no Supabase!`);
       }
       if (failed > 0) {

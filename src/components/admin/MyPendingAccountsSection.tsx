@@ -69,6 +69,9 @@ export const MyPendingAccountsSection: React.FC = () => {
   const [selectedForInstallment, setSelectedForInstallment] = useState<PendingAccountItem | null>(null);
 
   const [detailsItem, setDetailsItem] = useState<PendingAccountItem | null>(null);
+  const [deletingItem, setDeletingItem] = useState<PendingAccountItem | null>(null);
+  const [isDeleting, setIsDeleting] = useState(false);
+  const [deleteError, setDeleteError] = useState('');
 
   // Pagination
   const [currentPage, setCurrentPage] = useState(1);
@@ -370,12 +373,20 @@ export const MyPendingAccountsSection: React.FC = () => {
   // Exclusão de compromisso avulso
   const handleDeleteCommitment = async (item: PendingAccountItem) => {
     if (item.originType !== 'avulso') return;
-    if (confirm(`Deseja realmente excluir este compromisso avulso ("${item.description}")?`)) {
-      const res = await removeManualCommitment(item.originId);
-      if (!res.success) {
-        alert(res.error || 'Erro ao excluir compromisso avulso.');
-      }
-    }
+    setDeleteError('');
+    setDeletingItem(item);
+  };
+
+  const confirmDeleteCommitment = async () => {
+    if (!deletingItem || isDeleting) return;
+    setIsDeleting(true);
+    try {
+      const res = await removeManualCommitment(deletingItem.originId);
+      if (res.success) setDeletingItem(null);
+      else setDeleteError(res.error || 'Não foi possível excluir. O registro foi preservado.');
+    } catch {
+      setDeleteError('Não foi possível excluir. Confira a conexão e tente novamente.');
+    } finally { setIsDeleting(false); }
   };
 
   // Edição de compromisso avulso
@@ -1286,6 +1297,19 @@ export const MyPendingAccountsSection: React.FC = () => {
                   {detailsItem.type === 'a_receber' ? 'Quitar / Receber' : 'Quitar / Pagar'}
                 </button>
               )}
+            </div>
+          </div>
+        </div>
+      )}
+      {deletingItem && (
+        <div className="fixed inset-0 z-[100] bg-black/80 flex items-center justify-center p-4">
+          <div role="alertdialog" aria-modal="true" aria-labelledby="delete-commitment-title" className="w-full max-w-md rounded-2xl bg-[#11152A] border border-rose-500/30 p-6 space-y-4">
+            <h3 id="delete-commitment-title" className="text-lg font-bold text-white">Excluir conta pendente?</h3>
+            <p className="text-sm text-gray-300">Excluir “{deletingItem.description}”, de {formatBRL(deletingItem.totalAmount)}? Esta ação não registra pagamento nem recebimento.</p>
+            {deleteError && <p role="alert" className="text-sm text-rose-300">{deleteError}</p>}
+            <div className="flex justify-end gap-3">
+              <button autoFocus disabled={isDeleting} onClick={() => setDeletingItem(null)} className="px-4 py-2 rounded-xl border border-white/20 text-white">Cancelar</button>
+              <button disabled={isDeleting} onClick={confirmDeleteCommitment} className="px-4 py-2 rounded-xl bg-rose-600 text-white disabled:opacity-50">{isDeleting ? 'Excluindo...' : 'Excluir conta'}</button>
             </div>
           </div>
         </div>

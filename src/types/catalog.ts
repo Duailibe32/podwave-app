@@ -213,7 +213,7 @@ export interface ActivityLogEntry {
   id: string;
   action: ActivityActionType;
   actionLabel: string;
-  entity: 'product_models' | 'flavor_variants' | 'brands' | 'coupons' | 'settings' | 'auth';
+  entity: 'product_models' | 'flavor_variants' | 'brands' | 'coupons' | 'settings' | 'auth' | 'manual_sales' | 'manual_commitments';
   entityName: string;
   details: string;
   author: string;
@@ -263,6 +263,7 @@ export interface DateRange {
 export interface ManualSaleItem {
   id?: string;
   productId?: string;
+  flavorId?: string;
   productName: string;
   brandName?: string;
   modelName?: string;
@@ -284,6 +285,9 @@ export interface SaleReceiptItem {
 
 export interface ManualSaleEntry {
   id: string;
+  stockManaged?: boolean;
+  stockRevision?: number;
+  stockRequestId?: string;
   saleDate: string; // ISO string
   customerName?: string;
   customerPhone?: string;
