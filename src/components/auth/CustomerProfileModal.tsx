@@ -3,7 +3,16 @@ import { useCatalog } from '../../context/CatalogContext';
 import { CustomerAddress } from '../../types/catalog';
 import { OrderNotificationSettings } from '../../context/OrderNotificationsContext';
 import { OrderStatusTimeline } from '../OrderStatusTimeline';
-import { getUserLoyaltyCard } from '../../utils/loyaltyCard';
+import {
+  getUserLoyaltyCard,
+  getLoyaltyTierProgress,
+  getRedeemedRewardsHistory,
+  getUserLoyaltyBadges,
+  applyLoyaltyMutation,
+  loadLocalLoyaltyCardsMap,
+  saveLocalLoyaltyCardsMap,
+  LOYALTY_TIERS,
+} from '../../utils/loyaltyCard';
 import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
 import {
   X,
@@ -22,6 +31,12 @@ import {
   ExternalLink,
   ShieldCheck,
   Gift,
+  Award,
+  Lock,
+  Trophy,
+  Calendar,
+  History,
+  Star,
 } from 'lucide-react';
 
 export const CustomerProfileModal: React.FC = () => {
@@ -41,8 +56,13 @@ export const CustomerProfileModal: React.FC = () => {
   const [activeTab, setActiveTab] = useState<'profile' | 'loyalty' | 'orders'>('profile');
   React.useEffect(() => {
     const openOrders = () => setActiveTab('orders');
+    const openLoyalty = () => setActiveTab('loyalty');
     window.addEventListener('podwave:open-orders',openOrders);
-    return () => window.removeEventListener('podwave:open-orders',openOrders);
+    window.addEventListener('podwave:open-loyalty',openLoyalty);
+    return () => {
+      window.removeEventListener('podwave:open-orders',openOrders);
+      window.removeEventListener('podwave:open-loyalty',openLoyalty);
+    };
   },[]);
   const [fullName, setFullName] = useState(currentUser?.fullName || '');
   const [phoneWhatsapp, setPhoneWhatsapp] = useState(currentUser?.phoneWhatsapp || '');
@@ -75,6 +95,17 @@ export const CustomerProfileModal: React.FC = () => {
       setState(currentUser.address?.state || '');
     }
   }, [currentUser]);
+
+  React.useEffect(() => {
+    if (!isProfileModalOpen) return;
+    const handleKeyDown = (e: KeyboardEvent) => {
+      if (e.key === 'Escape' && !isSaving) {
+        closeProfileModal();
+      }
+    };
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [isProfileModalOpen, isSaving, closeProfileModal]);
 
   if (!isProfileModalOpen || !currentUser) return null;
 
@@ -145,22 +176,56 @@ export const CustomerProfileModal: React.FC = () => {
     settings.loyaltyGoalStamps || 10,
     settings.loyaltyDefaultReward
   );
+  const tierProgress = getLoyaltyTierProgress(loyaltyCard);
+  const redeemedRewards = getRedeemedRewardsHistory(loyaltyCard);
+  const userBadges = getUserLoyaltyBadges(currentUser, loyaltyCard);
+  const unlockedBadges = userBadges.filter((b) => b.unlocked);
+  const featuredBadge = userBadges.find((b) => b.isFeatured && b.unlocked) || unlockedBadges[0];
+
+  const handleFeatureBadge = async (badgeId: string) => {
+    const nextCard = applyLoyaltyMutation(loyaltyCard, {
+      type: 'feature_badge',
+      badgeId,
+    });
+    const localMap = loadLocalLoyaltyCardsMap();
+    localMap[currentUser.id] = nextCard;
+    saveLocalLoyaltyCardsMap(localMap);
+
+    await updateCustomerProfile({
+      loyaltyCard: nextCard,
+    });
+    setFeedbackMsg('Insígnia em destaque atualizada no seu perfil!');
+    setTimeout(() => setFeedbackMsg(null), 3000);
+  };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="customer-profile-modal-title"
+    >
       <div className="relative w-full max-w-xl rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden my-auto flex flex-col max-h-[85vh]">
         {/* User Hero Banner */}
         <div className="p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-b border-[#8423DA]/30 flex items-center justify-between">
           <div className="flex items-center gap-3.5">
-            <div className="w-13 h-13 rounded-2xl bg-gradient-to-br from-[#8423DA] to-[#007BFF] p-0.5 shadow-lg shadow-[#8423DA]/30 shrink-0">
+            <div className="relative w-13 h-13 rounded-2xl bg-gradient-to-br from-[#8423DA] to-[#007BFF] p-0.5 shadow-lg shadow-[#8423DA]/30 shrink-0">
               <div className="w-full h-full rounded-[14px] bg-[#0D1022] flex items-center justify-center font-heading font-black text-white text-lg">
                 {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
               </div>
+              {featuredBadge && (
+                <span
+                  className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-full bg-[#121633] border border-[#00DFFF]/60 flex items-center justify-center text-xs shadow-md"
+                  title={`Insígnia em destaque: ${featuredBadge.title}`}
+                >
+                  {featuredBadge.iconEmoji}
+                </span>
+              )}
             </div>
 
             <div>
-              <div className="flex items-center gap-2 flex-wrap">
-                <h3 className="font-heading text-base font-black text-white">
+              <div className="flex items-center gap-1.5 flex-wrap">
+                <h3 id="customer-profile-modal-title" className="font-heading text-base font-black text-white mr-0.5">
                   {currentUser.fullName || 'Minha Conta'}
                 </h3>
                 {isOwner ? (
@@ -183,17 +248,46 @@ export const CustomerProfileModal: React.FC = () => {
                     Cliente PodWave
                   </span>
                 )}
+
+                <span
+                  className={`px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${tierProgress.currentTier.badgeClass}`}
+                  title={`${tierProgress.currentTier.name} • ${tierProgress.totalStamps} selos acumulados`}
+                >
+                  <Award className="w-3 h-3" />
+                  {tierProgress.currentTier.name}
+                </span>
+
+                {featuredBadge && (
+                  <span
+                    className={`px-2.5 py-0.5 rounded-full border text-[10px] font-black flex items-center gap-1 ${featuredBadge.rarityBadgeClass}`}
+                    title={`Insígnia Conquistada: ${featuredBadge.title} — ${featuredBadge.description}`}
+                  >
+                    <span>{featuredBadge.iconEmoji}</span>
+                    <span>{featuredBadge.title}</span>
+                  </span>
+                )}
               </div>
-              <p className="text-xs text-[#A5A5B8] flex items-center gap-1 mt-0.5">
-                <Mail className="w-3 h-3 text-gray-400" />
-                <span>{currentUser.email}</span>
-              </p>
+              <div className="flex items-center gap-3 flex-wrap mt-1">
+                <p className="text-xs text-[#A5A5B8] flex items-center gap-1">
+                  <Mail className="w-3 h-3 text-gray-400" />
+                  <span>{currentUser.email}</span>
+                </p>
+                <span className="text-[10px] font-bold text-[#00DFFF] flex items-center gap-1">
+                  <Trophy className="w-3 h-3 text-amber-400" />
+                  <span>
+                    {unlockedBadges.length}/{userBadges.length} insígnias • {redeemedRewards.length}{' '}
+                    {redeemedRewards.length === 1 ? 'prêmio resgatado' : 'prêmios resgatados'}
+                  </span>
+                </span>
+              </div>
             </div>
           </div>
 
           <button
+            type="button"
             onClick={closeProfileModal}
-            className="p-2 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 text-gray-400 hover:text-white transition cursor-pointer"
+            aria-label="Fechar perfil"
+            className="min-w-[44px] min-h-[44px] p-2 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 text-gray-300 hover:text-white transition cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00DFFF]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -274,9 +368,9 @@ export const CustomerProfileModal: React.FC = () => {
 
         {/* Body Container */}
         <div className="p-6 overflow-y-auto flex-1">
-          {/* ===================== TAB: DIGITAL LOYALTY CARD ===================== */}
+          {/* ===================== TAB: DIGITAL LOYALTY CARD, BADGES, TIERS & HISTORY ===================== */}
           {activeTab === 'loyalty' && (
-            <div className="space-y-4 text-xs animate-in fade-in duration-200">
+            <div className="space-y-5 text-xs animate-in fade-in duration-200">
               <DigitalLoyaltyCard
                 customerName={currentUser.fullName}
                 customerEmail={currentUser.email}
@@ -284,52 +378,450 @@ export const CustomerProfileModal: React.FC = () => {
                 interactive={false}
               />
 
+              {/* ===================== SEÇÃO DE INSÍGNIAS & CONQUISTAS DO CLIENTE ===================== */}
+              <div className="p-4 rounded-2xl bg-[#121633] border border-[#8423DA]/40 space-y-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#E53CF3] flex items-center gap-1">
+                      <Award className="w-3.5 h-3.5 text-[#00DFFF]" />
+                      <span>Coleção de Conquistas • Insígnias PodWave</span>
+                    </span>
+                    <h5 className="font-heading font-black text-white text-sm mt-0.5">
+                      Suas Insígnias Desbloqueadas ({unlockedBadges.length}/{userBadges.length})
+                    </h5>
+                  </div>
+
+                  <div className="px-3 py-1 rounded-xl bg-[#080811]/80 border border-white/10 text-right">
+                    <span className="text-[10px] text-[#A5A5B8] block">Progresso da Coleção</span>
+                    <span className="font-mono font-black text-xs text-amber-300">
+                      {Math.round((unlockedBadges.length / Math.max(1, userBadges.length)) * 100)}% concluído
+                    </span>
+                  </div>
+                </div>
+
+                <p className="text-[11px] text-[#A5A5B8] leading-relaxed">
+                  Acumule selos, resgate prêmios e suba de nível para ganhar insígnias exclusivas. Você pode clicar em qualquer insígnia desbloqueada para destacá-la no topo do seu perfil!
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+                  {userBadges.map((badge) => (
+                    <div
+                      key={badge.id}
+                      className={`p-3 rounded-2xl border transition-all flex flex-col justify-between gap-2.5 ${
+                        badge.unlocked
+                          ? `${badge.unlockedBorderClass} ${badge.unlockedGlowClass}`
+                          : 'bg-[#080811]/70 border-white/10 opacity-75'
+                      }`}
+                    >
+                      <div className="space-y-1.5">
+                        <div className="flex items-start justify-between gap-2">
+                          <div className="flex items-center gap-2.5">
+                            <div
+                              className={`w-9 h-9 rounded-xl flex items-center justify-center text-lg shrink-0 border ${
+                                badge.unlocked
+                                  ? 'bg-[#080811]/80 border-white/20 shadow-inner'
+                                  : 'bg-[#141838]/60 border-white/5 grayscale opacity-50'
+                              }`}
+                            >
+                              {badge.iconEmoji}
+                            </div>
+                            <div>
+                              <h6 className="font-heading font-black text-white text-xs leading-tight flex items-center gap-1">
+                                <span>{badge.title}</span>
+                              </h6>
+                              <span
+                                className={`inline-block mt-0.5 px-2 py-0.2 rounded-full border text-[9px] font-black uppercase tracking-wider ${badge.rarityBadgeClass}`}
+                              >
+                                {badge.rarity}
+                              </span>
+                            </div>
+                          </div>
+
+                          {badge.unlocked ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[9px] font-black uppercase tracking-wider shrink-0">
+                              <CheckCircle2 className="w-2.5 h-2.5" />
+                              Conquistada
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-400 text-[9px] font-bold uppercase tracking-wider shrink-0">
+                              <Lock className="w-2.5 h-2.5" />
+                              Bloqueada
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-[11px] text-[#C4C6D8] leading-snug">
+                          {badge.description}
+                        </p>
+                      </div>
+
+                      {badge.unlocked ? (
+                        <div className="pt-2 border-t border-white/10 flex items-center justify-between gap-2">
+                          <span className="text-[10px] text-gray-300 flex items-center gap-1">
+                            <Calendar className="w-3 h-3 text-[#00DFFF]" />
+                            <span>
+                              {badge.unlockedAt
+                                ? `Em ${new Date(badge.unlockedAt).toLocaleDateString('pt-BR')}`
+                                : 'Desbloqueada'}
+                            </span>
+                          </span>
+
+                          <button
+                            type="button"
+                            onClick={() => handleFeatureBadge(badge.id)}
+                            className={`px-2.5 py-1 rounded-lg text-[10px] font-black uppercase tracking-wider transition cursor-pointer flex items-center gap-1 ${
+                              badge.isFeatured
+                                ? 'bg-amber-400/25 border border-amber-300/70 text-amber-200'
+                                : 'bg-white/10 hover:bg-[#00DFFF]/20 border border-white/15 hover:border-[#00DFFF]/50 text-gray-200 hover:text-[#00DFFF]'
+                            }`}
+                          >
+                            <Star
+                              className={`w-2.5 h-2.5 ${
+                                badge.isFeatured ? 'fill-amber-300 text-amber-300' : ''
+                              }`}
+                            />
+                            <span>{badge.isFeatured ? 'Em Destaque' : 'Destacar'}</span>
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="pt-1.5 space-y-1">
+                          <div className="flex items-center justify-between text-[10px] text-gray-400">
+                            <span>{badge.requirementLabel}</span>
+                            <span className="font-mono font-bold text-[#00DFFF]">
+                              {badge.progressCurrent}/{badge.progressTarget}
+                            </span>
+                          </div>
+                          <div className="w-full h-1.5 rounded-full bg-[#141838] overflow-hidden">
+                            <div
+                              className="h-full rounded-full bg-gradient-to-r from-[#8423DA] to-[#00DFFF] transition-all duration-500"
+                              style={{ width: `${badge.progressPercent}%` }}
+                            />
+                          </div>
+                        </div>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* ===================== SEÇÃO: HISTÓRICO DE FIDELIDADE (DATAS E PRÊMIOS RESGATADOS) ===================== */}
+              <div className="p-4 rounded-2xl bg-[#121633] border border-[#00DFFF]/35 space-y-4">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#00DFFF] flex items-center gap-1">
+                      <History className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Transparência & Progresso • Histórico de Fidelidade</span>
+                    </span>
+                    <h5 className="font-heading font-black text-white text-sm mt-0.5">
+                      Histórico de Fidelidade & Prêmios Já Resgatados
+                    </h5>
+                  </div>
+
+                  <span className="px-2.5 py-1 rounded-xl bg-amber-400/15 border border-amber-400/40 text-amber-300 font-mono font-black text-xs flex items-center gap-1.5">
+                    <Trophy className="w-3.5 h-3.5 text-amber-400" />
+                    <span>
+                      {redeemedRewards.length}{' '}
+                      {redeemedRewards.length === 1 ? 'Prêmio Resgatado' : 'Prêmios Resgatados'}
+                    </span>
+                  </span>
+                </div>
+
+                {/* Resumo numérico rápido do histórico */}
+                <div className="grid grid-cols-3 gap-2">
+                  <div className="p-2.5 rounded-xl bg-[#080811]/80 border border-white/10 text-center">
+                    <span className="text-[10px] text-[#A5A5B8] block">Prêmios Resgatados</span>
+                    <span className="font-heading font-black text-base text-amber-300">
+                      {redeemedRewards.length}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-[#080811]/80 border border-white/10 text-center">
+                    <span className="text-[10px] text-[#A5A5B8] block">Ciclo Atual</span>
+                    <span className="font-heading font-black text-base text-[#00DFFF]">
+                      {loyaltyCard.stamps}/{loyaltyCard.goal}
+                    </span>
+                  </div>
+                  <div className="p-2.5 rounded-xl bg-[#080811]/80 border border-white/10 text-center">
+                    <span className="text-[10px] text-[#A5A5B8] block">Total Acumulado</span>
+                    <span className="font-heading font-black text-base text-emerald-300">
+                      {tierProgress.totalStamps} selos
+                    </span>
+                  </div>
+                </div>
+
+                {/* Lista de Prêmios Já Resgatados pelo Usuário */}
+                <div className="space-y-2">
+                  <h6 className="text-[11px] font-extrabold uppercase tracking-wider text-amber-300 flex items-center gap-1.5">
+                    <Gift className="w-3.5 h-3.5 text-amber-400" />
+                    <span>Prêmios Já Resgatados por Você</span>
+                  </h6>
+
+                  {redeemedRewards.length === 0 ? (
+                    <div className="p-3.5 rounded-xl bg-[#080811]/80 border border-dashed border-white/15 space-y-1.5">
+                      <p className="text-xs font-bold text-white flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
+                        <span>Você ainda não realizou resgates de prêmios completos</span>
+                      </p>
+                      <p className="text-[11px] text-[#A5A5B8] leading-relaxed">
+                        Você está com{' '}
+                        <strong className="text-[#00DFFF]">
+                          {loyaltyCard.stamps} de {loyaltyCard.goal} selos
+                        </strong>{' '}
+                        no ciclo atual. Assim que completar a cartela e resgatar sua recompensa (
+                        <strong className="text-amber-200">{loyaltyCard.rewardDescription}</strong>
+                        ), a data e os detalhes do prêmio ficarão registrados aqui permanentemente!
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="space-y-2 max-h-56 overflow-y-auto pr-1">
+                      {redeemedRewards.map((reward) => (
+                        <div
+                          key={reward.id}
+                          className="p-3 rounded-xl bg-gradient-to-r from-amber-950/35 via-[#141838] to-[#0D1022] border border-amber-400/40 flex flex-col sm:flex-row sm:items-center justify-between gap-2"
+                        >
+                          <div className="space-y-1">
+                            <div className="flex items-center gap-2 flex-wrap">
+                              <span className="px-2 py-0.5 rounded-full bg-amber-400/20 border border-amber-300/60 text-amber-200 text-[10px] font-black uppercase tracking-wider flex items-center gap-1">
+                                <Trophy className="w-3 h-3 text-amber-300" />
+                                {reward.cycleNumber}º Prêmio Resgatado
+                              </span>
+                              <span className="text-[10px] font-mono text-[#00DFFF] flex items-center gap-1">
+                                <Calendar className="w-3 h-3" />
+                                {new Date(reward.date).toLocaleDateString('pt-BR', {
+                                  day: '2-digit',
+                                  month: '2-digit',
+                                  year: 'numeric',
+                                })}{' '}
+                                às{' '}
+                                {new Date(reward.date).toLocaleTimeString('pt-BR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                            </div>
+
+                            <p className="text-xs font-extrabold text-white">
+                              🎁 {reward.rewardTitle}
+                            </p>
+
+                            {reward.note && (
+                              <p className="text-[11px] text-gray-300">
+                                Obs: {reward.note}
+                                {reward.updatedBy ? ` • Validado por ${reward.updatedBy}` : ''}
+                              </p>
+                            )}
+                          </div>
+
+                          <div className="sm:text-right shrink-0">
+                            <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-lg bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[10px] font-black uppercase">
+                              <CheckCircle2 className="w-3 h-3" />
+                              Entregue ({reward.stampsRedeemed} selos)
+                            </span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+
+                {/* Linha do Tempo de Selos e Movimentações */}
+                <div className="space-y-2 pt-2 border-t border-white/10">
+                  <h6 className="text-[11px] font-extrabold uppercase tracking-wider text-[#A5A5B8] flex items-center justify-between">
+                    <span>Registro Cronológico de Selos e Validações</span>
+                    {loyaltyCard.history && loyaltyCard.history.length > 0 && (
+                      <span className="text-[10px] font-mono text-[#00DFFF]">
+                        {loyaltyCard.history.length}{' '}
+                        {loyaltyCard.history.length === 1 ? 'registro' : 'registros'}
+                      </span>
+                    )}
+                  </h6>
+
+                  {!loyaltyCard.history || loyaltyCard.history.length === 0 ? (
+                    <p className="text-[11px] text-gray-400 italic py-2">
+                      Nenhuma movimentação de selos registrada ainda. Seus selos aparecerão aqui com data e horário a cada compra validada.
+                    </p>
+                  ) : (
+                    <div className="space-y-1.5 max-h-44 overflow-y-auto pr-1">
+                      {loyaltyCard.history.slice(0, 15).map((item) => (
+                        <div
+                          key={item.id}
+                          className="p-2.5 rounded-xl bg-[#080811]/85 border border-white/10 flex items-center justify-between gap-2 text-[11px]"
+                        >
+                          <div>
+                            <div className="flex items-center gap-1.5 flex-wrap">
+                              <span className="font-bold text-white">
+                                {item.action === 'redeem_reward'
+                                  ? `🏆 Prêmio Resgatado${item.rewardTitle ? `: ${item.rewardTitle}` : ''}`
+                                  : item.action === 'reset_card'
+                                  ? '🔄 Novo Ciclo Iniciado'
+                                  : item.delta > 0
+                                  ? `➕ +${item.delta} selo(s) validado(s)`
+                                  : item.delta < 0
+                                  ? `➖ ${item.delta} selo(s) ajustado(s)`
+                                  : `Ajuste de selos`}
+                              </span>
+                              {item.note && (
+                                <span className="text-gray-300">— {item.note}</span>
+                              )}
+                            </div>
+                            <div className="text-[10px] text-gray-400 flex items-center gap-1.5 mt-0.5">
+                              <span>
+                                {new Date(item.date).toLocaleDateString('pt-BR')} às{' '}
+                                {new Date(item.date).toLocaleTimeString('pt-BR', {
+                                  hour: '2-digit',
+                                  minute: '2-digit',
+                                })}
+                              </span>
+                              {item.updatedBy && <span>• por {item.updatedBy}</span>}
+                            </div>
+                          </div>
+                          <span className="font-mono font-bold text-[#00DFFF] shrink-0">
+                            {item.stampsAfter}/{loyaltyCard.goal}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Tier Progression & Exclusive Benefits Section */}
+              <div className="p-4 rounded-2xl bg-[#121633] border border-[#8423DA]/40 space-y-3.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div>
+                    <span className="text-[10px] font-black uppercase tracking-widest text-[#00DFFF] flex items-center gap-1">
+                      <Crown className="w-3.5 h-3.5 text-amber-400" />
+                      <span>Sistema de Níveis • Clube PodWave</span>
+                    </span>
+                    <h5 className="font-heading font-black text-white text-sm mt-0.5">
+                      Seus Benefícios Exclusivos por Nível (Bronze, Prata e Ouro)
+                    </h5>
+                  </div>
+
+                  <div className="text-right">
+                    <span className="text-[10px] text-[#A5A5B8] block">Total Acumulado</span>
+                    <span className="font-mono font-black text-xs text-[#00DFFF]">
+                      {tierProgress.totalStamps}{' '}
+                      {tierProgress.totalStamps === 1 ? 'selo histórico' : 'selos históricos'}
+                    </span>
+                  </div>
+                </div>
+
+                {/* Progress bar toward next Tier */}
+                <div className="p-3 rounded-xl bg-[#080811]/80 border border-white/10 space-y-1.5">
+                  <div className="flex items-center justify-between text-[11px]">
+                    <span className="font-bold text-gray-200">
+                      Status Atual:{' '}
+                      <strong className={tierProgress.currentTier.accentTextClass}>
+                        {tierProgress.currentTier.name}
+                      </strong>
+                    </span>
+                    <span className="text-[11px] font-semibold text-[#A5A5B8]">
+                      {tierProgress.nextTier ? (
+                        <>
+                          Falta{tierProgress.stampsNeededForNext === 1 ? '' : 'm'}{' '}
+                          <strong className="text-white">{tierProgress.stampsNeededForNext}</strong>{' '}
+                          {tierProgress.stampsNeededForNext === 1 ? 'selo' : 'selos'} para o{' '}
+                          <strong className={tierProgress.nextTier.accentTextClass}>
+                            {tierProgress.nextTier.name}
+                          </strong>
+                        </>
+                      ) : (
+                        <span className="text-yellow-300 font-bold">
+                          🏆 Nível Máximo Ouro Desbloqueado!
+                        </span>
+                      )}
+                    </span>
+                  </div>
+                  <div className="w-full h-2 rounded-full bg-[#141838] overflow-hidden p-0.5">
+                    <div
+                      className={`h-full rounded-full bg-gradient-to-r transition-all duration-500 ${tierProgress.currentTier.progressBarClass}`}
+                      style={{ width: `${tierProgress.progressToNextPercent}%` }}
+                    />
+                  </div>
+                </div>
+
+                {/* 3 Tier Cards: Bronze, Prata, Ouro */}
+                <div className="space-y-2.5">
+                  {LOYALTY_TIERS.map((tier) => {
+                    const isCurrent = tier.id === tierProgress.currentTier.id;
+                    const isUnlocked = tierProgress.totalStamps >= tier.minStamps;
+
+                    return (
+                      <div
+                        key={tier.id}
+                        className={`p-3.5 rounded-2xl border transition-all ${
+                          isCurrent
+                            ? `${tier.cardBorderClass} shadow-[0_0_20px_rgba(0,223,255,0.12)] ring-1 ring-white/15`
+                            : isUnlocked
+                            ? 'bg-[#0D1022]/90 border-emerald-500/30'
+                            : 'bg-[#080811]/70 border-white/10 opacity-80'
+                        }`}
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 mb-2">
+                          <div className="flex items-center gap-2">
+                            <span
+                              className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${tier.badgeClass}`}
+                            >
+                              <Crown className="w-3 h-3" />
+                              {tier.name}
+                            </span>
+                            <span className="text-[10px] font-mono text-[#A5A5B8]">
+                              ({tier.rangeLabel})
+                            </span>
+                          </div>
+
+                          {isCurrent ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-[#00DFFF]/20 border border-[#00DFFF]/50 text-[#00DFFF] text-[9px] font-black uppercase tracking-wider animate-pulse">
+                              <Sparkles className="w-2.5 h-2.5" />
+                              Seu Nível Atual
+                            </span>
+                          ) : isUnlocked ? (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-[9px] font-bold uppercase tracking-wider">
+                              <CheckCircle2 className="w-2.5 h-2.5" />
+                              Desbloqueado
+                            </span>
+                          ) : (
+                            <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-400 text-[9px] font-bold uppercase tracking-wider">
+                              <Lock className="w-2.5 h-2.5" />
+                              Meta: {tier.minStamps} selos
+                            </span>
+                          )}
+                        </div>
+
+                        <p className="text-[11px] text-gray-300 mb-2 leading-relaxed">
+                          {tier.tagline}
+                        </p>
+
+                        <ul className="space-y-1">
+                          {tier.benefits.map((benefit, bIdx) => (
+                            <li
+                              key={bIdx}
+                              className="flex items-start gap-1.5 text-[11px] text-[#C4C6D8]"
+                            >
+                              <CheckCircle2
+                                className={`w-3.5 h-3.5 shrink-0 mt-0.5 ${
+                                  isUnlocked ? 'text-[#00DFFF]' : 'text-gray-500'
+                                }`}
+                              />
+                              <span>{benefit}</span>
+                            </li>
+                          ))}
+                        </ul>
+                      </div>
+                    );
+                  })}
+                </div>
+              </div>
+
               <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 space-y-1.5">
                 <h5 className="font-heading font-bold text-white text-xs flex items-center gap-1.5">
                   <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
                   <span>Como funciona o Cartão Fidelidade PodWave?</span>
                 </h5>
                 <p className="text-[11px] text-[#A5A5B8] leading-relaxed">
-                  A cada pedido confirmado e entregue, nossa equipe adiciona <strong className="text-white">+1 selo</strong> diretamente ao seu perfil. Ao completar <strong className="text-[#00DFFF]">{loyaltyCard.goal} selos</strong>, você desbloqueia sua recompensa especial!
+                  A cada pedido confirmado e entregue, nossa equipe adiciona <strong className="text-white">+1 selo</strong> diretamente ao seu perfil. Ao completar <strong className="text-[#00DFFF]">{loyaltyCard.goal} selos</strong>, você desbloqueia sua recompensa especial, registra seu prêmio no histórico e conquista novas insígnias!
                 </p>
               </div>
-
-              {loyaltyCard.history && loyaltyCard.history.length > 0 && (
-                <div className="space-y-2">
-                  <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-[#A5A5B8]">
-                    Histórico de Selos Validados
-                  </h5>
-                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
-                    {loyaltyCard.history.slice(0, 8).map((item) => (
-                      <div
-                        key={item.id}
-                        className="p-2.5 rounded-xl bg-[#121633] border border-white/5 flex items-center justify-between gap-2 text-[11px]"
-                      >
-                        <div>
-                          <span className="font-bold text-white">
-                            {item.action === 'redeem_reward'
-                              ? '🏆 Prêmio Resgatado'
-                              : item.action === 'reset_card'
-                              ? '🔄 Novo Ciclo Iniciado'
-                              : item.delta > 0
-                              ? `➕ +${item.delta} selo(s) validado(s)`
-                              : `Ajuste de selos`}
-                          </span>
-                          {item.note && (
-                            <span className="text-gray-300 ml-1">— {item.note}</span>
-                          )}
-                          <div className="text-[10px] text-gray-400">
-                            {new Date(item.date).toLocaleDateString('pt-BR')}
-                          </div>
-                        </div>
-                        <span className="font-mono font-bold text-[#00DFFF]">
-                          {item.stampsAfter}/{loyaltyCard.goal}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
-                </div>
-              )}
             </div>
           )}
           {/* ===================== TAB 1: PROFILE & DELIVERY ADDRESS ===================== */}
@@ -481,10 +973,10 @@ export const CustomerProfileModal: React.FC = () => {
                   </div>
                   <div>
                     <h4 className="font-heading font-bold text-white text-sm">
-                      Nenhum pedido finalizado ainda
+                      Nenhum pedido registrado para esta conta
                     </h4>
-                    <p className="text-xs text-[#A5A5B8] max-w-sm mx-auto mt-1">
-                      Assim que você enviar um pedido pelo WhatsApp, ele ficará registrado aqui com todos os itens, sabores e comprovantes.
+                    <p className="text-xs text-[#C4C6D8] max-w-sm mx-auto mt-1">
+                      Seus pedidos vinculados à sua conta autenticada aparecerão listados aqui assim que forem registrados e confirmados no sistema.
                     </p>
                   </div>
                 </div>

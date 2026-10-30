@@ -6,6 +6,7 @@ import { Header } from './components/Header';
 import { HeroBanner } from './components/HeroBanner';
 import { BrandScroller } from './components/BrandScroller';
 import { CatalogSection } from './components/CatalogSection';
+import { LoyaltyHomeSection } from './components/LoyaltyHomeSection';
 import { InfoSection } from './components/InfoSection';
 import { Footer } from './components/Footer';
 import { ProductDetailModal } from './components/ProductDetailModal';
@@ -33,6 +34,7 @@ const AppContent: React.FC = () => {
             <div id="modelos">
               <CatalogSection />
             </div>
+            <LoyaltyHomeSection />
             <InfoSection />
           </>
         ) : (

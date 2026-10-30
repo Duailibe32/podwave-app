@@ -1,5 +1,5 @@
 import React from 'react';
-import { CreditCard, RotateCcw, Truck, ShieldCheck, ShoppingCart, MessageCircle, HelpCircle } from 'lucide-react';
+import { CreditCard, RotateCcw, Truck, ShieldCheck, ShoppingCart, MessageCircle, Gift } from 'lucide-react';
 import { useCatalog } from '../context/CatalogContext';
 import { buildWhatsAppUrl } from '../utils/whatsappShare';
 
@@ -12,6 +12,12 @@ export const InfoSection: React.FC = () => {
       question: 'Posso pagar na entrega?',
       answer:
         'Pode. Aceitamos Pix, dinheiro e cartão na hora da entrega. No cartão de crédito há acréscimo de 5%.',
+    },
+    {
+      icon: Gift,
+      question: 'Como funciona o Cartão de Fidelidade PodWave?',
+      answer:
+        'A cada pedido finalizado com sua conta cadastrada, nossa equipe adiciona +1 selo digital no seu perfil. Ao completar 10 selos, você libera um brinde especial ou desconto exclusivo na sua próxima compra.',
     },
     {
       icon: RotateCcw,
@@ -30,12 +36,6 @@ export const InfoSection: React.FC = () => {
       question: 'Os produtos são originais?',
       answer:
         'Sim. Trabalhamos apenas com produtos lacrados e originais, comprados de distribuidores autorizados.',
-    },
-    {
-      icon: ShoppingCart,
-      question: 'Como faço o pedido?',
-      answer:
-        'Escolha os produtos, toque em finalizar e o pedido vai montado para o nosso WhatsApp. Não precisa criar cadastro nem cartão no site.',
     },
   ];
 

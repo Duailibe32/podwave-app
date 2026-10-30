@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useCatalog } from '../context/CatalogContext';
-import { Zap, Search, ChevronRight, Layers, Sparkles, ChevronLeft, ShieldCheck, Truck, ShoppingBag, ArrowRight } from 'lucide-react';
+import { Zap, Search, ChevronRight, Layers, Sparkles, ChevronLeft, ShieldCheck, Truck, ShoppingBag, ArrowRight, Gift } from 'lucide-react';
 
 export const HeroBanner: React.FC = () => {
   const { searchQuery, setSearchQuery, setSelectedPuffRange, banners } = useCatalog();
@@ -45,6 +45,13 @@ export const HeroBanner: React.FC = () => {
 
   const scrollToCatalog = () => {
     const el = document.getElementById('catalogo') || document.getElementById('modelos');
+    if (el) {
+      el.scrollIntoView({ behavior: 'smooth' });
+    }
+  };
+
+  const scrollToLoyalty = () => {
+    const el = document.getElementById('fidelidade');
     if (el) {
       el.scrollIntoView({ behavior: 'smooth' });
     }
@@ -142,10 +149,11 @@ export const HeroBanner: React.FC = () => {
               </button>
 
               <button
-                onClick={scrollToCatalog}
-                className="px-5 py-3.5 rounded-2xl bg-[#11152A] hover:bg-[#181C38] text-gray-200 border border-[#8423DA]/30 hover:border-[#00DFFF]/60 font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer"
+                onClick={scrollToLoyalty}
+                className="px-5 py-3.5 rounded-2xl bg-[#11152A] hover:bg-[#181C38] text-gray-200 border border-[#E53CF3]/40 hover:border-[#00DFFF]/60 font-bold text-xs sm:text-sm transition-all flex items-center gap-2 cursor-pointer"
               >
-                <span>Conheça a PodWave</span>
+                <Gift className="w-4 h-4 text-[#E53CF3]" />
+                <span>Nosso Cartão Fidelidade</span>
               </button>
             </div>
 
@@ -167,13 +175,17 @@ export const HeroBanner: React.FC = () => {
                 </div>
               </div>
 
-              <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#0D1022]/90 border border-[#8423DA]/20 text-left">
-                <Zap className="w-4 h-4 text-[#E53CF3] shrink-0" />
+              <button
+                type="button"
+                onClick={scrollToLoyalty}
+                className="flex items-center gap-2 p-2.5 rounded-xl bg-[#0D1022]/90 hover:bg-[#141838] border border-[#E53CF3]/30 hover:border-[#00DFFF]/50 text-left transition cursor-pointer"
+              >
+                <Gift className="w-4 h-4 text-[#E53CF3] shrink-0" />
                 <div>
-                  <p className="text-[11px] font-bold text-white leading-tight">Novos Sabores</p>
-                  <p className="text-[10px] text-[#A5A5B8]">Toda semana</p>
+                  <p className="text-[11px] font-bold text-white leading-tight">Cartão Fidelidade</p>
+                  <p className="text-[10px] text-[#A5A5B8]">Acumule selos e ganhe</p>
                 </div>
-              </div>
+              </button>
             </div>
 
             {/* Live Search Box inside Hero */}

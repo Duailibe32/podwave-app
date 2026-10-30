@@ -1,6 +1,10 @@
-import React from 'react';
+import React, { useEffect, useRef, useState } from 'react';
 import { LoyaltyCardData } from '../../types/catalog';
-import { Gift, Sparkles, Check, Trophy, Zap, Clock } from 'lucide-react';
+import {
+  getLoyaltyMilestoneInfo,
+  getLoyaltyTierProgress,
+} from '../../utils/loyaltyCard';
+import { Gift, Sparkles, Check, Trophy, Zap, Clock, Crown, Flame, Award } from 'lucide-react';
 
 interface DigitalLoyaltyCardProps {
   customerName: string;
@@ -25,32 +29,92 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
   const remaining = Math.max(0, goal - stamps);
   const progressPercent = Math.min(100, Math.round((stamps / goal) * 100));
 
+  const tierProgress = getLoyaltyTierProgress(card);
+  const milestoneInfo = getLoyaltyMilestoneInfo(card);
+
+  // Detect stamp gain or milestone transitions to trigger heightened glow/pulse celebration
+  const prevTotalStampsRef = useRef<number>(tierProgress.totalStamps);
+  const prevStampsRef = useRef<number>(stamps);
+  const [isCelebratingGain, setIsCelebratingGain] = useState(false);
+
+  useEffect(() => {
+    const prevTotal = prevTotalStampsRef.current;
+    const prevStamps = prevStampsRef.current;
+
+    if (tierProgress.totalStamps > prevTotal || stamps > prevStamps) {
+      setIsCelebratingGain(true);
+      const timer = setTimeout(() => {
+        setIsCelebratingGain(false);
+      }, 3600);
+      prevTotalStampsRef.current = tierProgress.totalStamps;
+      prevStampsRef.current = stamps;
+      return () => clearTimeout(timer);
+    }
+
+    prevTotalStampsRef.current = tierProgress.totalStamps;
+    prevStampsRef.current = stamps;
+  }, [tierProgress.totalStamps, stamps]);
+
+  const showMilestoneGlow = milestoneInfo.isMilestone || isCelebratingGain;
   const slots = Array.from({ length: goal }, (_, idx) => idx + 1);
 
   return (
     <div
-      className={`relative rounded-3xl overflow-hidden border-2 transition-all duration-300 shadow-2xl ${
+      className={`relative rounded-3xl overflow-hidden border-2 transition-all duration-500 shadow-2xl ${
         isComplete
-          ? 'bg-gradient-to-br from-[#122624] via-[#0D1022] to-[#1E1938] border-emerald-400/60 shadow-[0_0_30px_rgba(16,185,129,0.2)]'
+          ? 'bg-gradient-to-br from-[#122624] via-[#0D1022] to-[#1E1938] border-emerald-400/80 shadow-[0_0_38px_rgba(16,185,129,0.32)]'
+          : showMilestoneGlow
+          ? 'bg-gradient-to-br from-[#171B42] via-[#0D1022] to-[#231542] border-[#00DFFF]/80 shadow-[0_0_32px_rgba(0,223,255,0.28)]'
           : 'bg-gradient-to-br from-[#141838] via-[#0D1022] to-[#191536] border-[#8423DA]/50 shadow-[0_12px_35px_rgba(0,0,0,0.5)]'
       } ${compact ? 'p-4 sm:p-5' : 'p-5 sm:p-6'}`}
     >
+      {/* Smooth Pulsing Milestone Aura Ring */}
+      {showMilestoneGlow && (
+        <div
+          className={`absolute inset-0 rounded-3xl pointer-events-none border-2 animate-pulse ${
+            isComplete
+              ? 'border-emerald-300/60 shadow-[inset_0_0_28px_rgba(16,185,129,0.25)]'
+              : 'border-[#00DFFF]/50 shadow-[inset_0_0_26px_rgba(0,223,255,0.22)]'
+          }`}
+        />
+      )}
+
       {/* Ambient Neon Glow */}
       <div
-        className={`absolute -right-10 -top-10 w-44 h-44 rounded-full blur-3xl pointer-events-none ${
-          isComplete ? 'bg-emerald-400/20' : 'bg-[#00DFFF]/15'
+        className={`absolute -right-10 -top-10 w-48 h-48 rounded-full blur-3xl pointer-events-none transition-all duration-700 ${
+          isComplete
+            ? 'bg-emerald-400/25 animate-pulse'
+            : showMilestoneGlow
+            ? 'bg-[#00DFFF]/25 animate-pulse'
+            : 'bg-[#00DFFF]/15'
         }`}
       />
-      <div className="absolute -left-10 -bottom-10 w-44 h-44 bg-[#8423DA]/20 rounded-full blur-3xl pointer-events-none" />
+      <div
+        className={`absolute -left-10 -bottom-10 w-48 h-48 rounded-full blur-3xl pointer-events-none transition-all duration-700 ${
+          showMilestoneGlow ? 'bg-[#E53CF3]/25 animate-pulse' : 'bg-[#8423DA]/20'
+        }`}
+      />
 
       <div className="relative z-10 space-y-4">
         {/* Card Header */}
         <div className="flex flex-wrap items-start justify-between gap-3">
           <div>
-            <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#8423DA]/25 border border-[#8423DA]/50 text-[#00DFFF] text-[10px] font-black uppercase tracking-widest">
-              <Zap className="w-3 h-3 text-[#00DFFF]" />
-              <span>PodWave Club • Cartão Fidelidade</span>
+            <div className="flex flex-wrap items-center gap-1.5">
+              <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#8423DA]/25 border border-[#8423DA]/50 text-[#00DFFF] text-[10px] font-black uppercase tracking-widest">
+                <Zap className="w-3 h-3 text-[#00DFFF]" />
+                <span>PodWave Club • Cartão Fidelidade</span>
+              </div>
+
+              {/* Tier Badge */}
+              <span
+                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${tierProgress.currentTier.badgeClass}`}
+                title={`${tierProgress.currentTier.name} (${tierProgress.totalStamps} selos acumulados no total)`}
+              >
+                <Crown className="w-3 h-3" />
+                <span>{tierProgress.currentTier.name}</span>
+              </span>
             </div>
+
             <h4 className="font-heading text-base sm:text-lg font-black text-white mt-1.5">
               {customerName || 'Cliente PodWave'}
             </h4>
@@ -61,27 +125,75 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
 
           <div className="flex flex-col items-end gap-1.5">
             <div
-              className={`px-3 py-1.5 rounded-2xl border font-heading font-black text-xs sm:text-sm tabular-nums flex items-center gap-1.5 ${
+              className={`px-3 py-1.5 rounded-2xl border font-heading font-black text-xs sm:text-sm tabular-nums flex items-center gap-1.5 transition-all duration-300 ${
                 isComplete
-                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_15px_rgba(16,185,129,0.3)]'
+                  ? 'bg-emerald-500/20 border-emerald-400 text-emerald-300 shadow-[0_0_18px_rgba(16,185,129,0.35)] animate-pulse'
+                  : showMilestoneGlow
+                  ? 'bg-[#121633] border-[#00DFFF] text-[#00DFFF] shadow-[0_0_16px_rgba(0,223,255,0.35)]'
                   : 'bg-[#121633] border-[#00DFFF]/40 text-[#00DFFF]'
               }`}
             >
-              <Sparkles className="w-3.5 h-3.5" />
+              <Sparkles className={`w-3.5 h-3.5 ${showMilestoneGlow ? 'animate-spin' : ''}`} />
               <span>
                 {stamps} / {goal} SELOS
               </span>
             </div>
 
-            {card.completedCards > 0 && (
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[10px] font-bold">
-                <Trophy className="w-3 h-3 text-amber-400" />
-                {card.completedCards}{' '}
-                {card.completedCards === 1 ? 'cartão concluído' : 'cartões concluídos'}
+            <div className="flex flex-wrap items-center justify-end gap-1.5">
+              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-300 text-[10px] font-mono font-bold">
+                <Award className="w-3 h-3 text-[#00DFFF]" />
+                {tierProgress.totalStamps}{' '}
+                {tierProgress.totalStamps === 1 ? 'selo total' : 'selos no total'}
               </span>
-            )}
+
+              {card.completedCards > 0 && (
+                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[10px] font-bold">
+                  <Trophy className="w-3 h-3 text-amber-400" />
+                  {card.completedCards}{' '}
+                  {card.completedCards === 1 ? 'cartão concluído' : 'cartões concluídos'}
+                </span>
+              )}
+            </div>
           </div>
         </div>
+
+        {/* Milestone Celebration Banner */}
+        {(milestoneInfo.isMilestone || isCelebratingGain) && (
+          <div
+            className={`p-2.5 sm:p-3 rounded-2xl border flex items-center justify-between gap-2.5 transition-all duration-500 ${
+              isComplete
+                ? 'bg-gradient-to-r from-emerald-500/20 via-teal-500/15 to-amber-400/20 border-emerald-400/60 text-emerald-200 shadow-[0_0_20px_rgba(16,185,129,0.2)]'
+                : 'bg-gradient-to-r from-[#8423DA]/30 via-[#00DFFF]/15 to-[#E53CF3]/25 border-[#00DFFF]/60 text-white shadow-[0_0_20px_rgba(0,223,255,0.2)]'
+            }`}
+          >
+            <div className="flex items-center gap-2.5">
+              <div
+                className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 animate-pulse ${
+                  isComplete
+                    ? 'bg-emerald-400/25 border border-emerald-300 text-emerald-200'
+                    : 'bg-[#00DFFF]/20 border border-[#00DFFF] text-[#00DFFF]'
+                }`}
+              >
+                <Flame className="w-4 h-4" />
+              </div>
+              <div>
+                <span className="text-[11px] font-heading font-black uppercase tracking-wide block">
+                  {milestoneInfo.isMilestone
+                    ? milestoneInfo.title
+                    : '✨ Novo Selo Creditado com Sucesso!'}
+                </span>
+                <span className="text-[10px] text-gray-200 block leading-snug">
+                  {milestoneInfo.isMilestone
+                    ? milestoneInfo.subtitle
+                    : `Seu cartão avançou para ${stamps}/${goal} selos. Continue acumulando!`}
+                </span>
+              </div>
+            </div>
+            <span className="hidden sm:inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/10 text-[9px] font-black uppercase tracking-wider text-[#00DFFF] shrink-0 animate-pulse">
+              Marco Ativo
+            </span>
+          </div>
+        )}
 
         {/* Progress Bar */}
         <div className="space-y-1.5">
@@ -107,7 +219,9 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
             <div
               className={`h-full rounded-full transition-all duration-500 ${
                 isComplete
-                  ? 'bg-gradient-to-r from-emerald-400 via-[#00DFFF] to-amber-300'
+                  ? 'bg-gradient-to-r from-emerald-400 via-[#00DFFF] to-amber-300 shadow-[0_0_12px_rgba(16,185,129,0.6)]'
+                  : showMilestoneGlow
+                  ? 'bg-gradient-to-r from-[#8423DA] via-[#00DFFF] to-[#E53CF3] shadow-[0_0_12px_rgba(0,223,255,0.6)]'
                   : 'bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF]'
               }`}
               style={{ width: `${progressPercent}%` }}
@@ -116,14 +230,16 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
         </div>
 
         {/* 10-Stamp Visual Grid */}
-        <div className="grid grid-cols-5 gap-2 sm:gap-2.5 pt-1">
+        <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-2.5 sm:gap-3 pt-1">
           {slots.map((slotNum) => {
             const isStamped = slotNum <= stamps;
+            const isLatestStamp = slotNum === stamps && stamps > 0;
             const isFinalSlot = slotNum === goal;
+            const isMilestoneSlot = milestoneInfo.milestoneSlots.includes(slotNum);
+            const paddedNum = `#${String(slotNum).padStart(2, '0')}`;
 
             const handleSlotClick = () => {
               if (!interactive || !onSelectStampSlot) return;
-              // Clicking the current top stamp toggles it off (stamps - 1), otherwise sets to slotNum
               if (slotNum === stamps) {
                 onSelectStampSlot(slotNum - 1);
               } else {
@@ -137,50 +253,93 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
                 type="button"
                 disabled={!interactive}
                 onClick={handleSlotClick}
+                aria-label={
+                  interactive
+                    ? `Definir ${slotNum === stamps ? slotNum - 1 : slotNum} selos no cartão`
+                    : isStamped
+                    ? `Selo ${paddedNum} validado${isMilestoneSlot ? ' (Marco de Fidelidade)' : ''}`
+                    : `Selo ${paddedNum} pendente${isMilestoneSlot ? ' (Marco de Fidelidade)' : ''}`
+                }
                 title={
                   interactive
                     ? `Clique para definir ${slotNum === stamps ? slotNum - 1 : slotNum} selo(s)`
                     : isStamped
-                    ? `Selo #${slotNum} conquistado`
-                    : `Selo #${slotNum} pendente`
+                    ? `Selo ${paddedNum} validado${isMilestoneSlot ? ' (Marco de Fidelidade)' : ''}`
+                    : `Selo ${paddedNum} pendente${isMilestoneSlot ? ' (Marco de Fidelidade)' : ''}`
                 }
-                className={`relative aspect-square rounded-2xl border flex flex-col items-center justify-center transition-all select-none ${
-                  interactive ? 'cursor-pointer hover:scale-105 active:scale-95' : 'cursor-default'
+                className={`group relative rounded-2xl p-2.5 flex flex-col justify-between items-center gap-1.5 min-h-[118px] sm:min-h-[126px] transition-all duration-300 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00DFFF] ${
+                  interactive ? 'cursor-pointer hover:scale-[1.03] active:scale-95' : 'cursor-default'
                 } ${
                   isStamped
-                    ? isFinalSlot
-                      ? 'bg-gradient-to-br from-amber-400/30 via-emerald-500/25 to-[#00DFFF]/30 border-amber-300 text-amber-200 shadow-[0_0_18px_rgba(251,191,36,0.35)]'
-                      : 'bg-gradient-to-br from-[#8423DA]/40 to-[#00DFFF]/25 border-[#00DFFF] text-white shadow-[0_0_12px_rgba(0,223,255,0.25)]'
+                    ? isLatestStamp && showMilestoneGlow
+                      ? 'border-2 border-[#00DFFF] bg-gradient-to-b from-[#082236] via-[#061828] to-[#040E18] shadow-[0_0_22px_rgba(0,223,255,0.45)] ring-2 ring-[#00DFFF]/40'
+                      : 'border-2 border-[#00DFFF] bg-gradient-to-b from-[#071D2E] via-[#051523] to-[#040E18] shadow-[0_0_16px_rgba(0,223,255,0.28)]'
                     : isFinalSlot
-                    ? 'bg-[#080811]/90 border-dashed border-amber-400/40 text-amber-300/60'
-                    : 'bg-[#080811]/80 border-dashed border-white/15 text-gray-500'
+                    ? 'border border-dashed border-amber-400/40 bg-[#060E1A]/85 hover:border-amber-400/60'
+                    : isMilestoneSlot
+                    ? 'border border-dashed border-[#00DFFF]/35 bg-[#060E1A]/80 hover:border-[#00DFFF]/55'
+                    : 'border border-dashed border-white/15 bg-[#060E1A]/75 hover:border-white/25'
                 }`}
               >
-                <span className="text-[9px] font-mono font-bold opacity-75 mb-0.5">
-                  #{String(slotNum).padStart(2, '0')}
-                </span>
-
-                {isStamped ? (
-                  isFinalSlot ? (
-                    <Gift className="w-5 h-5 sm:w-6 sm:h-6 text-amber-300 drop-shadow" />
-                  ) : (
-                    <div className="w-6 h-6 sm:w-7 sm:h-7 rounded-full bg-[#00DFFF]/20 border border-[#00DFFF]/60 flex items-center justify-center">
-                      <Check className="w-3.5 h-3.5 sm:w-4 sm:h-4 text-[#00DFFF] stroke-[3]" />
-                    </div>
-                  )
-                ) : isFinalSlot ? (
-                  <Gift className="w-4 h-4 sm:w-5 sm:h-5 opacity-50" />
-                ) : (
-                  <div className="w-5 h-5 rounded-full border border-white/10 flex items-center justify-center text-[10px] opacity-40">
-                    •
-                  </div>
-                )}
-
-                {isStamped && (
-                  <span className="text-[8px] font-black uppercase tracking-wider text-[#00DFFF] mt-0.5">
-                    {isFinalSlot ? 'PRÊMIO' : 'OK'}
+                {/* Top Row: #01 on left + Glowing Cyan Dot on right */}
+                <div className="w-full flex items-center justify-between px-0.5">
+                  <span
+                    className={`font-mono text-xs sm:text-[13px] font-extrabold tracking-tight leading-none ${
+                      isStamped
+                        ? 'text-[#5CE1E6]'
+                        : isFinalSlot
+                        ? 'text-amber-300/70'
+                        : 'text-slate-500'
+                    }`}
+                  >
+                    {paddedNum}
                   </span>
-                )}
+
+                  {isStamped ? (
+                    <span
+                      className="w-2.5 h-2.5 rounded-full bg-[#00DFFF] shadow-[0_0_8px_#00DFFF] shrink-0"
+                      aria-hidden="true"
+                    />
+                  ) : isFinalSlot ? (
+                    <Gift className="w-3.5 h-3.5 text-amber-400/70 shrink-0" aria-hidden="true" />
+                  ) : (
+                    <span
+                      className="w-2.5 h-2.5 rounded-full border border-slate-600/80 bg-slate-800/50 shrink-0"
+                      aria-hidden="true"
+                    />
+                  )}
+                </div>
+
+                {/* Center: Official PodWave Logo Stamp */}
+                <div className="my-auto flex items-center justify-center py-0.5">
+                  <img
+                    src="/assets/images/logo.png"
+                    alt={isStamped ? `Selo PodWave ${paddedNum} Validado` : ''}
+                    aria-hidden={!isStamped}
+                    className={`w-12 h-12 sm:w-13 sm:h-13 object-contain select-none pointer-events-none transition-all duration-300 ${
+                      isStamped
+                        ? 'drop-shadow-[0_2px_10px_rgba(0,223,255,0.42)] scale-100'
+                        : 'opacity-20 grayscale scale-95'
+                    }`}
+                  />
+                </div>
+
+                {/* Bottom Status Pill: VALIDADO / PENDENTE / PRÊMIO */}
+                <div
+                  className={`w-full py-1 px-1.5 rounded-lg border text-center transition-colors ${
+                    isStamped
+                      ? 'border-[#00DFFF]/45 bg-[#08263A]/90 text-[#66E8FA] shadow-[inset_0_0_8px_rgba(0,223,255,0.15)]'
+                      : isFinalSlot
+                      ? 'border-amber-400/30 bg-amber-500/10 text-amber-300/75'
+                      : isMilestoneSlot
+                      ? 'border-[#00DFFF]/25 bg-[#00DFFF]/5 text-[#00DFFF]/65'
+                      : 'border-white/10 bg-white/[0.02] text-slate-500'
+                  }`}
+                >
+                  <span className="block text-[9px] sm:text-[10px] font-black uppercase tracking-wider leading-none">
+                    {isStamped ? 'VALIDADO' : isFinalSlot ? 'PRÊMIO' : isMilestoneSlot ? 'MARCO' : 'PENDENTE'}
+                  </span>
+                </div>
               </button>
             );
           })}
@@ -228,3 +387,4 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
     </div>
   );
 };
+

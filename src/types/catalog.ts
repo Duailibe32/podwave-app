@@ -192,6 +192,8 @@ export interface LoyaltyHistoryEntry {
   stampsAfter: number;
   note?: string;
   updatedBy?: string;
+  rewardTitle?: string;
+  cycleNumber?: number;
 }
 
 export interface LoyaltyCardData {
@@ -201,6 +203,8 @@ export interface LoyaltyCardData {
   rewardDescription: string; // Descrição do benefício/prêmio ao completar
   updatedAt?: string;
   history?: LoyaltyHistoryEntry[];
+  featuredBadgeId?: string;
+  grantedBadgeIds?: string[];
 }
 
 export interface UserProfile {

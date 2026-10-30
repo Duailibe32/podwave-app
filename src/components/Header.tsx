@@ -121,10 +121,10 @@ export const Header: React.FC = () => {
                 Sabores
               </button>
               <button
-                onClick={() => navigateTo('catalogo')}
+                onClick={() => navigateTo('fidelidade')}
                 className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
-                Promoções
+                Fidelidade
               </button>
               <button
                 onClick={() => navigateTo('informacoes')}
