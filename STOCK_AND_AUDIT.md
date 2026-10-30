@@ -19,12 +19,12 @@ O histórico começa na instalação. Logs antigos e tentativas locais continuam
 
 ## Instalação pendente — não executar automaticamente
 
-1. Conferir a estrutura real de flavor_variants: id, model_id, demo_quantity, in_stock e updated_at. A migration faz uma verificação inicial de demo_quantity e aborta se não existir. Os nomes seguem o serviço do aplicativo; não substituem a conferência do banco real.
+1. Estrutura real de flavor_variants confirmada pelo usuário em 30/10/2026: id/model_id/name/color_hex/icon_emoji TEXT NOT NULL, in_stock BOOLEAN NOT NULL, demo_quantity/low_quantity_threshold INTEGER opcionais, custom_image TEXT opcional e created_at/updated_at TIMESTAMPTZ NOT NULL. O teste de estoque reproduz esses tipos e nulabilidade. Defaults e constraints não constam na consulta fornecida; o teste usa defaults de data somente em sua base descartável. A migration faz uma verificação inicial de demo_quantity e aborta se não existir.
 2. Revisar a migration 20261030010000_atomic_sale_stock_and_audit.sql e combinar uma janela breve de atualização. O usuário deve autorizar a aplicação no Supabase separadamente.
 3. Atualizar o código no AI Studio e instalar a migration na mesma janela, com vendas pausadas. O código novo bloqueia vendas enquanto a função não existir. Depois da migration, versões antigas não podem gravar ou excluir vendas pela rota anterior. Não executar migrations antigas nem reinstalar o banco.
 4. Conferir uma operação real autorizada, sem criar dados fictícios. Não realizar baixas retroativas nas vendas já registradas nem limpar o armazenamento do navegador.
 
-A migration adiciona metadados às vendas e uma tabela de auditoria; não modifica as quantidades atuais durante a instalação. Não foi executada no banco real por este trabalho. O PR fica em rascunho até confirmar o esquema e a instalação.
+A migration adiciona metadados às vendas e uma tabela de auditoria; não modifica as quantidades atuais durante a instalação. Não foi executada no banco real por este trabalho. O esquema de colunas do estoque já foi confirmado; o PR fica em rascunho até revisar e autorizar a instalação coordenada.
 
 ## Verificações
 

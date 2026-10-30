@@ -12,10 +12,17 @@ const { PGlite } = require('@electric-sql/pglite');
     GRANT USAGE ON SCHEMA auth,app_security TO authenticated,anon;
     CREATE TABLE brands(id text PRIMARY KEY,name text);
     CREATE TABLE product_models(id text PRIMARY KEY,active boolean NOT NULL DEFAULT true);
-    CREATE TABLE flavor_variants(id text PRIMARY KEY,model_id text REFERENCES product_models(id),demo_quantity integer,in_stock boolean,updated_at timestamptz DEFAULT now());
+    -- Column types and nullability confirmed from the deployed table on 2026-10-30.
+    CREATE TABLE flavor_variants(
+      id text PRIMARY KEY,model_id text NOT NULL REFERENCES product_models(id),
+      name text NOT NULL,color_hex text NOT NULL,icon_emoji text NOT NULL,
+      in_stock boolean NOT NULL,demo_quantity integer,low_quantity_threshold integer,custom_image text,
+      created_at timestamptz NOT NULL DEFAULT now(),updated_at timestamptz NOT NULL DEFAULT now()
+    );
     CREATE TABLE banners(id text PRIMARY KEY); CREATE TABLE coupons(id text PRIMARY KEY);
     INSERT INTO product_models VALUES ('model',true),('other',true);
-    INSERT INTO flavor_variants VALUES ('flavor','model',5,true,now()),('second','model',2,true,now()),('unknown','model',null,true,now());`);
+    INSERT INTO flavor_variants(id,model_id,name,color_hex,icon_emoji,demo_quantity,in_stock)
+      VALUES ('flavor','model','Sabor A','#123456','🍇',5,true),('second','model','Sabor B','#123456','🍇',2,true),('unknown','model','Sem quantidade','#123456','🍇',null,true);`);
   const schema = fs.readFileSync('supabase/migrations/20261030000000_definitive_security_and_rls_hardening.sql','utf8');
   const tables = ['manual_sales','manual_expenses','merchandise_purchases','cash_movements','initial_cash_balances','manual_commitments'];
   for (const t of tables) await db.exec(schema.match(new RegExp(`CREATE TABLE IF NOT EXISTS public\\.${t} \\([\\s\\S]*?\\n\\);`))[0]);
