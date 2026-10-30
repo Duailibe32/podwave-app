@@ -236,6 +236,7 @@ export interface SyncMetadata {
 }
 
 export type BusinessSection =
+  | 'clientes'
   | 'visao_geral'
   | 'vendas'
   | 'gastos'
