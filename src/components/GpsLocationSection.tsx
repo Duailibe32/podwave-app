@@ -162,9 +162,9 @@ export const GpsLocationSection: React.FC<GpsLocationSectionProps> = ({
   };
 
   return (
-    <div className={`space-y-3 w-full ${className}`}>
+    <div className={`min-w-0 max-w-full space-y-3 w-full ${className}`}>
       {/* Seção Header */}
-      <div className="flex items-center justify-between">
+      <div className="flex flex-wrap items-center justify-between gap-2">
         <label className="text-xs font-bold text-gray-200 light:text-slate-800 flex items-center gap-1.5">
           <MapPin className="w-3.5 h-3.5 text-[#00DFFF]" />
           <span>Localização</span>
@@ -175,7 +175,7 @@ export const GpsLocationSection: React.FC<GpsLocationSectionProps> = ({
       </div>
 
       {/* Main Container Card */}
-      <div className="p-3.5 sm:p-4 rounded-2xl bg-[#080811] light:bg-slate-50 border border-[#8423DA]/30 light:border-slate-300 shadow-lg space-y-3">
+      <div className="min-w-0 max-w-full p-3.5 sm:p-4 rounded-2xl bg-[#080811] light:bg-slate-50 border border-[#8423DA]/30 light:border-slate-300 shadow-lg space-y-3">
         {/* Caso A: Nenhuma localização capturada ainda */}
         {!locationData && (
           <div className="space-y-3">
@@ -225,12 +225,12 @@ export const GpsLocationSection: React.FC<GpsLocationSectionProps> = ({
         {locationData && (
           <div className="space-y-3 animate-in fade-in zoom-in-95 duration-200">
             {/* Header de Sucesso */}
-            <div className="flex items-start justify-between gap-2 pb-2.5 border-b border-[#8423DA]/20">
-              <div className="flex items-center gap-2">
+            <div className="flex flex-wrap items-start justify-between gap-2 pb-2.5 border-b border-[#8423DA]/20">
+              <div className="flex min-w-0 flex-1 items-center gap-2">
                 <span className="w-6 h-6 rounded-full bg-emerald-500/20 border border-emerald-500/40 flex items-center justify-center shrink-0">
                   <Check className="w-3.5 h-3.5 text-emerald-400 stroke-[3]" />
                 </span>
-                <div>
+                <div className="min-w-0">
                   <h5 className="font-heading font-black text-xs sm:text-sm text-white light:text-slate-900 leading-tight">
                     Localização capturada
                   </h5>
@@ -244,7 +244,7 @@ export const GpsLocationSection: React.FC<GpsLocationSectionProps> = ({
               <button
                 type="button"
                 onClick={handleRemoveLocation}
-                className="text-[10px] text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 cursor-pointer shrink-0"
+                className="min-h-11 px-2 text-[11px] text-rose-400 hover:text-rose-300 hover:underline flex items-center gap-1 cursor-pointer shrink-0"
                 title="Remover coordenadas capturadas"
               >
                 <Trash2 className="w-3 h-3" />
@@ -253,7 +253,7 @@ export const GpsLocationSection: React.FC<GpsLocationSectionProps> = ({
             </div>
 
             {/* Card de Coordenadas e Link Formatado */}
-            <div className="p-3 rounded-xl bg-[#0D1022] light:bg-white border border-[#232958] light:border-slate-200 space-y-2">
+            <div className="min-w-0 max-w-full p-3 rounded-xl bg-[#0D1022] light:bg-white border border-[#232958] light:border-slate-200 space-y-2">
               <div className="flex flex-wrap items-center justify-between gap-1 text-[11px]">
                 <span className="text-[#8E95B8] light:text-slate-500 font-mono">
                   Lat: {locationData.latitude.toFixed(6)}
@@ -263,7 +263,7 @@ export const GpsLocationSection: React.FC<GpsLocationSectionProps> = ({
                 </span>
               </div>
 
-              <div className="p-2 rounded-lg bg-[#080811] light:bg-slate-100 border border-[#8423DA]/20 text-[10px] font-mono text-[#00DFFF] truncate select-all">
+              <div className="min-w-0 max-w-full whitespace-normal [overflow-wrap:anywhere] p-2 rounded-lg bg-[#080811] light:bg-slate-100 border border-[#8423DA]/20 text-[11px] leading-relaxed font-mono text-[#00DFFF] select-all">
                 {locationData.mapsUrl}
               </div>
             </div>
@@ -273,7 +273,7 @@ export const GpsLocationSection: React.FC<GpsLocationSectionProps> = ({
                 2. "Copiar localização"
                 3. "Remover localização"
             */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-1">
+            <div className="grid min-w-0 grid-cols-1 sm:grid-cols-3 gap-2 pt-1 [&>*]:min-w-0 [&>*]:min-h-11">
               {/* Botão 1: Abrir no Google Maps */}
               <a
                 href={locationData.mapsUrl}
@@ -362,3 +362,4 @@ export const GpsLocationSection: React.FC<GpsLocationSectionProps> = ({
     </div>
   );
 };
+
