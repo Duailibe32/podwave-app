@@ -1,8 +1,15 @@
 import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
-import { UserProfile, UserRole } from '../../types/catalog';
+import { UserProfile, UserRole, CatalogOrderStatus } from '../../types/catalog';
 import { getUserLoyaltyCard } from '../../utils/loyaltyCard';
 import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
+import { OrderStatusTimeline } from '../OrderStatusTimeline';
+import {
+  ORDER_STATUS_LABELS,
+  getAllowedNextStatuses,
+  formatWhatsappOrderMessage,
+  buildWhatsappConversationUrl,
+} from '../../services/orderCenterService';
 import {
   Users,
   Crown,
@@ -29,9 +36,24 @@ import {
   Gift,
   Trophy,
   RotateCcw,
+  ShoppingBag,
+  FileText,
+  MapPin,
+  MessageCircle,
+  DollarSign,
 } from 'lucide-react';
 
-export const UserManagementTab: React.FC = () => {
+interface UserManagementTabProps {
+  initialCustomerId?: string | null;
+  onClearInitialCustomer?: () => void;
+  onNavigateToOrders?: () => void;
+}
+
+export const UserManagementTab: React.FC<UserManagementTabProps> = ({
+  initialCustomerId,
+  onClearInitialCustomer,
+  onNavigateToOrders,
+}) => {
   const {
     currentUser,
     allUsers,
@@ -44,6 +66,10 @@ export const UserManagementTab: React.FC = () => {
     settings,
     updateSettings,
     isSupabaseConfigured,
+    allCatalogOrders,
+    fetchAllCatalogOrders,
+    updateCatalogOrderStatus,
+    grantLoyaltyStampForOrder,
   } = useCatalog();
 
   const [searchQuery, setSearchQuery] = useState('');
@@ -76,13 +102,30 @@ export const UserManagementTab: React.FC = () => {
   const [loyaltyRewardInput, setLoyaltyRewardInput] = useState<string>('');
   const [loyaltyGoalInput, setLoyaltyGoalInput] = useState<number>(10);
 
+  // Customer Sheet ("Ficha do Cliente") modal state
+  const [customerSheetUserId, setCustomerSheetUserId] = useState<string | null>(null);
+
   const loyaltyModalUser = loyaltyModalUserId
     ? allUsers.find((u) => u.id === loyaltyModalUserId) || null
     : null;
 
+  const customerSheetUser = customerSheetUserId
+    ? allUsers.find((u) => u.id === customerSheetUserId) || null
+    : null;
+
   useEffect(() => {
     fetchAllUsers();
+    fetchAllCatalogOrders();
   }, []);
+
+  useEffect(() => {
+    if (initialCustomerId) {
+      setCustomerSheetUserId(initialCustomerId);
+      if (onClearInitialCustomer) {
+        onClearInitialCustomer();
+      }
+    }
+  }, [initialCustomerId, onClearInitialCustomer]);
 
   const showToast = (type: 'success' | 'error', text: string) => {
     setFeedbackMsg({ type, text });
@@ -716,6 +759,20 @@ export const UserManagementTab: React.FC = () => {
                       {/* Actions */}
                       <td className="py-4 px-4 sm:px-6 text-right">
                         <div className="flex items-center justify-end gap-1.5 flex-wrap">
+                          {/* Open Customer Sheet & Orders Modal (Fase 5) */}
+                          <button
+                            type="button"
+                            onClick={() => setCustomerSheetUserId(user.id)}
+                            className="px-2.5 py-1 rounded-lg bg-[#00DFFF]/15 hover:bg-[#00DFFF]/30 border border-[#00DFFF]/40 text-[#00DFFF] font-bold text-[10px] transition cursor-pointer flex items-center gap-1"
+                            title="Abrir Ficha Completa do Cliente e Histórico de Pedidos"
+                          >
+                            <FileText className="w-3 h-3" />
+                            <span>
+                              Ficha & Pedidos (
+                              {allCatalogOrders.filter((o) => o.customerId === user.id).length})
+                            </span>
+                          </button>
+
                           {/* Open Full Loyalty Card Control Modal */}
                           <button
                             type="button"
@@ -1330,6 +1387,310 @@ export const UserManagementTab: React.FC = () => {
           </div>
         </div>
       )}
+
+      {/* ===================== MODAL: FICHA DO CLIENTE & PEDIDOS (FASE 5) ===================== */}
+      {customerSheetUser && (() => {
+        const userOrders = allCatalogOrders
+          .filter((o) => o.customerId === customerSheetUser.id)
+          .sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+        const validPaidOrders = userOrders.filter(
+          (o) =>
+            o.status !== 'cancelado' &&
+            (o.paymentStatus === 'pago' || (typeof o.amountPaid === 'number' && o.amountPaid > 0))
+        );
+        const totalPaidByCustomer = validPaidOrders.reduce((acc, o) => {
+          const val =
+            typeof o.amountPaid === 'number' && o.amountPaid > 0 ? o.amountPaid : o.total;
+          return acc + (Number(val) || 0);
+        }, 0);
+        const lastOrderDate = userOrders.length > 0 ? userOrders[0].createdAt : null;
+        const userLoyalty = getUserLoyaltyCard(customerSheetUser, defaultGoal, defaultReward);
+
+        return (
+          <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
+            <div className="relative w-full max-w-4xl rounded-3xl bg-[#0D1022] border-2 border-[#00DFFF]/50 shadow-2xl overflow-hidden my-auto max-h-[90vh] flex flex-col">
+              {/* Header */}
+              <div className="p-5 sm:p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-b border-[#8423DA]/30 flex items-center justify-between gap-3">
+                <div className="flex items-center gap-3">
+                  <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#8423DA] to-[#00DFFF] flex items-center justify-center font-heading font-black text-white text-base shadow-lg">
+                    {customerSheetUser.fullName
+                      ? customerSheetUser.fullName.charAt(0).toUpperCase()
+                      : 'C'}
+                  </div>
+                  <div>
+                    <div className="flex items-center gap-2 flex-wrap">
+                      <h3 className="font-heading text-base sm:text-lg font-black text-white">
+                        Ficha do Cliente: {customerSheetUser.fullName || 'Cliente'}
+                      </h3>
+                      <span className="px-2 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[10px] font-black uppercase">
+                        {customerSheetUser.role}
+                      </span>
+                    </div>
+                    <p className="text-xs text-[#A5A5B8] flex items-center gap-3 flex-wrap mt-0.5">
+                      <span>{customerSheetUser.email}</span>
+                      {customerSheetUser.phoneWhatsapp && (
+                        <span>• WhatsApp: {customerSheetUser.phoneWhatsapp}</span>
+                      )}
+                    </p>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setCustomerSheetUserId(null)}
+                  className="p-2 rounded-xl bg-[#141838] text-gray-400 hover:text-white transition cursor-pointer"
+                >
+                  ✕
+                </button>
+              </div>
+
+              {/* Body */}
+              <div className="p-5 sm:p-6 overflow-y-auto space-y-5 flex-1 text-xs">
+                {/* Customer Indicators (Fase 5) */}
+                <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+                  <div className="p-3.5 rounded-2xl bg-[#141838] border border-white/10 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400 flex items-center gap-1">
+                      <ShoppingBag className="w-3.5 h-3.5 text-[#00DFFF]" />
+                      Total de Pedidos
+                    </span>
+                    <p className="font-heading text-xl font-black text-white">
+                      {userOrders.length}
+                    </p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-[#141838] border border-emerald-500/30 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-emerald-300 flex items-center gap-1">
+                      <DollarSign className="w-3.5 h-3.5 text-emerald-400" />
+                      Valor Efetivamente Pago
+                    </span>
+                    <p className="font-heading text-xl font-black text-emerald-400">
+                      R$ {totalPaidByCustomer.toFixed(2).replace('.', ',')}
+                    </p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-[#141838] border border-white/10 space-y-1">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                      Última Compra Registrada
+                    </span>
+                    <p className="font-heading text-sm font-black text-white">
+                      {lastOrderDate
+                        ? new Date(lastOrderDate).toLocaleDateString('pt-BR', {
+                            day: '2-digit',
+                            month: '2-digit',
+                            year: 'numeric',
+                          })
+                        : 'Sem compras'}
+                    </p>
+                  </div>
+                  <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#E53CF3]/30 space-y-1 flex flex-col justify-between">
+                    <span className="text-[10px] font-bold uppercase tracking-wider text-[#E53CF3] flex items-center gap-1">
+                      <Gift className="w-3.5 h-3.5 text-[#E53CF3]" />
+                      Cartão Fidelidade
+                    </span>
+                    <div className="flex items-center justify-between">
+                      <span className="font-heading text-lg font-black text-white">
+                        {userLoyalty.stamps}/{userLoyalty.goal} selos
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomerSheetUserId(null);
+                          openLoyaltyModal(customerSheetUser);
+                        }}
+                        className="px-2.5 py-1 rounded-lg bg-[#E53CF3]/20 hover:bg-[#E53CF3]/30 text-[#E53CF3] font-bold text-[10px] cursor-pointer"
+                      >
+                        Gerenciar
+                      </button>
+                    </div>
+                  </div>
+                </div>
+
+                {/* Cadastral Address */}
+                {customerSheetUser.address && customerSheetUser.address.street && (
+                  <div className="p-3.5 rounded-2xl bg-[#141838]/70 border border-white/10 flex items-center gap-2 text-gray-200">
+                    <MapPin className="w-4 h-4 text-[#00DFFF] shrink-0" />
+                    <span>
+                      <strong>Endereço cadastrado:</strong> {customerSheetUser.address.street},{' '}
+                      {customerSheetUser.address.number} — {customerSheetUser.address.bairro},{' '}
+                      {customerSheetUser.address.city}/{customerSheetUser.address.state} (CEP:{' '}
+                      {customerSheetUser.address.cep})
+                    </span>
+                  </div>
+                )}
+
+                {/* Customer Orders from customer_orders */}
+                <div className="space-y-3">
+                  <div className="flex items-center justify-between">
+                    <h4 className="font-heading text-sm font-black text-white flex items-center gap-2">
+                      <ShoppingBag className="w-4 h-4 text-[#00DFFF]" />
+                      <span>Pedidos Realizados ({userOrders.length})</span>
+                    </h4>
+                    {onNavigateToOrders && (
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setCustomerSheetUserId(null);
+                          onNavigateToOrders();
+                        }}
+                        className="px-3 py-1 rounded-xl bg-[#00DFFF]/15 hover:bg-[#00DFFF]/25 border border-[#00DFFF]/40 text-[#00DFFF] font-bold text-[11px] cursor-pointer"
+                      >
+                        Ir para Central de Pedidos &rarr;
+                      </button>
+                    )}
+                  </div>
+
+                  {userOrders.length === 0 ? (
+                    <div className="p-8 rounded-2xl bg-[#141838]/60 border border-white/10 text-center text-gray-400">
+                      Este cliente ainda não possui pedidos registrados na tabela{' '}
+                      <code className="text-[#00DFFF]">customer_orders</code>.
+                    </div>
+                  ) : (
+                    <div className="space-y-3">
+                      {userOrders.map((order) => {
+                        const allowedNext = getAllowedNextStatuses(order.status);
+                        const phoneTarget =
+                          order.customerPhone || customerSheetUser.phoneWhatsapp || '';
+                        const waMessage = formatWhatsappOrderMessage(
+                          order,
+                          undefined,
+                          undefined,
+                          userLoyalty
+                        );
+                        const waResult = buildWhatsappConversationUrl(phoneTarget, waMessage);
+
+                        return (
+                          <div
+                            key={order.id}
+                            className="p-4 rounded-2xl bg-[#141838] border border-[#8423DA]/30 space-y-3"
+                          >
+                            <div className="flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-2">
+                                <span className="font-mono font-black text-[#00DFFF] px-2 py-0.5 rounded bg-[#00DFFF]/10 border border-[#00DFFF]/30">
+                                  {order.referenceId}
+                                </span>
+                                <span className="text-[11px] text-gray-400">
+                                  {new Date(order.createdAt).toLocaleString('pt-BR')}
+                                </span>
+                                <span className="px-2 py-0.5 rounded-full bg-white/10 text-white text-[10px] font-bold">
+                                  {order.paymentMethod || 'PIX'} ({order.paymentStatus || 'pendente'})
+                                </span>
+                              </div>
+                              <span className="font-heading text-sm font-black text-emerald-400">
+                                R$ {order.total.toFixed(2).replace('.', ',')}
+                              </span>
+                            </div>
+
+                            <OrderStatusTimeline
+                              status={order.status}
+                              cancelReason={order.cancelReason}
+                              statusHistory={order.statusHistory}
+                            />
+
+                            {/* Items */}
+                            <div className="space-y-1 pt-1 border-t border-white/10">
+                              {order.items.map((it, i) => (
+                                <div
+                                  key={i}
+                                  className="flex items-center justify-between text-[11px] text-gray-300"
+                                >
+                                  <span>
+                                    {it.quantity}x [{it.brandName}] {it.modelName} — {it.flavorName}
+                                  </span>
+                                  <span className="font-mono text-gray-400">
+                                    R$ {(it.price * it.quantity).toFixed(2).replace('.', ',')}
+                                  </span>
+                                </div>
+                              ))}
+                            </div>
+
+                            {/* Quick Actions from Customer Sheet */}
+                            <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+                              <div className="flex items-center gap-1.5 flex-wrap">
+                                {allowedNext
+                                  .filter((st: CatalogOrderStatus) => st !== 'cancelado')
+                                  .map((nextSt: CatalogOrderStatus) => (
+                                    <button
+                                      key={nextSt}
+                                      type="button"
+                                      onClick={async () => {
+                                        const res = await updateCatalogOrderStatus(
+                                          order.id,
+                                          nextSt,
+                                          {
+                                            reason: 'Atualizado pela Ficha do Cliente',
+                                            origin: 'customer_card',
+                                          }
+                                        );
+                                        showToast(
+                                          res.success ? 'success' : 'error',
+                                          res.success
+                                            ? `Status atualizado para ${ORDER_STATUS_LABELS[nextSt]}!`
+                                            : res.error || 'Falha ao atualizar status.'
+                                        );
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-[#8423DA]/30 hover:bg-[#8423DA]/50 border border-[#00DFFF]/40 text-white font-bold text-[10px] cursor-pointer transition"
+                                    >
+                                      Avançar: {ORDER_STATUS_LABELS[nextSt]}
+                                    </button>
+                                  ))}
+
+                                {order.status === 'entregue' && !order.loyaltyStampGranted && (
+                                  <button
+                                    type="button"
+                                    onClick={async () => {
+                                      const res = await grantLoyaltyStampForOrder(order.id);
+                                      showToast(
+                                        res.success ? 'success' : 'error',
+                                        res.success
+                                          ? '+1 selo creditado com sucesso para este pedido!'
+                                          : res.error || 'Não foi possível creditar o selo.'
+                                      );
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-[#E53CF3]/20 hover:bg-[#E53CF3]/35 border border-[#E53CF3]/40 text-[#E53CF3] font-bold text-[10px] cursor-pointer transition flex items-center gap-1"
+                                  >
+                                    <Gift className="w-3 h-3" />
+                                    <span>Creditar +1 Selo deste Pedido</span>
+                                  </button>
+                                )}
+
+                                {order.loyaltyStampGranted && (
+                                  <span className="px-2 py-0.5 rounded bg-emerald-500/15 border border-emerald-500/30 text-emerald-300 text-[10px] font-bold">
+                                    ✓ Selo já creditado
+                                  </span>
+                                )}
+                              </div>
+
+                              {waResult.valid && waResult.url && (
+                                <a
+                                  href={waResult.url}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="px-2.5 py-1 rounded-lg bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-500/40 text-emerald-300 font-bold text-[10px] flex items-center gap-1"
+                                >
+                                  <MessageCircle className="w-3 h-3" />
+                                  <span>Abrir WhatsApp do Pedido</span>
+                                </a>
+                              )}
+                            </div>
+                          </div>
+                        );
+                      })}
+                    </div>
+                  )}
+                </div>
+              </div>
+
+              {/* Footer */}
+              <div className="p-4 bg-[#080811] border-t border-[#8423DA]/25 flex justify-end">
+                <button
+                  type="button"
+                  onClick={() => setCustomerSheetUserId(null)}
+                  className="px-5 py-2 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 text-white text-xs font-bold transition cursor-pointer"
+                >
+                  Fechar Ficha
+                </button>
+              </div>
+            </div>
+          </div>
+        );
+      })()}
     </div>
   );
 };

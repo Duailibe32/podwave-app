@@ -58,9 +58,10 @@ import { UserManagementTab } from './UserManagementTab';
 import { BusinessAuditSection } from './BusinessAuditSection';
 import { ImageEditorStudioModal } from './ImageEditorStudioModal';
 import { MyBusinessModule } from './MyBusinessModule';
+import { OrdersCenterTab } from './OrdersCenterTab';
 import { calculateVariantAvailability, calculateVariantsSummary, isNeedsAttention, DEFAULT_LOW_QUANTITY_THRESHOLD } from '../../utils/availability';
 
-type AdminTab = 'meu_negocio' | 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'usuarios' | 'configuracoes' | 'supabase';
+type AdminTab = 'pedidos' | 'meu_negocio' | 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'usuarios' | 'configuracoes' | 'supabase';
 
 export const AdminPanel: React.FC = () => {
   const {
@@ -97,10 +98,24 @@ export const AdminPanel: React.FC = () => {
     bulkUpdateVariants,
     globalLowQuantityThreshold,
     setGlobalLowQuantityThreshold,
+    allCatalogOrders,
   } = useCatalog();
 
   const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const [focusedCustomerIdInUsersTab, setFocusedCustomerIdInUsersTab] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
+
+  const activeOrdersBadgeCount = React.useMemo(
+    () =>
+      allCatalogOrders.filter(
+        (o) =>
+          o.status === 'recebido' ||
+          o.status === 'confirmado' ||
+          o.status === 'em_separacao' ||
+          o.status === 'enviado'
+      ).length,
+    [allCatalogOrders]
+  );
 
   // Horizontal scroll state & controls for Admin Navigation Tabs
   const tabsContainerRef = React.useRef<HTMLDivElement>(null);
@@ -962,6 +977,27 @@ export const AdminPanel: React.FC = () => {
               onScroll={checkTabsScroll}
               className="flex items-center gap-2 overflow-x-auto pb-1.5 scroll-smooth [scrollbar-width:thin] [scrollbar-color:#8423DA_#0D1022] pr-10"
             >
+              {/* TAB: CENTRAL DE PEDIDOS (PEDIDOS EM TEMPO REAL, FIDELIDADE & FINANCEIRO) */}
+              <button
+                onClick={() => {
+                  setActiveTab('pedidos');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 relative ${
+                  activeTab === 'pedidos'
+                    ? 'bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] text-white font-black border-[#00DFFF] shadow-[0_0_15px_rgba(0,223,255,0.4)]'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#00DFFF]/50'
+                }`}
+              >
+                <ShoppingBag className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span>Pedidos</span>
+                {activeOrdersBadgeCount > 0 && (
+                  <span className="px-1.5 py-0.2 rounded-full bg-[#00DFFF] text-[#080811] font-black text-[10px]">
+                    {activeOrdersBadgeCount}
+                  </span>
+                )}
+              </button>
+
               {/* TAB: MEU NEGÓCIO (CONTROLE GERENCIAL & FINANCEIRO MANUAL) */}
               <button
                 onClick={() => {
@@ -1140,6 +1176,16 @@ export const AdminPanel: React.FC = () => {
 
       {/* Main Tab Content Container */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+        {/* ===================== TAB: CENTRAL DE PEDIDOS ===================== */}
+        {activeTab === 'pedidos' && (
+          <OrdersCenterTab
+            onOpenUserInTab={(customerId) => {
+              setFocusedCustomerIdInUsersTab(customerId);
+              setActiveTab('usuarios');
+            }}
+          />
+        )}
+
         {/* ===================== TAB: MEU NEGÓCIO (CONTROLE GERENCIAL & FINANCEIRO MANUAL) ===================== */}
         {activeTab === 'meu_negocio' && <MyBusinessModule />}
 
@@ -2425,7 +2471,13 @@ export const AdminPanel: React.FC = () => {
         {activeTab === 'supabase' && <SupabaseTab />}
 
         {/* ===================== TAB: GESTÃO DE USUÁRIOS, ADMINS & VIPS ===================== */}
-        {activeTab === 'usuarios' && <UserManagementTab />}
+        {activeTab === 'usuarios' && (
+          <UserManagementTab
+            initialCustomerId={focusedCustomerIdInUsersTab}
+            onClearInitialCustomer={() => setFocusedCustomerIdInUsersTab(null)}
+            onNavigateToOrders={() => setActiveTab('pedidos')}
+          />
+        )}
 
         {/* ===================== TAB: CUPONS & LIMITES (SOLICITADO PELO USUÁRIO) ===================== */}
         {activeTab === 'cupons' && (

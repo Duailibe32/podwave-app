@@ -91,6 +91,24 @@ export interface LoyaltyMutationInput {
   note?: string;
   author?: string;
   badgeId?: string;
+  orderId?: string;
+  orderReferenceId?: string;
+  idempotencyKey?: string;
+}
+
+export function hasOrderStampInCard(
+  card?: Partial<LoyaltyCardData> | null,
+  orderId?: string | null,
+  idempotencyKey?: string | null
+): boolean {
+  const normalized = normalizeLoyaltyCard(card);
+  const history = normalized.history || [];
+  if (!orderId && !idempotencyKey) return false;
+  return history.some(
+    (h) =>
+      h.action === 'add_stamp' &&
+      ((orderId && h.orderId === orderId) || (idempotencyKey && h.idempotencyKey === idempotencyKey))
+  );
 }
 
 export function applyLoyaltyMutation(
@@ -128,6 +146,15 @@ export function applyLoyaltyMutation(
       grantedBadgeIds: Array.from(currentGranted),
       updatedAt: nowIso,
     };
+  }
+
+  // Idempotency protection: never grant a second stamp for the same orderId or idempotencyKey
+  if (
+    mutation.type === 'add' &&
+    (mutation.orderId || mutation.idempotencyKey) &&
+    hasOrderStampInCard(base, mutation.orderId, mutation.idempotencyKey)
+  ) {
+    return base;
   }
 
   let nextStamps = Math.min(nextGoal, base.stamps);
@@ -171,6 +198,11 @@ export function applyLoyaltyMutation(
     updatedBy: mutation.author?.trim() || undefined,
     rewardTitle: actionType === 'redeem_reward' ? nextReward : undefined,
     cycleNumber: actionType === 'redeem_reward' ? nextCompleted : undefined,
+    orderId: mutation.orderId?.trim() || undefined,
+    orderReferenceId: mutation.orderReferenceId?.trim() || undefined,
+    idempotencyKey:
+      mutation.idempotencyKey?.trim() ||
+      (mutation.orderId ? `stamp-order-${mutation.orderId.trim()}` : undefined),
   };
 
   return {

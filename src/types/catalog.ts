@@ -170,18 +170,62 @@ export interface CustomerAddress {
   referencePoint?: string;
 }
 
+export type CatalogOrderStatus =
+  | 'recebido'
+  | 'confirmado'
+  | 'em_separacao'
+  | 'enviado'
+  | 'entregue'
+  | 'cancelado';
+
+export type CatalogOrderPaymentStatus = 'pendente' | 'parcial' | 'pago' | 'estornado';
+
+export interface OrderStatusHistoryEntry {
+  id: string;
+  fromStatus: CatalogOrderStatus | null;
+  toStatus: CatalogOrderStatus;
+  changedAt: string;
+  changedBy: string;
+  changedByEmail?: string;
+  origin: 'checkout' | 'admin_panel' | 'customer_card' | 'system';
+  reason?: string;
+}
+
 export interface CustomerOrderHistoryItem {
   id: string;
   referenceId: string;
+  customerId?: string;
+  customerName?: string;
+  customerPhone?: string;
+  customerEmail?: string;
   createdAt: string;
+  updatedAt?: string;
+  updatedBy?: string;
   items: CartItem[];
   subtotal: number;
   discount: number;
+  deliveryFee?: number;
   total: number;
   paymentMethod: string;
+  paymentStatus?: CatalogOrderPaymentStatus;
+  amountPaid?: number;
   deliveryType: 'delivery' | 'pickup';
   addressSummary?: string;
-  status: 'recebido' | 'em_separacao' | 'enviado' | 'entregue';
+  customerNotes?: string;
+  status: CatalogOrderStatus;
+  cancelReason?: string;
+  statusHistory?: OrderStatusHistoryEntry[];
+  couponCode?: string;
+  vipDiscountApplied?: boolean;
+  vipDiscountAmount?: number;
+  loyaltyEligible?: boolean;
+  loyaltyStampGranted?: boolean;
+  loyaltyStampGrantedAt?: string;
+  loyaltyStampGrantedBy?: string;
+  loyaltyGrantIdempotencyKey?: string;
+  financialSaleId?: string;
+  financialRecordedAt?: string;
+  version?: number;
 }
 
 export interface LoyaltyHistoryEntry {
@@ -194,6 +238,9 @@ export interface LoyaltyHistoryEntry {
   updatedBy?: string;
   rewardTitle?: string;
   cycleNumber?: number;
+  orderId?: string;
+  orderReferenceId?: string;
+  idempotencyKey?: string;
 }
 
 export interface LoyaltyCardData {
@@ -234,6 +281,8 @@ export type ActivityActionType =
   | 'CUPOM_CRIADO'
   | 'CUPOM_EDITADO'
   | 'CUPOM_REMOVIDO'
+  | 'PEDIDO_ATUALIZADO'
+  | 'FIDELIDADE_ATUALIZADA'
   | 'ERRO_PERMISSAO'
   | 'ERRO_BANCO_DADOS';
 
@@ -241,7 +290,17 @@ export interface ActivityLogEntry {
   id: string;
   action: ActivityActionType;
   actionLabel: string;
-  entity: 'product_models' | 'flavor_variants' | 'brands' | 'coupons' | 'settings' | 'auth' | 'manual_sales' | 'manual_commitments';
+  entity:
+    | 'product_models'
+    | 'flavor_variants'
+    | 'brands'
+    | 'coupons'
+    | 'settings'
+    | 'auth'
+    | 'manual_sales'
+    | 'manual_commitments'
+    | 'customer_orders'
+    | 'customer_profiles';
   entityName: string;
   details: string;
   author: string;

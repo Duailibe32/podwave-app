@@ -14,6 +14,7 @@ import {
   LOYALTY_TIERS,
 } from '../../utils/loyaltyCard';
 import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
+import { fetchCustomerOrdersFromSupabase } from '../../services/supabase';
 import {
   X,
   User,
@@ -37,6 +38,8 @@ import {
   Calendar,
   History,
   Star,
+  MessageCircle,
+  AlertCircle,
 } from 'lucide-react';
 
 export const CustomerProfileModal: React.FC = () => {
@@ -80,6 +83,42 @@ export const CustomerProfileModal: React.FC = () => {
 
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
+  const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
+  const [customerOrdersError, setCustomerOrdersError] = useState<string | null>(null);
+  const [remoteOrders, setRemoteOrders] = useState(currentUser?.orderHistory || []);
+  const activeOrdersReqRef = React.useRef(0);
+
+  const loadAuthenticatedOrders = React.useCallback(async () => {
+    if (!currentUser?.id) return;
+    const reqId = ++activeOrdersReqRef.current;
+    const targetUserId = currentUser.id;
+    setIsLoadingCustomerOrders(true);
+    setCustomerOrdersError(null);
+    try {
+      const fetched = await fetchCustomerOrdersFromSupabase(targetUserId);
+      if (reqId !== activeOrdersReqRef.current) return;
+      if (fetched && fetched.length > 0) {
+        setRemoteOrders(fetched);
+      } else {
+        setRemoteOrders(currentUser.orderHistory || []);
+      }
+    } catch {
+      if (reqId !== activeOrdersReqRef.current) return;
+      setCustomerOrdersError(
+        'Não foi possível sincronizar seus pedidos com o banco no momento. Verifique sua conexão e tente novamente.'
+      );
+    } finally {
+      if (reqId === activeOrdersReqRef.current) {
+        setIsLoadingCustomerOrders(false);
+      }
+    }
+  }, [currentUser?.id, currentUser?.orderHistory]);
+
+  React.useEffect(() => {
+    if (isProfileModalOpen && activeTab === 'orders' && currentUser?.id) {
+      loadAuthenticatedOrders();
+    }
+  }, [isProfileModalOpen, activeTab, currentUser?.id, loadAuthenticatedOrders]);
 
   React.useEffect(() => {
     if (currentUser) {
@@ -170,7 +209,26 @@ export const CustomerProfileModal: React.FC = () => {
     }
   };
 
-  const orders = currentUser.orderHistory || [];
+  const orders = React.useMemo(() => {
+    const base = currentUser.orderHistory || [];
+    const map = new Map<string, (typeof base)[number]>();
+    for (const o of remoteOrders) {
+      if (!o.customerId || o.customerId === currentUser.id) {
+        map.set(o.id, o);
+      }
+    }
+    for (const o of base) {
+      if (!o.customerId || o.customerId === currentUser.id) {
+        const existing = map.get(o.id);
+        if (!existing || (o.version || 1) >= (existing.version || 1)) {
+          map.set(o.id, o);
+        }
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [currentUser.id, currentUser.orderHistory, remoteOrders]);
   const loyaltyCard = getUserLoyaltyCard(
     currentUser,
     settings.loyaltyGoalStamps || 10,
@@ -963,10 +1021,53 @@ export const CustomerProfileModal: React.FC = () => {
             </form>
           )}
 
-          {/* ===================== TAB 2: ORDER HISTORY ===================== */}
+          {/* ===================== TAB 2: ORDER HISTORY (MEUS PEDIDOS — FASE 3) ===================== */}
           {activeTab === 'orders' && (
             <div className="space-y-4">
-              {orders.length === 0 ? (
+              <div className="flex items-center justify-between">
+                <div>
+                  <h4 className="font-heading text-sm font-black text-white flex items-center gap-1.5">
+                    <ShoppingBag className="w-4 h-4 text-[#00DFFF]" />
+                    <span>Meus Pedidos ({orders.length})</span>
+                  </h4>
+                  <p className="text-[11px] text-[#A5A5B8]">
+                    Acompanhe em tempo real cada etapa do seu pedido na PodWave.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={loadAuthenticatedOrders}
+                  disabled={isLoadingCustomerOrders}
+                  className="px-3 py-1.5 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 border border-[#8423DA]/40 text-xs font-bold text-gray-200 flex items-center gap-1.5 cursor-pointer transition disabled:opacity-50"
+                >
+                  <RefreshCw className={`w-3.5 h-3.5 text-[#00DFFF] ${isLoadingCustomerOrders ? 'animate-spin' : ''}`} />
+                  <span>Atualizar</span>
+                </button>
+              </div>
+
+              {/* Error State with Retry (Never disguise error as empty list) */}
+              {customerOrdersError && (
+                <div className="p-4 rounded-2xl bg-rose-950/60 border border-rose-500/40 flex flex-col sm:flex-row sm:items-center justify-between gap-3 text-xs text-rose-200">
+                  <div className="flex items-start gap-2.5">
+                    <AlertCircle className="w-4 h-4 text-rose-400 shrink-0 mt-0.5" />
+                    <span>{customerOrdersError}</span>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={loadAuthenticatedOrders}
+                    className="px-3 py-1.5 rounded-xl bg-rose-500/25 hover:bg-rose-500/40 border border-rose-400/50 text-white font-bold shrink-0 cursor-pointer"
+                  >
+                    Tentar novamente
+                  </button>
+                </div>
+              )}
+
+              {isLoadingCustomerOrders && orders.length === 0 ? (
+                <div className="py-10 text-center space-y-2 text-xs text-gray-300">
+                  <RefreshCw className="w-6 h-6 text-[#00DFFF] animate-spin mx-auto" />
+                  <p className="font-bold">Consultando seus pedidos registrados...</p>
+                </div>
+              ) : orders.length === 0 && !customerOrdersError ? (
                 <div className="py-12 text-center space-y-3">
                   <div className="w-14 h-14 rounded-full bg-[#141838] border border-[#8423DA]/40 flex items-center justify-center mx-auto text-[#A5A5B8]">
                     <ShoppingBag className="w-7 h-7 text-[#00DFFF]" />
@@ -981,57 +1082,111 @@ export const CustomerProfileModal: React.FC = () => {
                   </div>
                 </div>
               ) : (
-                <div className="space-y-3">
-                  {orders.map((order) => (
-                    <div
-                      key={order.id}
-                      className="p-4 rounded-2xl bg-[#141838] border border-[#8423DA]/30 shadow-md space-y-3"
-                    >
-                      <div className="flex items-center justify-between text-xs">
-                        <div className="flex items-center gap-2">
-                          <span className="font-mono font-bold text-[#00DFFF] px-2 py-0.5 rounded bg-[#00DFFF]/10 border border-[#00DFFF]/30">
-                            {order.referenceId}
-                          </span>
-                          <span className="text-[10px] text-gray-400">
-                            {new Date(order.createdAt).toLocaleDateString('pt-BR', {
-                              day: '2-digit',
-                              month: '2-digit',
-                              year: 'numeric',
-                              hour: '2-digit',
-                              minute: '2-digit',
-                            })}
+                <div className="space-y-3.5">
+                  {orders.map((order) => {
+                    const storePhone = (settings.whatsappNumber || '5586999014685').replace(/\D/g, '');
+                    const customerOrderMsg = `Olá! Gostaria de falar sobre o meu pedido *${order.referenceId}* na ${settings.storeName || 'PodWave'}.`;
+                    const storeWaUrl = `https://wa.me/${storePhone}?text=${encodeURIComponent(customerOrderMsg)}`;
+
+                    return (
+                      <div
+                        key={order.id}
+                        className="p-4 rounded-2xl bg-[#141838] border border-[#8423DA]/30 shadow-md space-y-3"
+                      >
+                        <div className="flex flex-wrap items-center justify-between gap-2 text-xs">
+                          <div className="flex items-center gap-2 flex-wrap">
+                            <span className="font-mono font-bold text-[#00DFFF] px-2 py-0.5 rounded bg-[#00DFFF]/10 border border-[#00DFFF]/30">
+                              {order.referenceId}
+                            </span>
+                            <span className="text-[10px] text-gray-400">
+                              {new Date(order.createdAt).toLocaleDateString('pt-BR', {
+                                day: '2-digit',
+                                month: '2-digit',
+                                year: 'numeric',
+                                hour: '2-digit',
+                                minute: '2-digit',
+                              })}
+                            </span>
+                            {order.loyaltyStampGranted && (
+                              <span className="px-2 py-0.5 rounded-full bg-[#E53CF3]/20 border border-[#E53CF3]/40 text-[#E53CF3] text-[10px] font-black">
+                                ★ +1 Selo Fidelidade Creditado
+                              </span>
+                            )}
+                          </div>
+
+                          <span className="font-heading font-black text-emerald-400 text-sm">
+                            R$ {order.total.toFixed(2).replace('.', ',')}
                           </span>
                         </div>
 
-                        <span className="font-heading font-black text-emerald-400 text-sm">
-                          R$ {order.total.toFixed(2).replace('.', ',')}
-                        </span>
-                      </div>
+                        <OrderStatusTimeline
+                          status={order.status}
+                          cancelReason={order.cancelReason}
+                          statusHistory={order.statusHistory}
+                        />
 
-                      <OrderStatusTimeline status={order.status} />
-                      {/* Items */}
-                      <div className="space-y-1.5 pt-1 border-t border-white/5">
-                        {order.items.map((item, idx) => (
-                          <div key={idx} className="flex items-center justify-between text-[11px] text-gray-300">
-                            <span className="truncate max-w-[280px]">
-                              {item.quantity}x [{item.brandName}] {item.modelName} — {item.flavorName} {item.flavorEmoji}
-                            </span>
-                            <span className="font-mono text-gray-400 shrink-0">
-                              R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}
-                            </span>
+                        {/* Items */}
+                        <div className="space-y-1.5 pt-1 border-t border-white/5">
+                          {order.items.map((item, idx) => (
+                            <div key={idx} className="flex items-center justify-between text-[11px] text-gray-300">
+                              <span className="truncate max-w-[280px]">
+                                {item.quantity}x [{item.brandName}] {item.modelName} — {item.flavorName} {item.flavorEmoji}
+                              </span>
+                              <span className="font-mono text-gray-400 shrink-0">
+                                R$ {(item.price * item.quantity).toFixed(2).replace('.', ',')}
+                              </span>
+                            </div>
+                          ))}
+                        </div>
+
+                        {/* Financial & Payment Breakdown */}
+                        <div className="pt-2 border-t border-white/5 grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] text-gray-300">
+                          <div>
+                            <span className="text-gray-400 block">Pagamento:</span>
+                            <strong className="text-white">
+                              {order.paymentMethod || 'PIX'}{' '}
+                              {order.paymentStatus ? `(${order.paymentStatus.toUpperCase()})` : ''}
+                            </strong>
                           </div>
-                        ))}
-                      </div>
+                          <div>
+                            <span className="text-gray-400 block">Modalidade:</span>
+                            <strong className="text-white">
+                              {order.deliveryType === 'pickup' ? 'Retirada no Local' : 'Entrega / Delivery'}
+                            </strong>
+                          </div>
+                          <div>
+                            <span className="text-gray-400 block">Subtotal / Desconto:</span>
+                            <strong className="text-white">
+                              R$ {(order.subtotal ?? order.total).toFixed(2).replace('.', ',')}
+                              {order.discount ? ` (-R$ ${order.discount.toFixed(2).replace('.', ',')})` : ''}
+                            </strong>
+                          </div>
+                        </div>
 
-                      {/* Delivery summary */}
-                      {order.addressSummary && (
-                        <p className="text-[10px] text-[#A5A5B8] pt-1 border-t border-white/5 flex items-center gap-1">
-                          <MapPin className="w-3 h-3 text-[#00DFFF] shrink-0" />
-                          <span className="truncate">{order.addressSummary}</span>
-                        </p>
-                      )}
-                    </div>
-                  ))}
+                        {/* Delivery summary & WhatsApp support button */}
+                        <div className="pt-2 border-t border-white/5 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                          {order.addressSummary ? (
+                            <p className="text-[10px] text-[#A5A5B8] flex items-center gap-1">
+                              <MapPin className="w-3 h-3 text-[#00DFFF] shrink-0" />
+                              <span className="truncate max-w-[280px]">{order.addressSummary}</span>
+                            </p>
+                          ) : (
+                            <span />
+                          )}
+
+                          <a
+                            href={storeWaUrl}
+                            target="_blank"
+                            rel="noopener noreferrer"
+                            className="inline-flex items-center justify-center gap-1.5 px-3 py-1.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-500/40 text-emerald-300 text-[11px] font-bold transition shrink-0"
+                          >
+                            <MessageCircle className="w-3.5 h-3.5" />
+                            <span>Falar no WhatsApp sobre este pedido</span>
+                          </a>
+                        </div>
+                      </div>
+                    );
+                  })}
                 </div>
               )}
             </div>

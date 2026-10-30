@@ -170,11 +170,17 @@ export const CheckoutDrawer: React.FC = () => {
       recordCustomerOrder({
         referenceId: `PW-${Date.now().toString().slice(-6)}`,
         subtotal: cartSubtotal,
-        discount: discountAmount,
+        discount: discountAmount + vipDiscountAmount,
         total: cartTotal,
         paymentMethod,
         deliveryType: isPickup ? 'pickup' : 'delivery',
         addressSummary,
+        customerNotes: notes.trim() || undefined,
+        couponCode: appliedCoupon?.code || undefined,
+        vipDiscountApplied: Boolean(isVip && vipDiscountAmount > 0),
+        vipDiscountAmount: vipDiscountAmount || 0,
+        customerName: fullName.trim(),
+        customerPhone: phoneWhatsapp.trim(),
         items: cart,
       });
 

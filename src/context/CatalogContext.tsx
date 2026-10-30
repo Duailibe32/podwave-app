@@ -15,6 +15,10 @@ import {
   UserRole,
   CustomerAddress,
   CustomerOrderHistoryItem,
+  CatalogOrderStatus,
+  CatalogOrderPaymentStatus,
+  OrderStatusHistoryEntry,
+  LoyaltyCardData,
   ActivityLogEntry,
   ManualSaleEntry,
   ManualExpenseEntry,
@@ -52,6 +56,7 @@ import {
   fetchCustomerProfileFromSupabase,
   saveCustomerOrderToSupabase,
   fetchCustomerOrdersFromSupabase,
+  fetchAllCustomerOrdersFromSupabase,
   getSupabaseClient,
   isMissingTableError,
   supabaseSignInWithPassword,
@@ -86,6 +91,14 @@ import {
   saveManualCommitmentToSupabase,
   deleteManualCommitmentFromSupabase,
 } from '../services/supabase';
+import {
+  acquireOrderActionLock,
+  releaseOrderActionLock,
+  applyOrderStatusTransition,
+  evaluateOrderLoyalty,
+  findExistingFinancialSaleForOrder,
+  buildManualSaleFromCatalogOrder,
+} from '../services/orderCenterService';
 
 // ==============================================================================
 // INICIALIZAÇÃO REAL DO CLIENTE SUPABASE A PARTIR DAS VARIÁVEIS DE AMBIENTE
@@ -177,7 +190,66 @@ interface CatalogContextType {
   logoutUser: () => void;
   resetPassword: (email: string) => Promise<{ success: boolean; message: string }>;
   updateCustomerProfile: (data: Partial<UserProfile>) => Promise<boolean>;
-  recordCustomerOrder: (order: { referenceId: string; subtotal: number; discount: number; total: number; paymentMethod: string; deliveryType: 'delivery' | 'pickup'; addressSummary?: string; items?: CartItem[] }) => Promise<void>;
+  recordCustomerOrder: (order: {
+    referenceId: string;
+    subtotal: number;
+    discount: number;
+    deliveryFee?: number;
+    total: number;
+    paymentMethod: string;
+    deliveryType: 'delivery' | 'pickup';
+    addressSummary?: string;
+    customerNotes?: string;
+    couponCode?: string;
+    vipDiscountApplied?: boolean;
+    vipDiscountAmount?: number;
+    customerName?: string;
+    customerPhone?: string;
+    items?: CartItem[];
+  }) => Promise<void>;
+  allCatalogOrders: CustomerOrderHistoryItem[];
+  isLoadingCatalogOrders: boolean;
+  catalogOrdersError: string | null;
+  fetchAllCatalogOrders: () => Promise<void>;
+  updateCatalogOrderStatus: (
+    orderId: string,
+    toStatus: CatalogOrderStatus,
+    options?: {
+      reason?: string;
+      origin?: OrderStatusHistoryEntry['origin'];
+      paymentStatus?: CatalogOrderPaymentStatus;
+      amountPaid?: number;
+    }
+  ) => Promise<{ success: boolean; updatedOrder?: CustomerOrderHistoryItem; error?: string }>;
+  updateCatalogOrderPayment: (
+    orderId: string,
+    paymentStatus: CatalogOrderPaymentStatus,
+    amountPaid?: number,
+    reason?: string
+  ) => Promise<{ success: boolean; updatedOrder?: CustomerOrderHistoryItem; error?: string }>;
+  grantLoyaltyStampForOrder: (
+    orderId: string,
+    note?: string,
+    allowPendingPaymentOverride?: boolean
+  ) => Promise<{
+    success: boolean;
+    updatedOrder?: CustomerOrderHistoryItem;
+    updatedCard?: LoyaltyCardData;
+    error?: string;
+  }>;
+  recordOrderInFinancialSales: (
+    orderId: string,
+    options?: {
+      paymentStatusOverride?: 'pago' | 'parcial' | 'pendente';
+      amountReceivedOverride?: number;
+      stockManaged?: boolean;
+    }
+  ) => Promise<{
+    success: boolean;
+    saleId?: string;
+    alreadyExists?: boolean;
+    error?: string;
+  }>;
   isAuthChecking: boolean;
   authErrorMessage: string | null;
   configuredOwnerUid: string;
@@ -557,6 +629,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       author: authorLabel,
     });
 
+    if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+      const remoteOk = await updateCustomerLoyaltyInSupabase(userId, nextCard);
+      if (!remoteOk) {
+        return false;
+      }
+    }
+
     const localMap = loadLocalLoyaltyCardsMap();
     localMap[userId] = nextCard;
     saveLocalLoyaltyCardsMap(localMap);
@@ -567,10 +646,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (currentUser && currentUser.id === userId) {
       setCurrentUser((prev) => (prev ? { ...prev, loyaltyCard: nextCard } : null));
-    }
-
-    if (supabaseCreds.isConfigured) {
-      await updateCustomerLoyaltyInSupabase(userId, nextCard);
     }
 
     return true;
@@ -833,32 +908,210 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return true;
   };
 
+  // CENTRAL DE PEDIDOS — ESTADO & AÇÕES ADMINISTRATIVAS
+  const [allCatalogOrders, setAllCatalogOrders] = useState<CustomerOrderHistoryItem[]>([]);
+  const [isLoadingCatalogOrders, setIsLoadingCatalogOrders] = useState<boolean>(false);
+  const [catalogOrdersError, setCatalogOrdersError] = useState<string | null>(null);
+
+  const enrichOrderWithProfile = React.useCallback(
+    (order: CustomerOrderHistoryItem, profilesList: UserProfile[]): CustomerOrderHistoryItem => {
+      const matched = order.customerId
+        ? profilesList.find((u) => u.id === order.customerId)
+        : undefined;
+      if (!matched) return order;
+      return {
+        ...order,
+        customerName: order.customerName || matched.fullName || undefined,
+        customerPhone: order.customerPhone || matched.phoneWhatsapp || undefined,
+        customerEmail: order.customerEmail || matched.email || undefined,
+      };
+    },
+    []
+  );
+
+  const fetchAllCatalogOrders = React.useCallback(async () => {
+    if (!isAdmin) {
+      setAllCatalogOrders([]);
+      setCatalogOrdersError(null);
+      return;
+    }
+
+    setIsLoadingCatalogOrders(true);
+    setCatalogOrdersError(null);
+    try {
+      const [ordersResult, remoteProfiles] = await Promise.all([
+        fetchAllCustomerOrdersFromSupabase(),
+        allUsers.length > 0 ? Promise.resolve(allUsers) : fetchAllCustomerProfilesFromSupabase(),
+      ]);
+
+      const profilesToUse =
+        remoteProfiles && remoteProfiles.length > 0 ? remoteProfiles : allUsers;
+
+      if (ordersResult.error && ordersResult.errorKind !== 'missing_table') {
+        setCatalogOrdersError(ordersResult.error);
+      }
+
+      const mapById = new Map<string, CustomerOrderHistoryItem>();
+      for (const ord of ordersResult.orders) {
+        mapById.set(ord.id, enrichOrderWithProfile(ord, profilesToUse));
+      }
+
+      // Include current session user's orders if any exist in memory and were not yet synced
+      if (currentUser?.orderHistory) {
+        for (const ownOrd of currentUser.orderHistory) {
+          if (!mapById.has(ownOrd.id)) {
+            mapById.set(
+              ownOrd.id,
+              enrichOrderWithProfile(
+                { ...ownOrd, customerId: ownOrd.customerId || currentUser.id },
+                profilesToUse
+              )
+            );
+          }
+        }
+      }
+
+      const sorted = Array.from(mapById.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setAllCatalogOrders(sorted);
+    } catch {
+      setCatalogOrdersError(
+        'Não foi possível carregar os pedidos. Verifique sua conexão e tente novamente.'
+      );
+    } finally {
+      setIsLoadingCatalogOrders(false);
+    }
+  }, [isAdmin, allUsers, currentUser, enrichOrderWithProfile]);
+
+  useEffect(() => {
+    if (isAdmin) {
+      void fetchAllCatalogOrders();
+    } else {
+      setAllCatalogOrders([]);
+      setCatalogOrdersError(null);
+    }
+  }, [isAdmin, supabaseStatus]);
+
+  // Supabase Realtime para atualização da Central de Pedidos (Admin) e Meus Pedidos (Cliente)
+  useEffect(() => {
+    const client = activeSupabaseClient || getSupabaseClient();
+    if (!client || (!currentUser?.id && !isAdmin)) return;
+
+    const channelName = isAdmin
+      ? `orders-center-admin:${currentUser?.id || 'admin'}`
+      : `orders-customer:${currentUser?.id}`;
+
+    const changeFilter =
+      !isAdmin && currentUser?.id && /^[a-zA-Z0-9_-]+$/.test(currentUser.id)
+        ? `customer_id=eq.${currentUser.id}`
+        : undefined;
+
+    const channel = client
+      .channel(channelName)
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'customer_orders',
+          ...(changeFilter ? { filter: changeFilter } : {}),
+        },
+        () => {
+          if (isAdmin) {
+            void fetchAllCatalogOrders();
+          }
+          if (currentUser?.id) {
+            void fetchCustomerOrdersFromSupabase(currentUser.id).then((remoteOrders) => {
+              if (remoteOrders && remoteOrders.length > 0) {
+                setCurrentUser((prev) =>
+                  prev && prev.id === currentUser.id
+                    ? { ...prev, orderHistory: remoteOrders }
+                    : prev
+                );
+              }
+            });
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(channel);
+    };
+  }, [isAdmin, currentUser?.id, activeSupabaseClient, fetchAllCatalogOrders]);
+
   // REGISTRAR PEDIDO DO CLIENTE
   const recordCustomerOrder = async (orderData: {
     referenceId: string;
     subtotal: number;
     discount: number;
+    deliveryFee?: number;
     total: number;
     paymentMethod: string;
     deliveryType: 'delivery' | 'pickup';
     addressSummary?: string;
+    customerNotes?: string;
+    couponCode?: string;
+    vipDiscountApplied?: boolean;
+    vipDiscountAmount?: number;
+    customerName?: string;
+    customerPhone?: string;
     items?: CartItem[];
   }): Promise<void> => {
     if (!currentUser) return;
 
+    const nowIso = new Date().toISOString();
+    const initialHistory: OrderStatusHistoryEntry = {
+      id: `osh-${Date.now()}-init`,
+      fromStatus: null,
+      toStatus: 'recebido',
+      changedAt: nowIso,
+      changedBy: orderData.customerName || currentUser.fullName || currentUser.email || 'Cliente',
+      changedByEmail: currentUser.email,
+      origin: 'checkout',
+      reason: 'Pedido criado pelo cliente no catálogo',
+    };
+
     const orderItem: CustomerOrderHistoryItem = {
       id: `ord-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       referenceId: orderData.referenceId,
-      createdAt: new Date().toISOString(),
+      customerId: currentUser.id,
+      customerName: orderData.customerName || currentUser.fullName || undefined,
+      customerPhone: orderData.customerPhone || currentUser.phoneWhatsapp || undefined,
+      customerEmail: currentUser.email || undefined,
+      createdAt: nowIso,
+      updatedAt: nowIso,
+      updatedBy: currentUser.fullName || currentUser.email,
       items: orderData.items || cart,
       subtotal: orderData.subtotal,
       discount: orderData.discount,
+      deliveryFee: orderData.deliveryFee || 0,
       total: orderData.total,
       paymentMethod: orderData.paymentMethod,
+      paymentStatus: 'pendente',
+      amountPaid: 0,
       deliveryType: orderData.deliveryType,
       addressSummary: orderData.addressSummary,
+      customerNotes: orderData.customerNotes,
+      couponCode: orderData.couponCode,
+      vipDiscountApplied: orderData.vipDiscountApplied,
+      vipDiscountAmount: orderData.vipDiscountAmount,
       status: 'recebido',
+      statusHistory: [initialHistory],
+      loyaltyEligible: true,
+      loyaltyStampGranted: false,
+      version: 1,
     };
+
+    // Salvar pedido persistente no Supabase
+    const savedRemotely = await saveCustomerOrderToSupabase(orderItem, currentUser.id);
+    if (!savedRemotely && (supabaseCreds.isConfigured || Boolean(activeSupabaseClient))) {
+      toast.warning(
+        'Atenção ao registrar pedido',
+        'Não foi possível confirmar a gravação do pedido no servidor remoto. Tente novamente ou envie pelo WhatsApp.'
+      );
+    }
 
     const updatedOrders = [orderItem, ...(currentUser.orderHistory || [])];
     const updatedProfile: UserProfile = {
@@ -867,9 +1120,465 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setCurrentUser(updatedProfile);
+    if (isAdmin) {
+      setAllCatalogOrders((prev) => [orderItem, ...prev.filter((o) => o.id !== orderItem.id)]);
+    }
+  };
 
-    // Salvar pedido persistente no Supabase
-    await saveCustomerOrderToSupabase(orderItem, currentUser.id);
+  // ATUALIZAR STATUS DO PEDIDO (ADMIN)
+  const updateCatalogOrderStatus = async (
+    orderId: string,
+    toStatus: CatalogOrderStatus,
+    options?: {
+      reason?: string;
+      origin?: OrderStatusHistoryEntry['origin'];
+      paymentStatus?: CatalogOrderPaymentStatus;
+      amountPaid?: number;
+    }
+  ): Promise<{ success: boolean; updatedOrder?: CustomerOrderHistoryItem; error?: string }> => {
+    if (!isAdmin || !currentUser) {
+      return {
+        success: false,
+        error: 'Apenas administradores autenticados podem alterar o status de pedidos.',
+      };
+    }
+
+    const lockKey = `status:${orderId}`;
+    if (!acquireOrderActionLock(lockKey)) {
+      return {
+        success: false,
+        error: 'Uma atualização para este pedido já está em andamento. Aguarde.',
+      };
+    }
+
+    try {
+      const existing =
+        allCatalogOrders.find((o) => o.id === orderId) ||
+        currentUser.orderHistory?.find((o) => o.id === orderId);
+
+      if (!existing) {
+        return { success: false, error: 'Pedido não encontrado. Recarregue a lista.' };
+      }
+
+      const actorName = currentUser.fullName || currentUser.email || 'Administrador';
+      const transition = applyOrderStatusTransition(existing, {
+        toStatus,
+        actorName,
+        actorEmail: currentUser.email,
+        origin: options?.origin || 'admin_panel',
+        reason: options?.reason,
+        expectedVersion: existing.version,
+      });
+
+      if (!transition.success || !transition.updatedOrder) {
+        return { success: false, error: transition.error || 'Transição de status inválida.' };
+      }
+
+      const updatedOrder: CustomerOrderHistoryItem = {
+        ...transition.updatedOrder,
+        paymentStatus: options?.paymentStatus ?? transition.updatedOrder.paymentStatus,
+        amountPaid:
+          typeof options?.amountPaid === 'number'
+            ? options.amountPaid
+            : options?.paymentStatus === 'pago'
+            ? transition.updatedOrder.total
+            : transition.updatedOrder.amountPaid,
+      };
+
+      const ownerCustomerId = updatedOrder.customerId || currentUser.id;
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        const ok = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+        if (!ok) {
+          return {
+            success: false,
+            error:
+              'O banco de dados não confirmou a alteração de status. Verifique sua conexão e permissões.',
+          };
+        }
+      }
+
+      setAllCatalogOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? updatedOrder : o))
+      );
+
+      if (currentUser.id === ownerCustomerId) {
+        setCurrentUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                orderHistory: (prev.orderHistory || []).map((o) =>
+                  o.id === orderId ? updatedOrder : o
+                ),
+              }
+            : null
+        );
+      }
+
+      addActivityLog({
+        action: 'PEDIDO_ATUALIZADO',
+        actionLabel: `Status do Pedido: ${toStatus.toUpperCase()}`,
+        entity: 'customer_orders',
+        entityName: `#${updatedOrder.referenceId}`,
+        details: `Pedido #${updatedOrder.referenceId} alterado de "${existing.status}" para "${toStatus}"${
+          options?.reason ? ` (Motivo: ${options.reason})` : ''
+        }.`,
+        status: toStatus === 'cancelado' ? 'alerta' : 'sucesso',
+      });
+
+      return { success: true, updatedOrder };
+    } finally {
+      releaseOrderActionLock(lockKey);
+    }
+  };
+
+  // ATUALIZAR SITUAÇÃO DE PAGAMENTO DO PEDIDO (ADMIN)
+  const updateCatalogOrderPayment = async (
+    orderId: string,
+    paymentStatus: CatalogOrderPaymentStatus,
+    amountPaid?: number,
+    reason?: string
+  ): Promise<{ success: boolean; updatedOrder?: CustomerOrderHistoryItem; error?: string }> => {
+    if (!isAdmin || !currentUser) {
+      return {
+        success: false,
+        error: 'Apenas administradores autenticados podem alterar o pagamento de pedidos.',
+      };
+    }
+
+    const lockKey = `payment:${orderId}`;
+    if (!acquireOrderActionLock(lockKey)) {
+      return {
+        success: false,
+        error: 'Uma atualização de pagamento para este pedido já está em andamento.',
+      };
+    }
+
+    try {
+      const existing = allCatalogOrders.find((o) => o.id === orderId);
+      if (!existing) {
+        return { success: false, error: 'Pedido não encontrado.' };
+      }
+
+      const nowIso = new Date().toISOString();
+      const actorName = currentUser.fullName || currentUser.email || 'Administrador';
+      const resolvedAmountPaid =
+        paymentStatus === 'pago'
+          ? existing.total
+          : paymentStatus === 'parcial'
+          ? Math.min(existing.total, Math.max(0, Number(amountPaid) || 0))
+          : 0;
+
+      const historyEntry: OrderStatusHistoryEntry = {
+        id: `osh-pay-${Date.now()}-${Math.random().toString(36).slice(2, 5)}`,
+        fromStatus: existing.status,
+        toStatus: existing.status,
+        changedAt: nowIso,
+        changedBy: actorName,
+        changedByEmail: currentUser.email,
+        origin: 'admin_panel',
+        reason: `Pagamento atualizado para "${paymentStatus.toUpperCase()}" (R$ ${resolvedAmountPaid
+          .toFixed(2)
+          .replace('.', ',')})${reason ? ` — ${reason}` : ''}`,
+      };
+
+      const updatedOrder: CustomerOrderHistoryItem = {
+        ...existing,
+        paymentStatus,
+        amountPaid: resolvedAmountPaid,
+        statusHistory: [historyEntry, ...(existing.statusHistory || [])].slice(0, 50),
+        updatedAt: nowIso,
+        updatedBy: actorName,
+        version: (existing.version || 1) + 1,
+      };
+
+      const ownerCustomerId = updatedOrder.customerId || currentUser.id;
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        const ok = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+        if (!ok) {
+          return {
+            success: false,
+            error: 'Não foi possível salvar a atualização de pagamento no banco.',
+          };
+        }
+      }
+
+      setAllCatalogOrders((prev) =>
+        prev.map((o) => (o.id === orderId ? updatedOrder : o))
+      );
+
+      if (currentUser.id === ownerCustomerId) {
+        setCurrentUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                orderHistory: (prev.orderHistory || []).map((o) =>
+                  o.id === orderId ? updatedOrder : o
+                ),
+              }
+            : null
+        );
+      }
+
+      return { success: true, updatedOrder };
+    } finally {
+      releaseOrderActionLock(lockKey);
+    }
+  };
+
+  // CREDITAR +1 SELO FIDELIDADE VINCULADO AO PEDIDO (COM PROTEÇÃO DE DUPLICIDADE)
+  const grantLoyaltyStampForOrder = async (
+    orderId: string,
+    note?: string,
+    allowPendingPaymentOverride = false
+  ): Promise<{
+    success: boolean;
+    updatedOrder?: CustomerOrderHistoryItem;
+    updatedCard?: LoyaltyCardData;
+    error?: string;
+  }> => {
+    if (!isAdmin || !currentUser) {
+      return {
+        success: false,
+        error: 'Apenas administradores autenticados podem creditar selos de fidelidade.',
+      };
+    }
+
+    const lockKey = `stamp:${orderId}`;
+    if (!acquireOrderActionLock(lockKey)) {
+      return {
+        success: false,
+        error: 'A concessão de selo para este pedido já está em processamento.',
+      };
+    }
+
+    try {
+      const order = allCatalogOrders.find((o) => o.id === orderId);
+      if (!order) {
+        return { success: false, error: 'Pedido não encontrado.' };
+      }
+
+      if (!order.customerId) {
+        return {
+          success: false,
+          error: 'Este pedido não possui conta de cliente vinculada para receber selo.',
+        };
+      }
+
+      const targetCustomer =
+        allUsers.find((u) => u.id === order.customerId) ||
+        (currentUser.id === order.customerId ? currentUser : undefined);
+
+      const defaultGoal = settings.loyaltyGoalStamps || 10;
+      const defaultReward =
+        settings.loyaltyDefaultReward ||
+        'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
+
+      const evaluation = evaluateOrderLoyalty(
+        order,
+        targetCustomer,
+        defaultGoal,
+        defaultReward
+      );
+
+      if (evaluation.state === 'granted') {
+        return {
+          success: false,
+          error: `O selo referente ao pedido #${order.referenceId} já foi concedido anteriormente.`,
+        };
+      }
+
+      if (
+        !evaluation.canGrantAutomatically &&
+        !(allowPendingPaymentOverride && evaluation.canGrantWithAdminOverride)
+      ) {
+        return {
+          success: false,
+          error: evaluation.description,
+        };
+      }
+
+      const idempotencyKey = `stamp-order-${order.id}`;
+      const authorLabel = currentUser.fullName || currentUser.email || 'Administrador';
+      const baseCard = getUserLoyaltyCard(targetCustomer, defaultGoal, defaultReward);
+
+      const updatedCard = applyLoyaltyMutation(baseCard, {
+        type: 'add',
+        value: 1,
+        orderId: order.id,
+        orderReferenceId: order.referenceId,
+        idempotencyKey,
+        author: authorLabel,
+        note:
+          note?.trim() ||
+          `Selo validado na entrega do pedido #${order.referenceId}`,
+      });
+
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        const cardSaved = await updateCustomerLoyaltyInSupabase(
+          order.customerId,
+          updatedCard
+        );
+        if (!cardSaved) {
+          return {
+            success: false,
+            error:
+              'O banco de dados não confirmou a gravação do selo no perfil do cliente. Operação abortada.',
+          };
+        }
+      }
+
+      const nowIso = new Date().toISOString();
+      const updatedOrder: CustomerOrderHistoryItem = {
+        ...order,
+        loyaltyStampGranted: true,
+        loyaltyStampGrantedAt: nowIso,
+        loyaltyStampGrantedBy: authorLabel,
+        loyaltyGrantIdempotencyKey: idempotencyKey,
+        updatedAt: nowIso,
+        updatedBy: authorLabel,
+        version: (order.version || 1) + 1,
+      };
+
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        const orderSaved = await saveCustomerOrderToSupabase(
+          updatedOrder,
+          order.customerId
+        );
+        if (!orderSaved) {
+          return {
+            success: false,
+            error:
+              'Selo creditado no perfil, mas houve falha ao atualizar o vínculo no pedido. Recarregue os pedidos.',
+          };
+        }
+      }
+
+      const localMap = loadLocalLoyaltyCardsMap();
+      localMap[order.customerId] = updatedCard;
+      saveLocalLoyaltyCardsMap(localMap);
+
+      setAllUsers((prev) =>
+        prev.map((u) =>
+          u.id === order.customerId ? { ...u, loyaltyCard: updatedCard } : u
+        )
+      );
+
+      if (currentUser.id === order.customerId) {
+        setCurrentUser((prev) =>
+          prev ? { ...prev, loyaltyCard: updatedCard } : null
+        );
+      }
+
+      setAllCatalogOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? updatedOrder : o))
+      );
+
+      addActivityLog({
+        action: 'FIDELIDADE_ATUALIZADA',
+        actionLabel: 'Selo Fidelidade Creditado',
+        entity: 'customer_orders',
+        entityName: `#${order.referenceId}`,
+        details: `+1 selo creditado para ${order.customerName || order.customerId} referente ao pedido #${order.referenceId} (${updatedCard.stamps}/${updatedCard.goal} selos).`,
+        status: 'sucesso',
+      });
+
+      return { success: true, updatedOrder, updatedCard };
+    } finally {
+      releaseOrderActionLock(lockKey);
+    }
+  };
+
+  // REGISTRAR PEDIDO DO CATÁLOGO NO MÓDULO FINANCEIRO ("MEU NEGÓCIO") SEM DUPLICIDADE
+  const recordOrderInFinancialSales = async (
+    orderId: string,
+    options?: {
+      paymentStatusOverride?: 'pago' | 'parcial' | 'pendente';
+      amountReceivedOverride?: number;
+      stockManaged?: boolean;
+    }
+  ): Promise<{
+    success: boolean;
+    saleId?: string;
+    alreadyExists?: boolean;
+    error?: string;
+  }> => {
+    if (!isAdmin || !currentUser) {
+      return {
+        success: false,
+        error: 'Apenas administradores autenticados podem registrar vendas no financeiro.',
+      };
+    }
+
+    const lockKey = `finance:${orderId}`;
+    if (!acquireOrderActionLock(lockKey)) {
+      return {
+        success: false,
+        error: 'O lançamento financeiro deste pedido já está em processamento.',
+      };
+    }
+
+    try {
+      const order = allCatalogOrders.find((o) => o.id === orderId);
+      if (!order) {
+        return { success: false, error: 'Pedido não encontrado.' };
+      }
+
+      const existingSale = findExistingFinancialSaleForOrder(order, manualSales);
+      if (existingSale) {
+        return {
+          success: true,
+          saleId: existingSale.id,
+          alreadyExists: true,
+        };
+      }
+
+      const built = buildManualSaleFromCatalogOrder(order, options);
+      if (!built.success || !built.sale) {
+        return {
+          success: false,
+          error: built.error || 'Não foi possível montar o lançamento financeiro.',
+        };
+      }
+
+      const saveRes = await saveManualSale(built.sale);
+      if (!saveRes.success) {
+        return {
+          success: false,
+          error:
+            saveRes.error ||
+            'O banco de dados não confirmou o registro da venda no financeiro.',
+        };
+      }
+
+      const nowIso = new Date().toISOString();
+      const updatedOrder: CustomerOrderHistoryItem = {
+        ...order,
+        financialSaleId: built.sale.id,
+        financialRecordedAt: nowIso,
+        paymentStatus: built.sale.paymentStatus,
+        amountPaid: built.sale.amountReceived,
+        updatedAt: nowIso,
+        updatedBy: currentUser.fullName || currentUser.email || 'Administrador',
+        version: (order.version || 1) + 1,
+      };
+
+      const ownerCustomerId = updatedOrder.customerId || currentUser.id;
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+      }
+
+      setAllCatalogOrders((prev) =>
+        prev.map((o) => (o.id === order.id ? updatedOrder : o))
+      );
+
+      return {
+        success: true,
+        saleId: built.sale.id,
+        alreadyExists: false,
+      };
+    } finally {
+      releaseOrderActionLock(lockKey);
+    }
   };
 
   // Autenticação Administrativa Segura (Supabase Auth com verificação de role: admin ou owner)
@@ -3021,6 +3730,14 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         resetPassword,
         updateCustomerProfile,
         recordCustomerOrder,
+        allCatalogOrders,
+        isLoadingCatalogOrders,
+        catalogOrdersError,
+        fetchAllCatalogOrders,
+        updateCatalogOrderStatus,
+        updateCatalogOrderPayment,
+        grantLoyaltyStampForOrder,
+        recordOrderInFinancialSales,
         isAuthChecking,
         authErrorMessage,
         configuredOwnerUid,

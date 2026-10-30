@@ -978,35 +978,129 @@ export async function createAdminOrVipUserInSupabase(data: {
 }
 
 /**
- * Salva pedido realizado pelo cliente no Supabase
+ * Empacota metadados estruturados do pedido dentro da coluna JSONB `delivery_info` de `public.customer_orders`
+ */
+export function buildOrderDeliveryInfoPayload(order: CustomerOrderHistoryItem, customerId?: string): Record<string, unknown> {
+  return {
+    deliveryType: order.deliveryType || 'delivery',
+    addressSummary: order.addressSummary || null,
+    deliveryFee: Number(order.deliveryFee) || 0,
+    customerId: order.customerId || customerId || null,
+    customerName: order.customerName || null,
+    customerPhone: order.customerPhone || null,
+    customerEmail: order.customerEmail || null,
+    customerNotes: order.customerNotes || null,
+    paymentStatus: order.paymentStatus || 'pendente',
+    amountPaid: typeof order.amountPaid === 'number' ? order.amountPaid : 0,
+    cancelReason: order.cancelReason || null,
+    statusHistory: Array.isArray(order.statusHistory) ? order.statusHistory : [],
+    loyaltyEligible: order.loyaltyEligible !== false,
+    loyaltyStampGranted: order.loyaltyStampGranted === true,
+    loyaltyStampGrantedAt: order.loyaltyStampGrantedAt || null,
+    loyaltyStampGrantedBy: order.loyaltyStampGrantedBy || null,
+    loyaltyGrantIdempotencyKey: order.loyaltyGrantIdempotencyKey || null,
+    financialSaleId: order.financialSaleId || null,
+    financialRecordedAt: order.financialRecordedAt || null,
+    version: typeof order.version === 'number' && order.version > 0 ? order.version : 1,
+    updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(),
+    updatedBy: order.updatedBy || null,
+  };
+}
+
+/**
+ * Desempacota uma linha de `public.customer_orders` (compatível com `order_code` + `delivery_info` JSONB e formato legado)
+ */
+export function mapSupabaseRowToCustomerOrder(row: Record<string, any>): CustomerOrderHistoryItem {
+  const info =
+    row.delivery_info && typeof row.delivery_info === 'object' && !Array.isArray(row.delivery_info)
+      ? row.delivery_info
+      : {};
+
+  const statusRaw = String(row.status || 'recebido');
+  const validStatuses = ['recebido', 'confirmado', 'em_separacao', 'enviado', 'entregue', 'cancelado'];
+  const safeStatus = (validStatuses.includes(statusRaw) ? statusRaw : 'recebido') as CustomerOrderHistoryItem['status'];
+
+  const paymentStatusRaw = String(info.paymentStatus || row.payment_status || 'pendente');
+  const validPaymentStatuses = ['pendente', 'parcial', 'pago', 'estornado'];
+  const safePaymentStatus = (
+    validPaymentStatuses.includes(paymentStatusRaw) ? paymentStatusRaw : 'pendente'
+  ) as CustomerOrderHistoryItem['paymentStatus'];
+
+  return {
+    id: String(row.id),
+    referenceId: String(row.order_code || row.reference_id || row.id),
+    customerId: row.customer_id ? String(row.customer_id) : info.customerId ? String(info.customerId) : undefined,
+    customerName: info.customerName ? String(info.customerName) : undefined,
+    customerPhone: info.customerPhone ? String(info.customerPhone) : undefined,
+    customerEmail: info.customerEmail ? String(info.customerEmail) : undefined,
+    createdAt: String(row.created_at || new Date().toISOString()),
+    updatedAt: info.updatedAt ? String(info.updatedAt) : row.updated_at ? String(row.updated_at) : undefined,
+    updatedBy: info.updatedBy ? String(info.updatedBy) : undefined,
+    items: Array.isArray(row.items) ? row.items : [],
+    subtotal: Number(row.subtotal) || 0,
+    discount: Number(row.discount) || 0,
+    deliveryFee: Number(info.deliveryFee ?? row.delivery_fee) || 0,
+    total: Number(row.total) || 0,
+    paymentMethod: String(row.payment_method || 'WhatsApp'),
+    paymentStatus: safePaymentStatus,
+    amountPaid:
+      typeof info.amountPaid === 'number'
+        ? info.amountPaid
+        : safePaymentStatus === 'pago'
+        ? Number(row.total) || 0
+        : 0,
+    deliveryType: (info.deliveryType || row.delivery_type) === 'pickup' ? 'pickup' : 'delivery',
+    addressSummary: info.addressSummary || row.address_summary || undefined,
+    customerNotes: info.customerNotes || undefined,
+    status: safeStatus,
+    cancelReason: info.cancelReason || undefined,
+    statusHistory: Array.isArray(info.statusHistory) ? info.statusHistory : [],
+    couponCode: row.coupon_code || undefined,
+    vipDiscountApplied: Boolean(row.vip_discount_applied),
+    vipDiscountAmount: Number(row.vip_discount_amount) || 0,
+    loyaltyEligible: info.loyaltyEligible !== false,
+    loyaltyStampGranted: info.loyaltyStampGranted === true,
+    loyaltyStampGrantedAt: info.loyaltyStampGrantedAt || undefined,
+    loyaltyStampGrantedBy: info.loyaltyStampGrantedBy || undefined,
+    loyaltyGrantIdempotencyKey: info.loyaltyGrantIdempotencyKey || undefined,
+    financialSaleId: info.financialSaleId || undefined,
+    financialRecordedAt: info.financialRecordedAt || undefined,
+    version: typeof info.version === 'number' && info.version > 0 ? info.version : 1,
+  };
+}
+
+/**
+ * Salva pedido realizado pelo cliente ou atualizado pelo administrador no Supabase
  */
 export async function saveCustomerOrderToSupabase(
   order: CustomerOrderHistoryItem,
   customerId: string
 ): Promise<boolean> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client || !customerId) return false;
 
   try {
     const payload = {
       id: order.id,
+      order_code: order.referenceId || order.id,
       customer_id: customerId,
-      reference_id: order.referenceId,
-      items: order.items,
-      subtotal: order.subtotal,
-      discount: order.discount,
-      total: order.total,
-      payment_method: order.paymentMethod,
-      delivery_type: order.deliveryType,
-      address_summary: order.addressSummary || null,
-      status: order.status || 'recebido',
       created_at: order.createdAt || new Date().toISOString(),
+      status: order.status || 'recebido',
+      items: order.items || [],
+      subtotal: Number(order.subtotal) || 0,
+      discount: Number(order.discount) || 0,
+      total: Number(order.total) || 0,
+      coupon_code: order.couponCode || null,
+      vip_discount_applied: Boolean(order.vipDiscountApplied),
+      vip_discount_amount: Number(order.vipDiscountAmount) || 0,
+      payment_method: order.paymentMethod || 'Pix',
+      delivery_info: buildOrderDeliveryInfoPayload(order, customerId),
     };
 
     const { error } = await client.from('customer_orders').upsert(payload);
     if (error) {
       if (isMissingTableError(error)) return false;
-      console.warn('[Supabase] Aviso ao salvar pedido do cliente:', error.message);
+      console.warn('[Supabase] Aviso ao salvar pedido em customer_orders:', error.message);
       return false;
     }
     return true;
@@ -1017,13 +1111,13 @@ export async function saveCustomerOrderToSupabase(
 }
 
 /**
- * Busca histórico de pedidos do cliente no Supabase
+ * Busca histórico de pedidos de um cliente específico no Supabase
  */
 export async function fetchCustomerOrdersFromSupabase(
   customerId: string
 ): Promise<CustomerOrderHistoryItem[]> {
   const client = getSupabaseClient();
-  if (!client) return [];
+  if (!client || !customerId) return [];
 
   try {
     const { data, error } = await client
@@ -1039,23 +1133,57 @@ export async function fetchCustomerOrdersFromSupabase(
     }
 
     if (!data || !Array.isArray(data)) return [];
-
-    return data.map((o) => ({
-      id: o.id,
-      referenceId: o.reference_id,
-      createdAt: o.created_at,
-      items: o.items || [],
-      subtotal: Number(o.subtotal) || 0,
-      discount: Number(o.discount) || 0,
-      total: Number(o.total) || 0,
-      paymentMethod: o.payment_method || 'WhatsApp',
-      deliveryType: o.delivery_type || 'delivery',
-      addressSummary: o.address_summary || undefined,
-      status: o.status || 'recebido',
-    }));
+    return data.map((row) => mapSupabaseRowToCustomerOrder(row));
   } catch (err) {
     if (isMissingTableError(err)) return [];
     return [];
+  }
+}
+
+/**
+ * Busca todos os pedidos registrados em `customer_orders` para a Central de Pedidos Administrativa
+ */
+export async function fetchAllCustomerOrdersFromSupabase(): Promise<{
+  orders: CustomerOrderHistoryItem[];
+  error?: string;
+  errorKind?: 'connection' | 'permission' | 'missing_table';
+}> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { orders: [] };
+  }
+
+  try {
+    const { data, error } = await client
+      .from('customer_orders')
+      .select('*')
+      .order('created_at', { ascending: false })
+      .limit(500);
+
+    if (error) {
+      if (isMissingTableError(error)) {
+        return { orders: [], error: 'Tabela customer_orders ainda não instalada no banco.', errorKind: 'missing_table' };
+      }
+      const isPerm = error.code === '42501' || /permission|policy|rls/i.test(error.message || '');
+      return {
+        orders: [],
+        error: isPerm
+          ? 'Sua sessão não possui permissão administrativa no banco para listar todos os pedidos.'
+          : 'Não foi possível consultar os pedidos no servidor. Verifique sua conexão e tente novamente.',
+        errorKind: isPerm ? 'permission' : 'connection',
+      };
+    }
+
+    if (!data || !Array.isArray(data)) return { orders: [] };
+    return {
+      orders: data.map((row) => mapSupabaseRowToCustomerOrder(row)),
+    };
+  } catch {
+    return {
+      orders: [],
+      error: 'Falha de conexão ao buscar pedidos. Verifique a internet e tente novamente.',
+      errorKind: 'connection',
+    };
   }
 }
 
