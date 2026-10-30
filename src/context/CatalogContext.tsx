@@ -2337,9 +2337,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       setManualExpenses((prev) => mergeFinancialRecords(expenses, prev));
       setMerchandisePurchases((prev) => mergeFinancialRecords(purchases, prev));
       setCashMovements((prev) => mergeFinancialRecords(movements, prev));
-      if (initialBalances && initialBalances.length > 0) {
-        setInitialCashBalances(initialBalances.map((b) => ({ ...b, _syncStatus: 'synced' })));
-      }
+      setInitialCashBalances((prev) => mergeFinancialRecords(initialBalances, prev));
       setManualCommitments((prev) => mergeFinancialRecords(commitments, prev));
     } catch (e) {
       console.warn('[Meu Negócio] Aviso ao sincronizar com Supabase:', e);
