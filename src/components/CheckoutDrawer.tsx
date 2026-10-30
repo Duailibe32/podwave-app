@@ -1,5 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../context/CatalogContext';
+import { formatCep, formatBrazilianPhone } from "../utils/customerInputs";
+import { useCepLookup } from "../hooks/useCepLookup";
 import { USB_C_ADDON } from '../data/initialData';
 import { GpsLocationSection } from './GpsLocationSection';
 import {
@@ -55,6 +57,7 @@ export const CheckoutDrawer: React.FC = () => {
   const [address, setAddress] = useState('');
   const [bairro, setBairro] = useState('');
   const [city, setCity] = useState('');
+  const [addressState, setAddressState] = useState('');
   const [numberAndComplement, setNumberAndComplement] = useState('');
   const [referencePoint, setReferencePoint] = useState('');
   const [cep, setCep] = useState('');
@@ -87,10 +90,8 @@ export const CheckoutDrawer: React.FC = () => {
         if (currentUser.address.bairro) {
           setBairro(currentUser.address.bairro);
         }
-        const cityState = [currentUser.address.city, currentUser.address.state].filter(Boolean).join(' - ');
-        if (cityState) {
-          setCity(cityState);
-        }
+        if (currentUser.address.city) setCity(currentUser.address.city);
+        setAddressState(currentUser.address.state || '');
         if (currentUser.address.referencePoint) {
           setReferencePoint(currentUser.address.referencePoint);
         }
@@ -126,19 +127,16 @@ export const CheckoutDrawer: React.FC = () => {
     }
   };
 
+  const { isSearchingCep, cepMessage, handleLookupCep } = useCepLookup(cep, (found) => {
+    setAddress((current) => current === address ? found.street || current : current);
+    setBairro((current) => current === bairro ? found.bairro || current : current);
+    setCity((current) => current === city ? found.city : current);
+    setAddressState((current) => current === addressState ? found.state : current);
+  }, isCheckoutOpen && !isPickup);
+
   if (!isCheckoutOpen) return null;
 
-  const handleFormatPhone = (val: string) => {
-    // Basic mask (00) 00000-0000
-    const numbers = val.replace(/\D/g, '').slice(0, 11);
-    if (numbers.length <= 2) {
-      setPhoneWhatsapp(numbers);
-    } else if (numbers.length <= 7) {
-      setPhoneWhatsapp(`(${numbers.slice(0, 2)}) ${numbers.slice(2)}`);
-    } else {
-      setPhoneWhatsapp(`(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7)}`);
-    }
-  };
+  const handleFormatPhone = (val: string) => setPhoneWhatsapp(formatBrazilianPhone(val));
 
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
@@ -165,7 +163,7 @@ export const CheckoutDrawer: React.FC = () => {
     if (currentUser) {
       const addressSummary = isPickup
         ? 'Retirada no Local'
-        : `${address}${numberAndComplement ? `, ${numberAndComplement}` : ''}${bairro ? ` - ${bairro}` : ''}${city ? ` (${city})` : ''}`;
+        : `${address}${numberAndComplement ? `, ${numberAndComplement}` : ''}${bairro ? ` - ${bairro}` : ''}${city ? ` (${[city, addressState].filter(Boolean).join(' - ')})` : ''}`;
 
       recordCustomerOrder({
         referenceId: `PW-${Date.now().toString().slice(-6)}`,
@@ -193,6 +191,7 @@ export const CheckoutDrawer: React.FC = () => {
             number: numberAndComplement,
             bairro,
             city,
+            state: addressState,
             referencePoint,
             cep: cep || currentUser.address?.cep,
           },
@@ -205,7 +204,7 @@ export const CheckoutDrawer: React.FC = () => {
       phoneWhatsapp,
       address,
       bairro: bairro.trim() || undefined,
-      city: city.trim() || undefined,
+      city: [city.trim(), addressState.trim()].filter(Boolean).join(' - ') || undefined,
       numberAndComplement: numberAndComplement.trim() || undefined,
       referencePoint: referencePoint.trim() || undefined,
       isPickup,
@@ -303,8 +302,9 @@ export const CheckoutDrawer: React.FC = () => {
                 Nome completo *
               </label>
               <input
-                type="text"
+type="text"
                 placeholder="Seu nome completo"
+                autoComplete="name" name="fullName" aria-label="Nome completo"
                 value={fullName}
                 onChange={(e) => setFullName(e.target.value)}
                 required
@@ -318,8 +318,12 @@ export const CheckoutDrawer: React.FC = () => {
                 Telefone / WhatsApp *
               </label>
               <input
-                type="text"
+                type="tel"
                 placeholder="(00) 00000-0000"
+                inputMode="tel"
+                autoComplete="tel-national"
+                name="phone"
+                aria-label="Telefone / WhatsApp"
                 value={phoneWhatsapp}
                 onChange={(e) => handleFormatPhone(e.target.value)}
                 required
@@ -346,6 +350,31 @@ export const CheckoutDrawer: React.FC = () => {
               {/* Detailed Address inputs for administrative attendance record */}
               {!isPickup && (
                 <div className="space-y-2.5 animate-in fade-in duration-200">
+                  <div className="min-w-0 space-y-1.5">
+                    <label htmlFor="checkout-cep" className="block text-[11px] text-gray-300 font-semibold">CEP (opcional)</label>
+                    <div className="flex min-w-0 items-center gap-2">
+                      <input
+                        id="checkout-cep"
+                        type="text"
+                        inputMode="numeric"
+                        autoComplete="shipping postal-code"
+                        name="postalCode"
+                        maxLength={9}
+                        value={cep}
+                        onChange={(e) => setCep(formatCep(e.target.value))}
+                        placeholder="00000-000"
+                        aria-describedby="checkout-cep-status"
+                        className="min-w-0 w-full flex-1 px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-base focus:outline-none focus:border-[#00DFFF]"
+                      />
+                      <button type="button" onClick={handleLookupCep} disabled={isSearchingCep}
+                        className="min-h-11 shrink-0 px-3 py-2 rounded-xl bg-[#00DFFF]/20 text-[#00DFFF] text-xs font-bold cursor-pointer disabled:opacity-60">
+                        {isSearchingCep ? 'Buscando...' : 'Buscar endereço'}
+                      </button>
+                    </div>
+                    <p id="checkout-cep-status" role="status" aria-live="polite" className="text-[11px] text-[#A5A5B8] break-words">
+                      {cepMessage || 'Ao buscar, apenas o CEP é consultado no ViaCEP. Se preferir, preencha o endereço manualmente.'}
+                    </p>
+                  </div>
                   <div>
                     <label className="block text-[11px] text-gray-300 font-semibold mb-1">
                       Rua / Avenida / Logradouro *
@@ -353,6 +382,9 @@ export const CheckoutDrawer: React.FC = () => {
                     <input
                       type="text"
                       placeholder="Ex: Av. dos Holandeses, Rua das Palmeiras"
+                      autoComplete="shipping address-line1"
+                      name="street"
+                      aria-label="Rua / Avenida"
                       value={address}
                       onChange={(e) => setAddress(e.target.value)}
                       required={!isPickup}
@@ -368,6 +400,9 @@ export const CheckoutDrawer: React.FC = () => {
                       <input
                         type="text"
                         placeholder="Ex: 104, Bloco B, Apt 302"
+                        autoComplete="shipping address-line2"
+                        name="addressDetails"
+                        aria-label="Número e complemento"
                         value={numberAndComplement}
                         onChange={(e) => setNumberAndComplement(e.target.value)}
                         className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
@@ -381,6 +416,9 @@ export const CheckoutDrawer: React.FC = () => {
                       <input
                         type="text"
                         placeholder="Ex: Calhau, Renascença, Cohama"
+                        autoComplete="shipping address-level3"
+                        name="bairro"
+                        aria-label="Bairro"
                         value={bairro}
                         onChange={(e) => setBairro(e.target.value)}
                         className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
@@ -396,6 +434,9 @@ export const CheckoutDrawer: React.FC = () => {
                       <input
                         type="text"
                         placeholder="Sua cidade"
+                        autoComplete="shipping address-level2"
+                        name="city"
+                        aria-label="Cidade"
                         value={city}
                         onChange={(e) => setCity(e.target.value)}
                         className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
@@ -404,11 +445,22 @@ export const CheckoutDrawer: React.FC = () => {
 
                     <div>
                       <label className="block text-[11px] text-gray-300 font-semibold mb-1">
+                        UF
+                      </label>
+                      <input type="text" value={addressState} onChange={(e) => setAddressState(e.target.value.replace(/[^a-zA-Z]/g, '').toUpperCase())}
+                        name="state" autoComplete="shipping address-level1" aria-label="Estado" maxLength={2} placeholder="UF"
+                        className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]" />
+                    </div>
+                    <div className="min-[380px]:col-span-2">
+                      <label className="block text-[11px] text-gray-300 font-semibold mb-1">
                         Ponto de Referência
                       </label>
                       <input
                         type="text"
                         placeholder="Ex: Próximo à praça ou farmácia"
+                        autoComplete="off"
+                        name="referencePoint"
+                        aria-label="Ponto de referência"
                         value={referencePoint}
                         onChange={(e) => setReferencePoint(e.target.value)}
                         className="w-full px-3 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
@@ -757,7 +809,7 @@ export const CheckoutDrawer: React.FC = () => {
           phoneWhatsapp,
           address,
           bairro: bairro.trim() || undefined,
-          city: city.trim() || undefined,
+          city: [city.trim(), addressState.trim()].filter(Boolean).join(' - ') || undefined,
           numberAndComplement: numberAndComplement.trim() || undefined,
           referencePoint: referencePoint.trim() || undefined,
           isPickup,
@@ -770,4 +822,5 @@ export const CheckoutDrawer: React.FC = () => {
     </div>
   );
 };
+
 

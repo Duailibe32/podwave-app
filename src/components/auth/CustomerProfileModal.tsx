@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
+import { formatCep, formatBrazilianPhone } from "../../utils/customerInputs";
+import { useCepLookup } from "../../hooks/useCepLookup";
 import { CustomerAddress, PasskeyItem } from '../../types/catalog';
 import { OrderNotificationSettings } from '../../context/OrderNotificationsContext';
 import { OrderStatusTimeline } from '../OrderStatusTimeline';
@@ -94,7 +96,7 @@ export const CustomerProfileModal: React.FC = () => {
   const [complement, setComplement] = useState(currentUser?.address?.complement || '');
   const [city, setCity] = useState(currentUser?.address?.city || '');
   const [state, setState] = useState(currentUser?.address?.state || '');
-  const [isSearchingCep, setIsSearchingCep] = useState(false);
+
 
   const [isSaving, setIsSaving] = useState(false);
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
@@ -274,39 +276,16 @@ export const CustomerProfileModal: React.FC = () => {
     );
   }, [currentUser, remoteOrders]);
 
+  const { isSearchingCep, cepMessage, handleLookupCep } = useCepLookup(cep, (found) => {
+    setStreet((current) => current === street ? found.street || current : current);
+    setBairro((current) => current === bairro ? found.bairro || current : current);
+    setCity((current) => current === city ? found.city : current);
+    setState((current) => current === state ? found.state : current);
+  }, isProfileModalOpen && activeTab === 'profile');
+
   if (!isProfileModalOpen || !currentUser) return null;
 
-  const handleFormatPhone = (val: string) => {
-    const numbers = val.replace(/\D/g, '').slice(0, 11);
-    if (numbers.length <= 2) {
-      setPhoneWhatsapp(numbers);
-    } else if (numbers.length <= 7) {
-      setPhoneWhatsapp(`(${numbers.slice(0, 2)}) ${numbers.slice(2)}`);
-    } else {
-      setPhoneWhatsapp(`(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7)}`);
-    }
-  };
-
-  const handleLookupCep = async () => {
-    const raw = cep.replace(/\D/g, '');
-    if (raw.length !== 8) return;
-
-    setIsSearchingCep(true);
-    try {
-      const res = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
-      const data = await res.json();
-      if (!data.erro) {
-        setStreet(data.logradouro || '');
-        setBairro(data.bairro || '');
-        setCity(data.localidade || '');
-        setState(data.uf || '');
-      }
-    } catch {
-      // ignore
-    } finally {
-      setIsSearchingCep(false);
-    }
-  };
+  const handleFormatPhone = (val: string) => setPhoneWhatsapp(formatBrazilianPhone(val));
 
   const handleSaveProfile = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -1005,7 +984,7 @@ export const CustomerProfileModal: React.FC = () => {
           )}
           {/* ===================== TAB 1: PROFILE & DELIVERY ADDRESS ===================== */}
           {activeTab === 'profile' && (
-            <form onSubmit={handleSaveProfile} className="space-y-4 text-xs">
+            <form onSubmit={handleSaveProfile} className="customer-address-form space-y-4 text-xs">
               <div className="space-y-1">
                 <h4 className="font-heading text-sm font-bold text-white flex items-center gap-1.5">
                   <User className="w-4 h-4 text-[#00DFFF]" />
@@ -1020,8 +999,9 @@ export const CustomerProfileModal: React.FC = () => {
                 <div>
                   <label className="block text-gray-300 font-bold mb-1">Nome Completo</label>
                   <input
-                    type="text"
-                    value={fullName}
+type="text"
+                    autoComplete="name" name="fullName" aria-label="Nome completo"
+                value={fullName}
                     onChange={(e) => setFullName(e.target.value)}
                     required
                     className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white font-bold text-xs focus:outline-none focus:border-[#00DFFF]"
@@ -1032,6 +1012,10 @@ export const CustomerProfileModal: React.FC = () => {
                   <label className="block text-gray-300 font-bold mb-1">WhatsApp / Telefone</label>
                   <input
                     type="tel"
+                    inputMode="tel"
+                    autoComplete="tel-national"
+                    name="phone"
+                    aria-label="Telefone / WhatsApp"
                     value={phoneWhatsapp}
                     onChange={(e) => handleFormatPhone(e.target.value)}
                     placeholder="(86) 99999-9999"
@@ -1054,14 +1038,20 @@ export const CustomerProfileModal: React.FC = () => {
                     <div className="flex items-center gap-2">
                       <input
                         type="text"
+                        inputMode="numeric"
+                        autoComplete="shipping postal-code"
+                        name="postalCode"
+                        maxLength={9}
+                        aria-label="CEP"
                         value={cep}
-                        onChange={(e) => setCep(e.target.value)}
+                        onChange={(e) => setCep(formatCep(e.target.value))}
                         placeholder="CEP (ex: 64000-000)"
                         className="w-full p-2 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-white text-xs focus:outline-none focus:border-[#00DFFF]"
                       />
                       <button
                         type="button"
                         onClick={handleLookupCep}
+                      aria-label="Buscar endereço pelo CEP"
                         disabled={isSearchingCep}
                         className="p-2 rounded-xl bg-[#00DFFF]/20 text-[#00DFFF] hover:bg-[#00DFFF]/30 text-xs font-bold cursor-pointer shrink-0"
                         title="Buscar CEP"
@@ -1073,6 +1063,9 @@ export const CustomerProfileModal: React.FC = () => {
                   <div>
                     <input
                       type="text"
+                      autoComplete="shipping address-level1"
+                      name="state"
+                      aria-label="Estado"
                       value={state}
                       onChange={(e) => setState(e.target.value.toUpperCase())}
                       placeholder="UF"
@@ -1082,10 +1075,15 @@ export const CustomerProfileModal: React.FC = () => {
                   </div>
                 </div>
 
+              <p role="status" aria-live="polite" className="text-[11px] text-[#A5A5B8] break-words">{cepMessage || 'Ao buscar, apenas o CEP é consultado no ViaCEP. Você também pode preencher manualmente.'}</p>
+
                 <div className="grid grid-cols-3 gap-2">
                   <div className="col-span-2">
                     <input
                       type="text"
+                      autoComplete="shipping address-line1"
+                      name="street"
+                      aria-label="Rua / Avenida"
                       value={street}
                       onChange={(e) => setStreet(e.target.value)}
                       placeholder="Rua / Avenida"
@@ -1095,6 +1093,9 @@ export const CustomerProfileModal: React.FC = () => {
                   <div>
                     <input
                       type="text"
+                      autoComplete="off"
+                      name="addressNumber"
+                      aria-label="Número do endereço"
                       value={number}
                       onChange={(e) => setNumber(e.target.value)}
                       placeholder="Número"
@@ -1106,6 +1107,9 @@ export const CustomerProfileModal: React.FC = () => {
                 <div className="grid grid-cols-2 gap-2">
                   <input
                     type="text"
+                    autoComplete="shipping address-level3"
+                    name="bairro"
+                    aria-label="Bairro"
                     value={bairro}
                     onChange={(e) => setBairro(e.target.value)}
                     placeholder="Bairro"
@@ -1113,6 +1117,9 @@ export const CustomerProfileModal: React.FC = () => {
                   />
                   <input
                     type="text"
+                    autoComplete="shipping address-level2"
+                    name="city"
+                    aria-label="Cidade"
                     value={city}
                     onChange={(e) => setCity(e.target.value)}
                     placeholder="Cidade"
@@ -1122,6 +1129,9 @@ export const CustomerProfileModal: React.FC = () => {
 
                 <input
                   type="text"
+                  autoComplete="shipping address-line2"
+                  name="addressComplement"
+                  aria-label="Complemento"
                   value={complement}
                   onChange={(e) => setComplement(e.target.value)}
                   placeholder="Complemento / Ponto de Referência"
@@ -1618,3 +1628,4 @@ export const CustomerProfileModal: React.FC = () => {
     </div>
   );
 };
+

@@ -1,5 +1,7 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
+import { formatCep, formatBrazilianPhone } from "../../utils/customerInputs";
+import { useCepLookup } from "../../hooks/useCepLookup";
 import { CustomerAddress } from '../../types/catalog';
 import {
   X,
@@ -69,7 +71,7 @@ export const AuthModal: React.FC = () => {
   const [complement, setComplement] = useState('');
   const [city, setCity] = useState('');
   const [state, setState] = useState('');
-  const [isSearchingCep, setIsSearchingCep] = useState(false);
+
 
   const [isLoading, setIsLoading] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
@@ -96,53 +98,18 @@ export const AuthModal: React.FC = () => {
     return () => clearInterval(timer);
   }, [otpCooldown]);
 
+  const { isSearchingCep, cepMessage, handleLookupCep } = useCepLookup(cep, (found) => {
+    setStreet((current) => current === street ? found.street || current : current);
+    setBairro((current) => current === bairro ? found.bairro || current : current);
+    setCity((current) => current === city ? found.city : current);
+    setState((current) => current === state ? found.state : current);
+  }, isAuthModalOpen && mode === 'signup');
+
   if (!isAuthModalOpen) return null;
 
-  const handleFormatPhone = (val: string) => {
-    const numbers = val.replace(/\D/g, '').slice(0, 11);
-    if (numbers.length <= 2) {
-      setPhoneWhatsapp(numbers);
-    } else if (numbers.length <= 7) {
-      setPhoneWhatsapp(`(${numbers.slice(0, 2)}) ${numbers.slice(2)}`);
-    } else {
-      setPhoneWhatsapp(`(${numbers.slice(0, 2)}) ${numbers.slice(2, 7)}-${numbers.slice(7)}`);
-    }
-  };
+  const handleFormatPhone = (val: string) => setPhoneWhatsapp(formatBrazilianPhone(val));
 
-  const handleFormatCep = (val: string) => {
-    const numbers = val.replace(/\D/g, '').slice(0, 8);
-    if (numbers.length <= 5) {
-      setCep(numbers);
-    } else {
-      setCep(`${numbers.slice(0, 5)}-${numbers.slice(5)}`);
-    }
-  };
-
-  const handleLookupCep = async () => {
-    const raw = cep.replace(/\D/g, '');
-    if (raw.length !== 8) {
-      setErrorMsg('Por favor informe um CEP válido com 8 dígitos.');
-      return;
-    }
-
-    setIsSearchingCep(true);
-    try {
-      const res = await fetch(`https://viacep.com.br/ws/${raw}/json/`);
-      const data = await res.json();
-      if (!data.erro) {
-        setStreet(data.logradouro || '');
-        setBairro(data.bairro || '');
-        setCity(data.localidade || '');
-        setState(data.uf || '');
-      } else {
-        setErrorMsg('CEP não localizado pelos Correios. Preencha manualmente.');
-      }
-    } catch {
-      setErrorMsg('Não foi possível consultar o CEP no momento.');
-    } finally {
-      setIsSearchingCep(false);
-    }
-  };
+  const handleFormatCep = (val: string) => setCep(formatCep(val));
 
   const handleLoginSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -854,7 +821,7 @@ export const AuthModal: React.FC = () => {
 
         {/* ===================== TAB 3: SIGNUP ===================== */}
         {mode === 'signup' && (
-          <form onSubmit={handleRegisterSubmit} className="p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
+          <form onSubmit={handleRegisterSubmit} className="customer-address-form p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
             {/* Botão de Registro / Login com Google (1 clique) */}
             <button
               type="button"
@@ -899,6 +866,9 @@ export const AuthModal: React.FC = () => {
                 <label className="block text-gray-200 font-bold mb-1">Nome Completo *</label>
                 <input
                   type="text"
+                  autoComplete="name"
+                  name="fullName"
+                  aria-label="Nome completo"
                   value={fullName}
                   onChange={(e) => setFullName(e.target.value)}
                   placeholder="Ex: Carlos Eduardo Silva"
@@ -914,6 +884,10 @@ export const AuthModal: React.FC = () => {
                 </label>
                 <input
                   type="tel"
+                  inputMode="tel"
+                  autoComplete="tel-national"
+                  name="phone"
+                  aria-label="Telefone / WhatsApp"
                   value={phoneWhatsapp}
                   onChange={(e) => handleFormatPhone(e.target.value)}
                   placeholder="(86) 99999-9999"
@@ -964,6 +938,11 @@ export const AuthModal: React.FC = () => {
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
+                      inputMode="numeric"
+                      autoComplete="shipping postal-code"
+                      name="postalCode"
+                      maxLength={9}
+                      aria-label="CEP"
                       value={cep}
                       onChange={(e) => handleFormatCep(e.target.value)}
                       placeholder="CEP (ex: 64000-000)"
@@ -972,6 +951,7 @@ export const AuthModal: React.FC = () => {
                     <button
                       type="button"
                       onClick={handleLookupCep}
+                      aria-label="Buscar endereço pelo CEP"
                       disabled={isSearchingCep}
                       className="p-2 rounded-xl bg-[#00DFFF]/20 hover:bg-[#00DFFF]/30 text-[#00DFFF] font-bold text-xs cursor-pointer shrink-0"
                       title="Buscar CEP no ViaCEP"
@@ -983,6 +963,9 @@ export const AuthModal: React.FC = () => {
                 <div>
                   <input
                     type="text"
+                    autoComplete="shipping address-level1"
+                    name="state"
+                    aria-label="Estado"
                     value={state}
                     onChange={(e) => setState(e.target.value.toUpperCase())}
                     placeholder="UF (PI)"
@@ -992,10 +975,15 @@ export const AuthModal: React.FC = () => {
                 </div>
               </div>
 
+              <p role="status" aria-live="polite" className="text-[11px] text-[#A5A5B8] break-words">{cepMessage || 'Ao buscar, apenas o CEP é consultado no ViaCEP. Você também pode preencher manualmente.'}</p>
+
               <div className="grid grid-cols-3 gap-2">
                 <div className="col-span-2">
                   <input
                     type="text"
+                    autoComplete="shipping address-line1"
+                    name="street"
+                    aria-label="Rua / Avenida"
                     value={street}
                     onChange={(e) => setStreet(e.target.value)}
                     placeholder="Rua / Avenida"
@@ -1005,6 +993,9 @@ export const AuthModal: React.FC = () => {
                 <div>
                   <input
                     type="text"
+                    autoComplete="off"
+                    name="addressNumber"
+                    aria-label="Número do endereço"
                     value={number}
                     onChange={(e) => setNumber(e.target.value)}
                     placeholder="Nº"
@@ -1016,6 +1007,9 @@ export const AuthModal: React.FC = () => {
               <div className="grid grid-cols-2 gap-2">
                 <input
                   type="text"
+                  autoComplete="shipping address-level3"
+                  name="bairro"
+                  aria-label="Bairro"
                   value={bairro}
                   onChange={(e) => setBairro(e.target.value)}
                   placeholder="Bairro"
@@ -1023,6 +1017,9 @@ export const AuthModal: React.FC = () => {
                 />
                 <input
                   type="text"
+                  autoComplete="shipping address-level2"
+                  name="city"
+                  aria-label="Cidade"
                   value={city}
                   onChange={(e) => setCity(e.target.value)}
                   placeholder="Cidade"
@@ -1032,6 +1029,9 @@ export const AuthModal: React.FC = () => {
 
               <input
                 type="text"
+                autoComplete="shipping address-line2"
+                name="addressComplement"
+                aria-label="Complemento"
                 value={complement}
                 onChange={(e) => setComplement(e.target.value)}
                 placeholder="Complemento / Ponto de referência (Apto, Bloco, etc)"
@@ -1057,3 +1057,4 @@ export const AuthModal: React.FC = () => {
     </div>
   );
 };
+
