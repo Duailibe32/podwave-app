@@ -19,6 +19,7 @@ import {
 } from 'lucide-react';
 
 import { OrderRecordPreviewModal } from './OrderRecordPreviewModal';
+import { getUserLoyaltyCard } from '../utils/loyaltyCard';
 
 export const CheckoutDrawer: React.FC = () => {
   const {
@@ -40,9 +41,14 @@ export const CheckoutDrawer: React.FC = () => {
     settings,
     currentUser,
     openAuthModal,
+    openProfileModal,
     updateCustomerProfile,
     recordCustomerOrder,
   } = useCatalog();
+
+  const currentLoyalty = currentUser
+    ? getUserLoyaltyCard(currentUser, settings.loyaltyGoalStamps || 10, settings.loyaltyDefaultReward)
+    : null;
 
   const [fullName, setFullName] = useState('');
   const [phoneWhatsapp, setPhoneWhatsapp] = useState('');
@@ -200,6 +206,8 @@ export const CheckoutDrawer: React.FC = () => {
       paymentMethod,
       notes,
       wantsLoyaltyCard,
+      loyaltyStampsSnapshot: currentLoyalty?.stamps,
+      loyaltyGoalSnapshot: currentLoyalty?.goal,
       gpsMapsUrl,
     });
   };
@@ -451,17 +459,43 @@ export const CheckoutDrawer: React.FC = () => {
               />
             </div>
 
-            {/* Checkbox: Cartão fidelidade */}
-            <label className="p-3 rounded-xl bg-[#11152A] light:bg-slate-100 border border-[#8423DA]/25 flex items-center gap-2.5 cursor-pointer text-xs font-semibold text-gray-200 light:text-slate-800">
-              <input
-                type="checkbox"
-                checked={wantsLoyaltyCard}
-                onChange={(e) => setWantsLoyaltyCard(e.target.checked)}
-                className="w-4 h-4 rounded text-[#8423DA] focus:ring-[#00DFFF] cursor-pointer"
-              />
-              <Gift className="w-4 h-4 text-[#E53CF3]" />
-              <span>🎁 Quero receber o cartão fidelidade (opcional)</span>
-            </label>
+            {/* Cartão Fidelidade Digital */}
+            <div className="p-3.5 rounded-2xl bg-[#11152A] light:bg-slate-100 border border-[#8423DA]/30 space-y-2">
+              <label className="flex items-center justify-between gap-2.5 cursor-pointer text-xs font-semibold text-gray-200 light:text-slate-800">
+                <div className="flex items-center gap-2.5">
+                  <input
+                    type="checkbox"
+                    checked={wantsLoyaltyCard}
+                    onChange={(e) => setWantsLoyaltyCard(e.target.checked)}
+                    className="w-4 h-4 rounded text-[#8423DA] focus:ring-[#00DFFF] cursor-pointer"
+                  />
+                  <Gift className="w-4 h-4 text-[#E53CF3] shrink-0" />
+                  <span>🎁 Solicitar selo no Cartão Fidelidade Digital</span>
+                </div>
+                {currentLoyalty && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setIsCheckoutOpen(false);
+                      openProfileModal();
+                    }}
+                    className="px-2 py-0.5 rounded-full bg-[#8423DA]/25 border border-[#00DFFF]/40 text-[#00DFFF] font-mono font-bold text-[10px] shrink-0 hover:bg-[#8423DA]/40 transition cursor-pointer"
+                    title="Ver meu Cartão Fidelidade Digital"
+                  >
+                    {currentLoyalty.stamps}/{currentLoyalty.goal} selos
+                  </button>
+                )}
+              </label>
+              {currentLoyalty && (
+                <div className="pl-6 text-[11px] text-[#A5A5B8] flex items-center justify-between">
+                  <span>
+                    {currentLoyalty.stamps >= currentLoyalty.goal
+                      ? '🎉 Seu cartão está completo! Avise no WhatsApp para resgatar seu prêmio.'
+                      : `Você possui ${currentLoyalty.stamps} de ${currentLoyalty.goal} selos acumulados na sua conta.`}
+                  </span>
+                </div>
+              )}
+            </div>
 
             {/* CAMPO DE CUPOM DE DESCONTO COM VALIDAÇÃO EM ARRAY LOCAL */}
             <div className="p-4 rounded-2xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/30 space-y-3">

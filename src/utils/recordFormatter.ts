@@ -145,7 +145,17 @@ export function formatAttendanceRecord(data: AttendanceRecordData): string {
     : 'Nenhuma observação informada.';
 
   // Loyalty card
-  const loyaltyText = form.wantsLoyaltyCard ? 'Sim (Solicitado)' : 'Não solicitado';
+  const hasSnapshot =
+    typeof form.loyaltyStampsSnapshot === 'number' &&
+    typeof form.loyaltyGoalSnapshot === 'number';
+  const snapshotSuffix = hasSnapshot
+    ? ` — Saldo atual no perfil: ${form.loyaltyStampsSnapshot}/${form.loyaltyGoalSnapshot} selos`
+    : '';
+  const loyaltyText = form.wantsLoyaltyCard
+    ? `Sim (Solicitado validação de selo${snapshotSuffix})`
+    : hasSnapshot && form.loyaltyStampsSnapshot! > 0
+    ? `Cliente possui ${form.loyaltyStampsSnapshot}/${form.loyaltyGoalSnapshot} selos no perfil`
+    : 'Não solicitado';
 
   // Build finalized message using clean WhatsApp compatible UTF-8
   return `🌊 *PODWAVE*

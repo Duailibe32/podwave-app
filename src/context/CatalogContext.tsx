@@ -31,6 +31,13 @@ import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from
 import { openWhatsAppShare } from '../utils/whatsappShare';
 import { calculateVariantAvailability } from '../utils/availability';
 import { cartStockError } from '../utils/stock';
+import {
+  applyLoyaltyMutation,
+  getUserLoyaltyCard,
+  loadLocalLoyaltyCardsMap,
+  saveLocalLoyaltyCardsMap,
+  LoyaltyMutationInput,
+} from '../utils/loyaltyCard';
 import { 
   getSupabaseCredentials,
   saveSupabaseCredentials,
@@ -55,6 +62,7 @@ import {
   translateSupabaseAuthError,
   fetchAllCustomerProfilesFromSupabase,
   updateCustomerRoleInSupabase,
+  updateCustomerLoyaltyInSupabase,
   deleteCustomerProfileFromSupabase,
   createAdminOrVipUserInSupabase,
   fetchManualSalesFromSupabase,
@@ -152,6 +160,7 @@ interface CatalogContextType {
   isLoadingUsers: boolean;
   fetchAllUsers: () => Promise<void>;
   updateUserRole: (userId: string, newRole: UserRole, customDiscount?: number) => Promise<boolean>;
+  updateUserLoyalty: (userId: string, mutation: LoyaltyMutationInput) => Promise<boolean>;
   createUserWithRole: (data: { email: string; fullName: string; phoneWhatsapp?: string; role: UserRole; password?: string; vipDiscount?: number }) => Promise<{ success: boolean; message: string }>;
   deleteUser: (userId: string) => Promise<boolean>;
   vipDiscountAmount: number;
@@ -463,18 +472,47 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [allUsers, setAllUsers] = useState<UserProfile[]>([]);
   const [isLoadingUsers, setIsLoadingUsers] = useState<boolean>(false);
 
+  const mergeUserWithLocalLoyalty = (user: UserProfile): UserProfile => {
+    const localMap = loadLocalLoyaltyCardsMap();
+    const localCard = localMap[user.id];
+    const remoteCard = user.loyaltyCard;
+
+    if (localCard && remoteCard) {
+      const localTime = localCard.updatedAt ? new Date(localCard.updatedAt).getTime() : 0;
+      const remoteTime = remoteCard.updatedAt ? new Date(remoteCard.updatedAt).getTime() : 0;
+      return {
+        ...user,
+        loyaltyCard: localTime >= remoteTime ? localCard : remoteCard,
+      };
+    }
+    if (localCard || remoteCard) {
+      return {
+        ...user,
+        loyaltyCard: localCard || remoteCard,
+      };
+    }
+    return user;
+  };
+
   const fetchAllUsers = async () => {
     setIsLoadingUsers(true);
     try {
       const remoteUsers = await fetchAllCustomerProfilesFromSupabase();
       if (remoteUsers && remoteUsers.length > 0) {
-        setAllUsers(remoteUsers);
+        const merged = remoteUsers.map(mergeUserWithLocalLoyalty);
+        setAllUsers(merged);
+        if (currentUser) {
+          const updatedCurrent = merged.find((u) => u.id === currentUser.id);
+          if (updatedCurrent?.loyaltyCard) {
+            setCurrentUser((prev) => (prev ? { ...prev, loyaltyCard: updatedCurrent.loyaltyCard } : null));
+          }
+        }
       } else if (currentUser) {
-        setAllUsers([currentUser]);
+        setAllUsers([mergeUserWithLocalLoyalty(currentUser)]);
       }
     } catch (e) {
       console.warn('[CatalogContext] Erro ao buscar lista de usuários:', e);
-      if (currentUser) setAllUsers([currentUser]);
+      if (currentUser) setAllUsers([mergeUserWithLocalLoyalty(currentUser)]);
     } finally {
       setIsLoadingUsers(false);
     }
@@ -500,6 +538,42 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
     }
     return ok;
+  };
+
+  const updateUserLoyalty = async (userId: string, mutation: LoyaltyMutationInput): Promise<boolean> => {
+    if (!isAdmin) return false;
+
+    const targetUser =
+      allUsers.find((u) => u.id === userId) ||
+      (currentUser?.id === userId ? currentUser : undefined);
+
+    const defaultGoal = settings.loyaltyGoalStamps || 10;
+    const defaultReward = settings.loyaltyDefaultReward || 'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
+    const currentCard = getUserLoyaltyCard(targetUser, defaultGoal, defaultReward);
+    const authorLabel = currentUser?.fullName || currentUser?.email || 'Administrador';
+
+    const nextCard = applyLoyaltyMutation(currentCard, {
+      ...mutation,
+      author: authorLabel,
+    });
+
+    const localMap = loadLocalLoyaltyCardsMap();
+    localMap[userId] = nextCard;
+    saveLocalLoyaltyCardsMap(localMap);
+
+    setAllUsers((prev) =>
+      prev.map((u) => (u.id === userId ? { ...u, loyaltyCard: nextCard } : u))
+    );
+
+    if (currentUser && currentUser.id === userId) {
+      setCurrentUser((prev) => (prev ? { ...prev, loyaltyCard: nextCard } : null));
+    }
+
+    if (supabaseCreds.isConfigured) {
+      await updateCustomerLoyaltyInSupabase(userId, nextCard);
+    }
+
+    return true;
   };
 
   const createUserWithRole = async (data: {
@@ -2929,6 +3003,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isLoadingUsers,
         fetchAllUsers,
         updateUserRole,
+        updateUserLoyalty,
         createUserWithRole,
         deleteUser,
         vipDiscountAmount,

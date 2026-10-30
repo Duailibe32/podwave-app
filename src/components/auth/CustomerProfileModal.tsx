@@ -2,6 +2,8 @@ import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
 import { CustomerAddress } from '../../types/catalog';
 import { OrderNotificationSettings } from '../../context/OrderNotificationsContext';
+import { getUserLoyaltyCard } from '../../utils/loyaltyCard';
+import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
 import {
   X,
   User,
@@ -18,6 +20,7 @@ import {
   CheckCircle2,
   ExternalLink,
   ShieldCheck,
+  Gift,
 } from 'lucide-react';
 
 export const CustomerProfileModal: React.FC = () => {
@@ -34,7 +37,7 @@ export const CustomerProfileModal: React.FC = () => {
     setCurrentView,
   } = useCatalog();
 
-  const [activeTab, setActiveTab] = useState<'profile' | 'orders'>('profile');
+  const [activeTab, setActiveTab] = useState<'profile' | 'loyalty' | 'orders'>('profile');
   React.useEffect(() => {
     const openOrders = () => setActiveTab('orders');
     window.addEventListener('podwave:open-orders',openOrders);
@@ -136,6 +139,11 @@ export const CustomerProfileModal: React.FC = () => {
   };
 
   const orders = currentUser.orderHistory || [];
+  const loyaltyCard = getUserLoyaltyCard(
+    currentUser,
+    settings.loyaltyGoalStamps || 10,
+    settings.loyaltyDefaultReward
+  );
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
@@ -216,27 +224,42 @@ export const CustomerProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'profile'
                 ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white shadow-md'
                 : 'text-gray-400 hover:text-white'
             }`}
           >
-            <MapPin className="w-3.5 h-3.5" />
-            <span>Dados de Entrega Salvos</span>
+            <MapPin className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Dados de Entrega</span>
+          </button>
+
+          <button
+            type="button"
+            onClick={() => setActiveTab('loyalty')}
+            className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+              activeTab === 'loyalty'
+                ? 'bg-gradient-to-r from-[#8423DA] via-[#E53CF3] to-[#00DFFF] text-white shadow-md'
+                : 'text-gray-400 hover:text-white'
+            }`}
+          >
+            <Gift className="w-3.5 h-3.5 shrink-0 text-[#00DFFF]" />
+            <span className="truncate">
+              Fidelidade ({loyaltyCard.stamps}/{loyaltyCard.goal})
+            </span>
           </button>
 
           <button
             type="button"
             onClick={() => setActiveTab('orders')}
-            className={`flex-1 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-2 ${
+            className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'orders'
                 ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white shadow-md'
                 : 'text-gray-400 hover:text-white'
             }`}
           >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span>Histórico de Pedidos ({orders.length})</span>
+            <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
+            <span className="truncate">Pedidos ({orders.length})</span>
           </button>
         </div>
 
@@ -250,6 +273,64 @@ export const CustomerProfileModal: React.FC = () => {
 
         {/* Body Container */}
         <div className="p-6 overflow-y-auto flex-1">
+          {/* ===================== TAB: DIGITAL LOYALTY CARD ===================== */}
+          {activeTab === 'loyalty' && (
+            <div className="space-y-4 text-xs animate-in fade-in duration-200">
+              <DigitalLoyaltyCard
+                customerName={currentUser.fullName}
+                customerEmail={currentUser.email}
+                card={loyaltyCard}
+                interactive={false}
+              />
+
+              <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 space-y-1.5">
+                <h5 className="font-heading font-bold text-white text-xs flex items-center gap-1.5">
+                  <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
+                  <span>Como funciona o Cartão Fidelidade PodWave?</span>
+                </h5>
+                <p className="text-[11px] text-[#A5A5B8] leading-relaxed">
+                  A cada pedido confirmado e entregue, nossa equipe adiciona <strong className="text-white">+1 selo</strong> diretamente ao seu perfil. Ao completar <strong className="text-[#00DFFF]">{loyaltyCard.goal} selos</strong>, você desbloqueia sua recompensa especial!
+                </p>
+              </div>
+
+              {loyaltyCard.history && loyaltyCard.history.length > 0 && (
+                <div className="space-y-2">
+                  <h5 className="text-[11px] font-extrabold uppercase tracking-wider text-[#A5A5B8]">
+                    Histórico de Selos Validados
+                  </h5>
+                  <div className="space-y-1.5 max-h-36 overflow-y-auto pr-1">
+                    {loyaltyCard.history.slice(0, 8).map((item) => (
+                      <div
+                        key={item.id}
+                        className="p-2.5 rounded-xl bg-[#121633] border border-white/5 flex items-center justify-between gap-2 text-[11px]"
+                      >
+                        <div>
+                          <span className="font-bold text-white">
+                            {item.action === 'redeem_reward'
+                              ? '🏆 Prêmio Resgatado'
+                              : item.action === 'reset_card'
+                              ? '🔄 Novo Ciclo Iniciado'
+                              : item.delta > 0
+                              ? `➕ +${item.delta} selo(s) validado(s)`
+                              : `Ajuste de selos`}
+                          </span>
+                          {item.note && (
+                            <span className="text-gray-300 ml-1">— {item.note}</span>
+                          )}
+                          <div className="text-[10px] text-gray-400">
+                            {new Date(item.date).toLocaleDateString('pt-BR')}
+                          </div>
+                        </div>
+                        <span className="font-mono font-bold text-[#00DFFF]">
+                          {item.stampsAfter}/{loyaltyCard.goal}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
           {/* ===================== TAB 1: PROFILE & DELIVERY ADDRESS ===================== */}
           {activeTab === 'profile' && (
             <form onSubmit={handleSaveProfile} className="space-y-4 text-xs">
