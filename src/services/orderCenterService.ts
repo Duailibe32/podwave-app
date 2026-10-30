@@ -328,7 +328,7 @@ export function evaluateOrderLoyalty(
       label: 'Aguardando entrega',
       description: 'O selo poderá ser creditado quando o pedido for marcado como Entregue.',
       canGrantAutomatically: false,
-      canGrantWithAdminOverride: false,
+      canGrantWithAdminOverride: true,
       customerCard: card,
     };
   }
@@ -497,14 +497,114 @@ export function buildManualSaleFromCatalogOrder(
 // NOTIFICAÇÕES INTELIGENTES PELO WHATSAPP (COM TEMPLATES PERSONALIZÁVEIS)
 // ============================================================================
 
+export type WhatsappTemplatePresetId =
+  | 'neon_interativo'
+  | 'direto_express'
+  | 'vip_fidelidade';
+
 export interface WhatsappOrderTemplates {
+  presetId?: WhatsappTemplatePresetId;
   enabled: Record<CatalogOrderStatus, boolean>;
   templates: Record<CatalogOrderStatus, string>;
 }
 
-const WHATSAPP_TEMPLATES_STORAGE_KEY = 'podwave_whatsapp_order_templates_v1';
+export interface WhatsappTemplateVariableMeta {
+  token: string;
+  label: string;
+  example: string;
+}
+
+export const WHATSAPP_TEMPLATE_VARIABLES: WhatsappTemplateVariableMeta[] = [
+  { token: '{primeiro_nome}', label: '1º Nome', example: 'Alice' },
+  { token: '{nome}', label: 'Nome Completo', example: 'Alice Souza' },
+  { token: '{referencia}', label: 'Código #Ref', example: 'PW-1001' },
+  { token: '{itens}', label: 'Lista de Itens', example: '• 1x *Ignite V150* (Watermelon Ice 🍉)' },
+  { token: '{resumo_itens}', label: 'Resumo 1 Linha', example: '1x Ignite V150 (Watermelon Ice)' },
+  { token: '{total}', label: 'Valor Total', example: 'R$ 120,00' },
+  { token: '{subtotal}', label: 'Subtotal', example: 'R$ 110,00' },
+  { token: '{frete}', label: 'Taxa Entrega', example: 'R$ 10,00' },
+  { token: '{pagamento}', label: 'Pagamento', example: 'PIX (Pago ✅)' },
+  { token: '{entrega}', label: 'Tipo/Endereço', example: 'Entrega • Av. Frei Serafim, 1000' },
+  { token: '{selo_info}', label: 'Bloco Selo Fidelidade', example: '🎁 Creditamos +1 selo no seu Cartão Fidelidade...' },
+  { token: '{motivo_cancelamento}', label: 'Motivo Cancelamento', example: 'Motivo: solicitado pelo cliente.' },
+];
+
+export const WHATSAPP_TEMPLATE_PRESETS: Record<
+  WhatsappTemplatePresetId,
+  {
+    id: WhatsappTemplatePresetId;
+    name: string;
+    badge: string;
+    description: string;
+    templates: Record<CatalogOrderStatus, string>;
+  }
+> = {
+  neon_interativo: {
+    id: 'neon_interativo',
+    name: 'Neon Interativo & Completo',
+    badge: '★ Recomendado',
+    description: 'Visual rico com lista de sabores, status de pagamento, endereço e destaque de fidelidade.',
+    templates: {
+      recebido:
+        '🌊 *PODWAVE • PEDIDO RECEBIDO!* ⚡\n\nOlá, *{primeiro_nome}*! Recebemos seu pedido *#{referencia}* com sucesso:\n\n📦 *Itens do Pedido:*\n{itens}\n\n💳 *Pagamento:* {pagamento}\n📍 *Modalidade:* {entrega}\n💰 *Total:* *{total}*\n\nAssim que confirmarmos e separarmos seus produtos, te avisamos por aqui! 🚀',
+      confirmado:
+        '✅ *PEDIDO CONFIRMADO • PODWAVE* ⚡\n\nBoa notícia, *{primeiro_nome}*! Seu pedido *#{referencia}* foi confirmado e seus produtos já estão reservados do nosso estoque.\n\n📦 *Itens Reservados:*\n{itens}\n\n💰 *Total:* *{total}* ({pagamento})\n📍 *Destino:* {entrega}\n\nJá estamos encaminhando para a preparação! 🔥',
+      em_separacao:
+        '⚡ *EM SEPARAÇÃO • PODWAVE* 📦\n\nOlá, *{primeiro_nome}*! Nossa equipe já está preparando e conferindo cada item do seu pedido *#{referencia}*:\n\n{itens}\n\nAssim que sair para entrega, te mandamos o aviso em tempo real! ✨',
+      enviado:
+        '🛵 *SAIU PARA ENTREGA • PODWAVE!* 💨\n\nPrepare-se, *{primeiro_nome}*! Seu pedido *#{referencia}* acabou de sair e já está a caminho.\n\n📦 *Itens:* {resumo_itens}\n📍 *Destino:* {entrega}\n💳 *Pagamento:* {pagamento} • *{total}*\n\nQualquer dúvida, é só responder esta mensagem! 🌊🔥',
+      entregue:
+        '🎉 *PEDIDO ENTREGUE • PODWAVE!* 💜\n\nOlá, *{primeiro_nome}*! Confirmamos a entrega do seu pedido *#{referencia}*.\nEsperamos que curta muito sua sessão PodWave! 💨✨{selo_info}\n\nObrigado pela preferência e até a próxima! 🚀',
+      cancelado:
+        '⚠️ *ATUALIZAÇÃO DO PEDIDO #{referencia} • PODWAVE*\n\nOlá, *{primeiro_nome}*. Informamos que o pedido *#{referencia}* foi cancelado.{motivo_cancelamento}\n\nSe precisar de ajuda para escolher outro sabor disponível, estamos à disposição por aqui!',
+    },
+  },
+  direto_express: {
+    id: 'direto_express',
+    name: 'Direto & Rápido (Express)',
+    badge: 'Ágil',
+    description: 'Mensagens curtas e objetivas para atendimento rápido de balcão e despacho.',
+    templates: {
+      recebido:
+        '⚡ *PodWave:* Olá, *{primeiro_nome}*! Recebemos seu pedido *#{referencia}* ({resumo_itens}) • Total: *{total}*. Já vamos confirmar!',
+      confirmado:
+        '✅ *PodWave:* Pedido *#{referencia}* confirmado e reservado no estoque, *{primeiro_nome}*! Total: *{total}* ({pagamento}). Seguindo para separação! 🚀',
+      em_separacao:
+        '📦 *PodWave:* Olá, *{primeiro_nome}*! Seu pedido *#{referencia}* ({resumo_itens}) já está sendo separado pela nossa equipe.',
+      enviado:
+        '🛵 *PodWave:* Seu pedido *#{referencia}* saiu para entrega, *{primeiro_nome}*! Destino: {entrega}. Obrigado pela preferência! 💨',
+      entregue:
+        '🎉 *PodWave:* Pedido *#{referencia}* entregue com sucesso, *{primeiro_nome}*! Obrigado pela preferência!{selo_info}',
+      cancelado:
+        '⚠️ *PodWave:* Olá, *{primeiro_nome}*. O pedido *#{referencia}* foi cancelado.{motivo_cancelamento} Qualquer dúvida, fale conosco.',
+    },
+  },
+  vip_fidelidade: {
+    id: 'vip_fidelidade',
+    name: 'Experiência VIP & Club',
+    badge: 'Premium',
+    description: 'Tom exclusivo de concierge valorizando o clube de benefícios e a experiência PodWave.',
+    templates: {
+      recebido:
+        '👑 *PODWAVE CLUB • PEDIDO #{referencia}*\n\nOlá, *{nome}*! É um prazer atender você.\nRegistramos seu pedido com atendimento prioritário:\n\n{itens}\n\n💎 *Total:* *{total}* • {pagamento}\n📍 *Entrega:* {entrega}\n\nAcompanhe também pelo seu painel exclusivo no site! ✨',
+      confirmado:
+        '💎 *RESERVA CONFIRMADA • PODWAVE #{referencia}*\n\nOlá, *{primeiro_nome}*! Seus produtos já foram selecionados e baixados do nosso estoque exclusivo:\n\n{itens}\n\n💳 *Status:* {pagamento} (*{total}*)\nEm instantes iniciaremos o despacho! ⚡',
+      em_separacao:
+        '✨ *PREPARAÇÃO PREMIUM • PODWAVE #{referencia}*\n\n*{primeiro_nome}*, estamos conferindo e embalando cuidadosamente seu pedido:\n{itens}\n\nAvisaremos assim que o entregador partir! 🚀',
+      enviado:
+        '🚀 *A CAMINHO • PODWAVE #{referencia}*\n\n*{primeiro_nome}*, seu pedido já está em rota!\n📍 *Endereço:* {entrega}\n📦 *Produtos:* {resumo_itens}\n\nPrepare-se para a melhor experiência! 🌊💜',
+      entregue:
+        '👑 *ENTREGA CONCLUÍDA • PODWAVE CLUB*\n\n*{primeiro_nome}*, seu pedido *#{referencia}* foi entregue!\nAgradecemos por fazer parte da família PodWave.{selo_info}\n\nConte sempre conosco na sua próxima sessão! 🔥✨',
+      cancelado:
+        '🔔 *COMUNICADO PODWAVE • PEDIDO #{referencia}*\n\nOlá, *{primeiro_nome}*. Informamos que o pedido *#{referencia}* foi cancelado.{motivo_cancelamento}\n\nNossa equipe está à disposição caso deseje uma recomendação personalizada.',
+    },
+  },
+};
+
+const WHATSAPP_TEMPLATES_STORAGE_KEY = 'podwave_whatsapp_order_templates_v2';
 
 export const DEFAULT_WHATSAPP_ORDER_TEMPLATES: WhatsappOrderTemplates = {
+  presetId: 'neon_interativo',
   enabled: {
     recebido: true,
     confirmado: true,
@@ -514,18 +614,7 @@ export const DEFAULT_WHATSAPP_ORDER_TEMPLATES: WhatsappOrderTemplates = {
     cancelado: true,
   },
   templates: {
-    recebido:
-      'Olá, {nome}! Recebemos seu pedido #{referencia} na PodWave. Você poderá acompanhar as atualizações pelo seu histórico de pedidos. Obrigado!',
-    confirmado:
-      'Olá, {nome}! Seu pedido #{referencia} foi confirmado e seguirá para preparação. Avisaremos quando houver uma nova atualização.',
-    em_separacao:
-      'Olá, {nome}! Seu pedido #{referencia} já está em separação pela nossa equipe na PodWave.',
-    enviado:
-      'Olá, {nome}! Seu pedido #{referencia} já saiu para entrega. Obrigado pela preferência!',
-    entregue:
-      'Olá, {nome}! Seu pedido #{referencia} foi marcado como entregue. Obrigado pela preferência!{selo_info}',
-    cancelado:
-      'Olá, {nome}. Informamos que o pedido #{referencia} foi cancelado.{motivo_cancelamento} Caso tenha dúvidas, estamos à disposição.',
+    ...WHATSAPP_TEMPLATE_PRESETS.neon_interativo.templates,
   },
 };
 
@@ -538,6 +627,7 @@ export function loadWhatsappOrderTemplates(): WhatsappOrderTemplates {
     if (!raw) return DEFAULT_WHATSAPP_ORDER_TEMPLATES;
     const parsed = JSON.parse(raw);
     return {
+      presetId: parsed?.presetId || 'neon_interativo',
       enabled: {
         ...DEFAULT_WHATSAPP_ORDER_TEMPLATES.enabled,
         ...(parsed?.enabled || {}),
@@ -573,28 +663,82 @@ export function formatWhatsappOrderMessage(
     DEFAULT_WHATSAPP_ORDER_TEMPLATES.templates[targetStatus];
 
   const customerName = (order.customerName || 'Cliente').trim();
+  const firstName = customerName.split(/\s+/)[0] || customerName;
   const ref = (order.referenceId || order.id).replace(/^#/, '');
+
+  const itemsList =
+    Array.isArray(order.items) && order.items.length > 0
+      ? order.items
+          .map(
+            (item) =>
+              `• ${item.quantity}x *${item.modelName}* (${item.flavorName}${
+                item.flavorEmoji ? ` ${item.flavorEmoji}` : ''
+              })`
+          )
+          .join('\n')
+      : '• Produtos do catálogo PodWave';
+
+  const itemsSummary =
+    Array.isArray(order.items) && order.items.length > 0
+      ? order.items
+          .map((item) => `${item.quantity}x ${item.modelName} (${item.flavorName})`)
+          .join(', ')
+      : 'Produtos PodWave';
+
+  const formatBrl = (val?: number) =>
+    `R$ ${(Number(val) || 0).toFixed(2).replace('.', ',')}`;
+
+  const payStatusLabel =
+    order.paymentStatus === 'pago'
+      ? 'Pago ✅'
+      : order.paymentStatus === 'parcial'
+      ? 'Parcial ⏳'
+      : 'A confirmar';
+  const paymentDisplay = `${order.paymentMethod || 'PIX'} (${payStatusLabel})`;
+
+  const deliveryDisplay =
+    order.deliveryType === 'pickup'
+      ? 'Retirada no Local 📍'
+      : order.addressSummary
+      ? `Entrega • ${order.addressSummary}`
+      : 'Entrega no endereço cadastrado';
 
   // NEVER claim a stamp was credited unless order.loyaltyStampGranted is explicitly confirmed!
   let seloInfo = '';
   if (targetStatus === 'entregue' && order.loyaltyStampGranted === true) {
     if (loyaltyCardAfterGrant) {
-      seloInfo = ` Creditamos +1 selo no seu Cartão Fidelidade PodWave (agora você está com ${loyaltyCardAfterGrant.stamps}/${loyaltyCardAfterGrant.goal} selos).`;
+      const remaining = Math.max(0, loyaltyCardAfterGrant.goal - loyaltyCardAfterGrant.stamps);
+      seloInfo = `\n\n🎁 *Cartão Fidelidade PodWave:* Creditamos *+1 selo validado* na sua conta! Agora você está com *${loyaltyCardAfterGrant.stamps}/${loyaltyCardAfterGrant.goal} selos*${
+        remaining === 0
+          ? ' — *Cartão completo para resgate!* 🏆'
+          : ` (faltam apenas ${remaining} para sua recompensa).`
+      }`;
     } else {
       seloInfo =
-        ' Creditamos +1 selo validado no seu Cartão Fidelidade Digital PodWave!';
+        '\n\n🎁 *Cartão Fidelidade PodWave:* Creditamos *+1 selo validado* no seu Cartão Fidelidade Digital PodWave!';
     }
   }
 
   const motivoCancelamento =
     targetStatus === 'cancelado' && order.cancelReason
-      ? ` Motivo: ${order.cancelReason}.`
+      ? `\n📋 *Motivo:* ${order.cancelReason}.`
       : '';
 
   return rawTemplate
     .replace(/\{nome\}/g, customerName)
+    .replace(/\{primeiro_nome\}/g, firstName)
     .replace(/\{referencia\}/g, ref)
-    .replace(/\{total\}/g, `R$ ${(Number(order.total) || 0).toFixed(2).replace('.', ',')}`)
+    .replace(/\{itens\}/g, itemsList)
+    .replace(/\{resumo_itens\}/g, itemsSummary)
+    .replace(/\{subtotal\}/g, formatBrl(order.subtotal))
+    .replace(/\{desconto\}/g, formatBrl(order.discount))
+    .replace(
+      /\{frete\}/g,
+      (Number(order.deliveryFee) || 0) > 0 ? formatBrl(order.deliveryFee) : 'Grátis'
+    )
+    .replace(/\{total\}/g, formatBrl(order.total))
+    .replace(/\{pagamento\}/g, paymentDisplay)
+    .replace(/\{entrega\}/g, deliveryDisplay)
     .replace(/\{selo_info\}/g, seloInfo)
     .replace(/\{motivo_cancelamento\}/g, motivoCancelamento)
     .trim();

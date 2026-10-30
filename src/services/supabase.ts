@@ -617,33 +617,128 @@ export async function logSupabaseAuditEvent(action: string, entity: string, deta
   }
 }
 
+const LOYALTY_NOTE_PREFIX = 'podwave:loyalty:v1:';
+
+function parseLoyaltyCardObject(parsed: any): LoyaltyCardData | undefined {
+  if (!parsed || typeof parsed !== 'object') return undefined;
+  const goal =
+    typeof parsed.goal === 'number' && parsed.goal >= 3 && parsed.goal <= 30
+      ? Math.round(parsed.goal)
+      : 10;
+  const stamps =
+    typeof parsed.stamps === 'number' && parsed.stamps >= 0
+      ? Math.min(goal, Math.max(0, Math.round(parsed.stamps)))
+      : 0;
+  const completedCards =
+    typeof parsed.completedCards === 'number' && parsed.completedCards >= 0
+      ? Math.round(parsed.completedCards)
+      : 0;
+  const rewardDescription =
+    typeof parsed.rewardDescription === 'string' && parsed.rewardDescription.trim()
+      ? parsed.rewardDescription.trim()
+      : 'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
+  return {
+    stamps,
+    goal,
+    completedCards,
+    rewardDescription,
+    featuredBadgeId: typeof parsed.featuredBadgeId === 'string' ? parsed.featuredBadgeId : undefined,
+    updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined,
+    history: Array.isArray(parsed.history) ? parsed.history.slice(0, 25) : [],
+  };
+}
+
+function parseLoyaltyCardFromBenefitNote(raw?: string | null, defaultAddressJson?: any): LoyaltyCardData | undefined {
+  if (raw && typeof raw === 'string') {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith(LOYALTY_NOTE_PREFIX)) {
+      try {
+        const parsed = JSON.parse(trimmed.slice(LOYALTY_NOTE_PREFIX.length));
+        const card = parseLoyaltyCardObject(parsed);
+        if (card) return card;
+      } catch {
+        // fallback below
+      }
+    }
+  }
+  if (defaultAddressJson && typeof defaultAddressJson === 'object' && defaultAddressJson.loyaltyCard) {
+    return parseLoyaltyCardObject(defaultAddressJson.loyaltyCard);
+  }
+  return undefined;
+}
+
+function mapRowToCustomerProfile(d: Record<string, any>): UserProfile {
+  const defaultAddr =
+    d.default_address && typeof d.default_address === 'object' && !Array.isArray(d.default_address)
+      ? d.default_address
+      : null;
+
+  const resolvedRole: UserRole =
+    d.role === 'owner' || d.role === 'admin'
+      ? d.role
+      : d.role === 'vip' || d.is_vip === true || d.vip_status === 'active'
+      ? 'vip'
+      : 'customer';
+
+  return {
+    id: String(d.id),
+    email: String(d.email || ''),
+    fullName: String(d.name || d.full_name || (d.email ? String(d.email).split('@')[0] : 'Cliente')),
+    phoneWhatsapp: String(d.phone || defaultAddr?.phoneWhatsapp || ''),
+    cpf: String(d.cpf || ''),
+    role: resolvedRole,
+    address: {
+      cep: String(defaultAddr?.cep ?? d.address_cep ?? ''),
+      street: String(defaultAddr?.street ?? d.address_street ?? ''),
+      number: String(defaultAddr?.number ?? d.address_number ?? ''),
+      bairro: String(defaultAddr?.bairro ?? d.address_neighborhood ?? ''),
+      complement: String(defaultAddr?.complement ?? d.address_complement ?? ''),
+      city: String(defaultAddr?.city ?? d.address_city ?? ''),
+      state: String(defaultAddr?.state ?? d.address_state ?? ''),
+      referencePoint: defaultAddr?.referencePoint ? String(defaultAddr.referencePoint) : undefined,
+    },
+    vipDiscountCustom: d.vip_discount_custom != null ? Number(d.vip_discount_custom) : undefined,
+    loyaltyCard: parseLoyaltyCardFromBenefitNote(d.vip_benefit_note, defaultAddr),
+    createdAt: d.created_at,
+  };
+}
+
 /**
- * Salva ou atualiza perfil de cliente no Supabase (com endereço e dados cadastrais)
+ * Salva ou atualiza perfil de cliente no Supabase (compatível com schema oficial public.customer_profiles)
  */
 export async function upsertCustomerProfileToSupabase(profile: UserProfile): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
 
   try {
+    const isVipRole = profile.role === 'vip';
+    const dbRole = isVipRole ? 'customer' : (profile.role || 'customer');
+    const cleanEmail = profile.email.toLowerCase().trim();
+    const displayName = (profile.fullName || cleanEmail.split('@')[0] || 'Cliente').trim();
+
+    const defaultAddressPayload: Record<string, any> = {
+      ...(profile.address || {}),
+      ...(profile.loyaltyCard ? { loyaltyCard: profile.loyaltyCard } : {}),
+    };
+
     const payload: Record<string, any> = {
       id: profile.id,
-      email: profile.email.toLowerCase().trim(),
-      full_name: profile.fullName,
-      phone: profile.phoneWhatsapp || null,
+      email: cleanEmail,
+      name: displayName,
+      phone: (profile.phoneWhatsapp || '').trim(),
       cpf: profile.cpf || null,
-      role: profile.role,
-      address_cep: profile.address?.cep || null,
-      address_street: profile.address?.street || null,
-      address_number: profile.address?.number || null,
-      address_neighborhood: profile.address?.bairro || null,
-      address_complement: profile.address?.complement || null,
-      address_city: profile.address?.city || null,
-      address_state: profile.address?.state || null,
+      role: dbRole,
+      is_vip: isVipRole,
+      vip_status: isVipRole ? 'active' : 'inactive',
+      default_address: Object.keys(defaultAddressPayload).length > 0 ? defaultAddressPayload : {},
       updated_at: new Date().toISOString(),
     };
 
     if (profile.vipDiscountCustom !== undefined) {
       payload.vip_discount_custom = profile.vipDiscountCustom;
+    }
+    if (profile.loyaltyCard) {
+      payload.vip_benefit_note = `${LOYALTY_NOTE_PREFIX}${JSON.stringify(profile.loyaltyCard)}`;
     }
 
     const { error } = await client.from('customer_profiles').upsert(payload);
@@ -651,6 +746,22 @@ export async function upsertCustomerProfileToSupabase(profile: UserProfile): Pro
       if (isMissingTableError(error)) {
         return false;
       }
+      // Se o trigger de proteção bloquear campos VIP/role para não-admin (ex: cliente salvando endereço/insígnia), faz update apenas dos campos cadastrais permitidos
+      const { error: safeUpdateErr } = await client
+        .from('customer_profiles')
+        .update({
+          name: displayName,
+          phone: (profile.phoneWhatsapp || '').trim(),
+          cpf: profile.cpf || null,
+          default_address: Object.keys(defaultAddressPayload).length > 0 ? defaultAddressPayload : {},
+          updated_at: new Date().toISOString(),
+        })
+        .eq('id', profile.id);
+
+      if (!safeUpdateErr) {
+        return true;
+      }
+
       console.warn('[Supabase] Aviso ao salvar perfil do cliente:', error.message);
       return false;
     }
@@ -659,44 +770,6 @@ export async function upsertCustomerProfileToSupabase(profile: UserProfile): Pro
     if (isMissingTableError(err)) return false;
     console.warn('[Supabase] Falha ao salvar perfil:', err);
     return false;
-  }
-}
-
-const LOYALTY_NOTE_PREFIX = 'podwave:loyalty:v1:';
-
-function parseLoyaltyCardFromBenefitNote(raw?: string | null): LoyaltyCardData | undefined {
-  if (!raw || typeof raw !== 'string') return undefined;
-  const trimmed = raw.trim();
-  if (!trimmed.startsWith(LOYALTY_NOTE_PREFIX)) return undefined;
-  try {
-    const parsed = JSON.parse(trimmed.slice(LOYALTY_NOTE_PREFIX.length));
-    if (!parsed || typeof parsed !== 'object') return undefined;
-    const goal =
-      typeof parsed.goal === 'number' && parsed.goal >= 3 && parsed.goal <= 30
-        ? Math.round(parsed.goal)
-        : 10;
-    const stamps =
-      typeof parsed.stamps === 'number' && parsed.stamps >= 0
-        ? Math.min(goal, Math.max(0, Math.round(parsed.stamps)))
-        : 0;
-    const completedCards =
-      typeof parsed.completedCards === 'number' && parsed.completedCards >= 0
-        ? Math.round(parsed.completedCards)
-        : 0;
-    const rewardDescription =
-      typeof parsed.rewardDescription === 'string' && parsed.rewardDescription.trim()
-        ? parsed.rewardDescription.trim()
-        : 'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
-    return {
-      stamps,
-      goal,
-      completedCards,
-      rewardDescription,
-      updatedAt: typeof parsed.updatedAt === 'string' ? parsed.updatedAt : undefined,
-      history: Array.isArray(parsed.history) ? parsed.history.slice(0, 25) : [],
-    };
-  } catch {
-    return undefined;
   }
 }
 
@@ -722,26 +795,7 @@ export async function fetchCustomerProfileFromSupabase(email: string): Promise<U
 
     if (!data) return null;
 
-    return {
-      id: data.id,
-      email: data.email,
-      fullName: data.full_name,
-      phoneWhatsapp: data.phone || '',
-      cpf: data.cpf || '',
-      role: (data.role as UserRole) || 'customer',
-      address: {
-        cep: data.address_cep || '',
-        street: data.address_street || '',
-        number: data.address_number || '',
-        bairro: data.address_neighborhood || '',
-        complement: data.address_complement || '',
-        city: data.address_city || '',
-        state: data.address_state || '',
-      },
-      vipDiscountCustom: data.vip_discount_custom ? Number(data.vip_discount_custom) : undefined,
-      loyaltyCard: parseLoyaltyCardFromBenefitNote(data.vip_benefit_note),
-      createdAt: data.created_at,
-    };
+    return mapRowToCustomerProfile(data);
   } catch (err) {
     if (isMissingTableError(err)) return null;
     return null;
@@ -769,26 +823,7 @@ export async function fetchAllCustomerProfilesFromSupabase(): Promise<UserProfil
 
     if (!data || !Array.isArray(data)) return [];
 
-    return data.map((d) => ({
-      id: d.id,
-      email: d.email,
-      fullName: d.full_name,
-      phoneWhatsapp: d.phone || '',
-      cpf: d.cpf || '',
-      role: (d.role as UserRole) || 'customer',
-      address: {
-        cep: d.address_cep || '',
-        street: d.address_street || '',
-        number: d.address_number || '',
-        bairro: d.address_neighborhood || '',
-        complement: d.address_complement || '',
-        city: d.address_city || '',
-        state: d.address_state || '',
-      },
-      vipDiscountCustom: d.vip_discount_custom ? Number(d.vip_discount_custom) : undefined,
-      loyaltyCard: parseLoyaltyCardFromBenefitNote(d.vip_benefit_note),
-      createdAt: d.created_at,
-    }));
+    return data.map((d) => mapRowToCustomerProfile(d));
   } catch (err) {
     if (isMissingTableError(err)) return [];
     return [];
@@ -807,12 +842,18 @@ export async function updateCustomerRoleInSupabase(
   if (!client) return false;
 
   try {
+    const isVipTarget = newRole === 'vip';
     const payload: Record<string, any> = {
-      role: newRole,
+      role: isVipTarget ? 'customer' : newRole,
+      is_vip: isVipTarget,
+      vip_status: isVipTarget ? 'active' : 'inactive',
       updated_at: new Date().toISOString(),
     };
 
-    if (customVipDiscount !== undefined) {
+    if (isVipTarget) {
+      payload.vip_since = new Date().toISOString();
+      payload.vip_discount_custom = customVipDiscount ?? 10;
+    } else if (customVipDiscount !== undefined) {
       payload.vip_discount_custom = customVipDiscount;
     }
 
@@ -833,30 +874,91 @@ export async function updateCustomerRoleInSupabase(
 }
 
 /**
- * Atualiza manualmente o Cartão de Fidelidade (selos) do cliente no Supabase (exclusivo para Admin/Owner)
+ * Atualiza manualmente o Cartão de Fidelidade (selos) do cliente no Supabase
  */
 export async function updateCustomerLoyaltyInSupabase(
   userId: string,
   loyaltyCard: LoyaltyCardData
 ): Promise<boolean> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client || !userId) return false;
+
+  console.log('[Supabase Loyalty] Atualizando selos de fidelidade:', {
+    userId,
+    stamps: loyaltyCard.stamps,
+    goal: loyaltyCard.goal,
+    completedCards: loyaltyCard.completedCards,
+  });
 
   try {
     const serialized = `${LOYALTY_NOTE_PREFIX}${JSON.stringify(loyaltyCard)}`;
-    const { error } = await client
+    const nowIso = new Date().toISOString();
+
+    // 1. Tenta gravar em vip_benefit_note e retornar linha afetada
+    const { data: updatedRows, error } = await client
       .from('customer_profiles')
       .update({
         vip_benefit_note: serialized,
-        updated_at: new Date().toISOString(),
+        updated_at: nowIso,
       })
-      .eq('id', userId);
+      .eq('id', userId)
+      .select('id, default_address');
 
-    if (error) {
-      console.warn('[Supabase] Aviso ao salvar selos de fidelidade:', error.message);
-      return false;
+    if (!error && Array.isArray(updatedRows) && updatedRows.length > 0) {
+      console.log('[Supabase Loyalty] Selos gravados com sucesso via vip_benefit_note para:', userId);
+      return true;
     }
-    return true;
+
+    // 2. Fallback: grava dentro de default_address.loyaltyCard caso vip_benefit_note sofra restrição de trigger
+    const { data: existingRow } = await client
+      .from('customer_profiles')
+      .select('id, default_address')
+      .eq('id', userId)
+      .maybeSingle();
+
+    if (existingRow) {
+      const currentAddr =
+        existingRow.default_address && typeof existingRow.default_address === 'object'
+          ? existingRow.default_address
+          : {};
+      const { error: fallbackErr } = await client
+        .from('customer_profiles')
+        .update({
+          default_address: {
+            ...currentAddr,
+            loyaltyCard,
+          },
+          updated_at: nowIso,
+        })
+        .eq('id', userId);
+
+      if (!fallbackErr) {
+        console.log('[Supabase Loyalty] Selos gravados com sucesso via default_address para:', userId);
+        return true;
+      }
+    }
+
+    // 3. Se o registro do cliente ainda não existe na tabela customer_profiles, executa upsert do perfil
+    const fallbackEmail = `${userId.replace(/[^a-zA-Z0-9._-]/g, '').toLowerCase() || 'cliente'}@cliente.podwave.app`;
+    const { error: upsertErr } = await client.from('customer_profiles').upsert({
+      id: userId,
+      email: fallbackEmail,
+      name: 'Cliente PodWave',
+      role: 'customer',
+      vip_benefit_note: serialized,
+      default_address: { loyaltyCard },
+      updated_at: nowIso,
+    });
+
+    if (!upsertErr) {
+      console.log('[Supabase Loyalty] Perfil criado/atualizado com selos via upsert para:', userId);
+      return true;
+    }
+
+    if (error || upsertErr) {
+      console.warn('[Supabase] Aviso ao salvar selos de fidelidade:', error?.message || upsertErr?.message);
+    }
+    return false;
   } catch (err) {
     console.warn('[Supabase] Falha ao atualizar cartão fidelidade:', err);
     return false;
@@ -994,6 +1096,9 @@ export function buildOrderDeliveryInfoPayload(order: CustomerOrderHistoryItem, c
     amountPaid: typeof order.amountPaid === 'number' ? order.amountPaid : 0,
     cancelReason: order.cancelReason || null,
     statusHistory: Array.isArray(order.statusHistory) ? order.statusHistory : [],
+    couponCode: order.couponCode || null,
+    vipDiscountApplied: Boolean(order.vipDiscountApplied),
+    vipDiscountAmount: Number(order.vipDiscountAmount) || 0,
     loyaltyEligible: order.loyaltyEligible !== false,
     loyaltyStampGranted: order.loyaltyStampGranted === true,
     loyaltyStampGrantedAt: order.loyaltyStampGrantedAt || null,
@@ -1001,6 +1106,8 @@ export function buildOrderDeliveryInfoPayload(order: CustomerOrderHistoryItem, c
     loyaltyGrantIdempotencyKey: order.loyaltyGrantIdempotencyKey || null,
     financialSaleId: order.financialSaleId || null,
     financialRecordedAt: order.financialRecordedAt || null,
+    stockDeducted: order.stockDeducted === true,
+    stockDeductedAt: order.stockDeductedAt || null,
     version: typeof order.version === 'number' && order.version > 0 ? order.version : 1,
     updatedAt: order.updatedAt || order.createdAt || new Date().toISOString(),
     updatedBy: order.updatedBy || null,
@@ -1055,9 +1162,9 @@ export function mapSupabaseRowToCustomerOrder(row: Record<string, any>): Custome
     status: safeStatus,
     cancelReason: info.cancelReason || undefined,
     statusHistory: Array.isArray(info.statusHistory) ? info.statusHistory : [],
-    couponCode: row.coupon_code || undefined,
-    vipDiscountApplied: Boolean(row.vip_discount_applied),
-    vipDiscountAmount: Number(row.vip_discount_amount) || 0,
+    couponCode: row.coupon_code || info.couponCode || undefined,
+    vipDiscountApplied: Boolean(row.vip_discount_applied ?? info.vipDiscountApplied),
+    vipDiscountAmount: Number(row.vip_discount_amount ?? info.vipDiscountAmount) || 0,
     loyaltyEligible: info.loyaltyEligible !== false,
     loyaltyStampGranted: info.loyaltyStampGranted === true,
     loyaltyStampGrantedAt: info.loyaltyStampGrantedAt || undefined,
@@ -1065,8 +1172,72 @@ export function mapSupabaseRowToCustomerOrder(row: Record<string, any>): Custome
     loyaltyGrantIdempotencyKey: info.loyaltyGrantIdempotencyKey || undefined,
     financialSaleId: info.financialSaleId || undefined,
     financialRecordedAt: info.financialRecordedAt || undefined,
+    stockDeducted: info.stockDeducted === true,
+    stockDeductedAt: info.stockDeductedAt || undefined,
     version: typeof info.version === 'number' && info.version > 0 ? info.version : 1,
   };
+}
+
+let customerOrdersSupportedColumnsCache: Set<string> | null = null;
+
+/**
+ * Inspeciona as colunas realmente presentes no PostgREST para a tabela customer_orders
+ * Evita avisos de 'schema cache' (ex: "Não foi possível encontrar a coluna 'coupon_code'").
+ */
+export async function getCustomerOrdersSupportedColumns(): Promise<Set<string>> {
+  if (customerOrdersSupportedColumnsCache) {
+    return customerOrdersSupportedColumnsCache;
+  }
+
+  const client = getSupabaseClient();
+  const baseCols = new Set([
+    'id',
+    'order_code',
+    'customer_id',
+    'created_at',
+    'status',
+    'items',
+    'subtotal',
+    'discount',
+    'total',
+    'payment_method',
+    'delivery_info',
+  ]);
+
+  if (!client) {
+    return baseCols;
+  }
+
+  try {
+    // 1. Tenta inspecionar linhas existentes com select('*')
+    const { data, error } = await client
+      .from('customer_orders')
+      .select('*')
+      .limit(1);
+
+    if (!error && Array.isArray(data) && data.length > 0) {
+      const detected = new Set(Object.keys(data[0]));
+      customerOrdersSupportedColumnsCache = detected;
+      return detected;
+    }
+
+    // 2. Se a tabela não tiver linhas, testa se 'coupon_code' é aceito sem erro de coluna
+    const { error: testErr } = await client
+      .from('customer_orders')
+      .select('id, coupon_code')
+      .limit(0);
+
+    if (!testErr) {
+      baseCols.add('coupon_code');
+      baseCols.add('vip_discount_applied');
+      baseCols.add('vip_discount_amount');
+    }
+
+    customerOrdersSupportedColumnsCache = baseCols;
+    return baseCols;
+  } catch {
+    return baseCols;
+  }
 }
 
 /**
@@ -1077,29 +1248,121 @@ export async function saveCustomerOrderToSupabase(
   customerId: string
 ): Promise<boolean> {
   const client = getSupabaseClient();
-  if (!client || !customerId) return false;
+  const resolvedCustomerId = (customerId || order.customerId || '').trim();
+  if (!client || !resolvedCustomerId) return false;
 
   try {
-    const payload = {
+    const deliveryInfoPayload = buildOrderDeliveryInfoPayload(order, resolvedCustomerId);
+    const supportedCols = await getCustomerOrdersSupportedColumns();
+
+    // Payload dinamicamente sincronizado com as colunas reais da tabela no Supabase
+    const payload: Record<string, unknown> = {
       id: order.id,
       order_code: order.referenceId || order.id,
-      customer_id: customerId,
+      customer_id: resolvedCustomerId,
       created_at: order.createdAt || new Date().toISOString(),
       status: order.status || 'recebido',
       items: order.items || [],
       subtotal: Number(order.subtotal) || 0,
       discount: Number(order.discount) || 0,
       total: Number(order.total) || 0,
-      coupon_code: order.couponCode || null,
-      vip_discount_applied: Boolean(order.vipDiscountApplied),
-      vip_discount_amount: Number(order.vipDiscountAmount) || 0,
       payment_method: order.paymentMethod || 'Pix',
-      delivery_info: buildOrderDeliveryInfoPayload(order, customerId),
+      delivery_info: deliveryInfoPayload,
     };
 
-    const { error } = await client.from('customer_orders').upsert(payload);
+    if (supportedCols.has('coupon_code')) {
+      payload.coupon_code = order.couponCode || null;
+    }
+    if (supportedCols.has('vip_discount_applied')) {
+      payload.vip_discount_applied = Boolean(order.vipDiscountApplied);
+    }
+    if (supportedCols.has('vip_discount_amount')) {
+      payload.vip_discount_amount = Number(order.vipDiscountAmount) || 0;
+    }
+
+    // 1. Tenta atualizar primeiro caso o registro já exista (evita conflito de RLS de INSERT em edições de status pelo admin)
+    const updatePayload: Record<string, unknown> = {
+      status: payload.status,
+      items: payload.items,
+      subtotal: payload.subtotal,
+      discount: payload.discount,
+      total: payload.total,
+      payment_method: payload.payment_method,
+      delivery_info: deliveryInfoPayload,
+    };
+
+    if (supportedCols.has('coupon_code') && payload.coupon_code !== undefined) {
+      updatePayload.coupon_code = payload.coupon_code;
+    }
+    if (supportedCols.has('vip_discount_applied') && payload.vip_discount_applied !== undefined) {
+      updatePayload.vip_discount_applied = payload.vip_discount_applied;
+    }
+    if (supportedCols.has('vip_discount_amount') && payload.vip_discount_amount !== undefined) {
+      updatePayload.vip_discount_amount = payload.vip_discount_amount;
+    }
+
+    const { data: updatedRows, error: updateErr } = await client
+      .from('customer_orders')
+      .update(updatePayload)
+      .eq('id', order.id)
+      .select('id');
+
+    if (!updateErr && Array.isArray(updatedRows) && updatedRows.length > 0) {
+      return true;
+    }
+
+    // 2. Caso ainda não exista no banco, executa upsert
+    let { error } = await client.from('customer_orders').upsert(payload);
+
+    // Se falhar por ausência das colunas opcionais no schema cache (ex: coupon_code), remove do cache local e tenta novamente sem elas
+    const isMissingColumnError =
+      Boolean(error) &&
+      (error!.code === 'PGRST204' ||
+        /coupon_code|vip_discount|schema cache|cache do esquema/i.test(error!.message || ''));
+
+    if (error && isMissingColumnError) {
+      if (customerOrdersSupportedColumnsCache) {
+        customerOrdersSupportedColumnsCache.delete('coupon_code');
+        customerOrdersSupportedColumnsCache.delete('vip_discount_applied');
+        customerOrdersSupportedColumnsCache.delete('vip_discount_amount');
+      }
+      delete payload.coupon_code;
+      delete payload.vip_discount_applied;
+      delete payload.vip_discount_amount;
+
+      const { error: compatErr } = await client.from('customer_orders').upsert(payload);
+      error = compatErr;
+    }
+
     if (error) {
       if (isMissingTableError(error)) return false;
+
+      // 3. Se falhar por chave estrangeira (customer_id ainda não existe em customer_profiles), cria o perfil mínimo e tenta novamente
+      const isFkError =
+        error.code === '23503' ||
+        /foreign key|customer_orders_customer_id_fkey/i.test(error.message || '');
+      if (isFkError) {
+        const fallbackEmail =
+          (order.customerEmail || '').trim().toLowerCase() ||
+          `${resolvedCustomerId.replace(/[^a-zA-Z0-9._-]/g, '').toLowerCase() || 'cliente'}@cliente.podwave.app`;
+        await client.from('customer_profiles').upsert({
+          id: resolvedCustomerId,
+          email: fallbackEmail,
+          name: (order.customerName || 'Cliente PodWave').trim(),
+          phone: (order.customerPhone || '').trim(),
+          role: 'customer',
+          is_vip: false,
+          vip_status: 'inactive',
+          default_address: {},
+          updated_at: new Date().toISOString(),
+        });
+
+        const { error: retryErr } = await client.from('customer_orders').upsert(payload);
+        if (!retryErr) {
+          return true;
+        }
+      }
+
       console.warn('[Supabase] Aviso ao salvar pedido em customer_orders:', error.message);
       return false;
     }
@@ -1133,6 +1396,11 @@ export async function fetchCustomerOrdersFromSupabase(
     }
 
     if (!data || !Array.isArray(data)) return [];
+
+    if (data.length > 0) {
+      customerOrdersSupportedColumnsCache = new Set(Object.keys(data[0]));
+    }
+
     return data.map((row) => mapSupabaseRowToCustomerOrder(row));
   } catch (err) {
     if (isMissingTableError(err)) return [];
@@ -1175,6 +1443,11 @@ export async function fetchAllCustomerOrdersFromSupabase(): Promise<{
     }
 
     if (!data || !Array.isArray(data)) return { orders: [] };
+
+    if (data.length > 0) {
+      customerOrdersSupportedColumnsCache = new Set(Object.keys(data[0]));
+    }
+
     return {
       orders: data.map((row) => mapSupabaseRowToCustomerOrder(row)),
     };
@@ -1208,8 +1481,17 @@ export function translateSupabaseAuthError(errorMsg: string): string {
   if (msg.includes('password should be at least') || msg.includes('password is too short')) {
     return 'A senha precisa ter no mínimo 6 caracteres para sua segurança.';
   }
-  if (msg.includes('rate limit') || msg.includes('too many requests')) {
+  if (msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('over_email_send_rate_limit')) {
     return 'Muitas tentativas em pouco tempo. Por segurança, aguarde alguns instantes antes de tentar novamente.';
+  }
+  if (msg.includes('token has expired') || msg.includes('otp expired')) {
+    return 'O código de verificação expirou. Solicite um novo código por e-mail.';
+  }
+  if (msg.includes('token is invalid') || msg.includes('invalid token') || msg.includes('token_not_found') || (msg.includes('token') && msg.includes('invalid'))) {
+    return 'Código de verificação incorreto ou expirado. Verifique os 6 dígitos recebidos e tente novamente.';
+  }
+  if (msg.includes('unsupported provider') || msg.includes('provider is not enabled') || msg.includes('provider not supported')) {
+    return 'O login com Google precisa estar ativado no painel do Supabase (Authentication > Providers > Google).';
   }
   if (msg.includes('network') || msg.includes('failed to fetch')) {
     return 'Falha na conexão com o servidor de autenticação. Verifique sua conexão de internet.';
@@ -1476,15 +1758,213 @@ export async function supabaseGetCurrentAuthUser(): Promise<UserProfile | null> 
       profile = {
         id: session.user.id,
         email,
-        fullName: session.user.user_metadata?.full_name || email.split('@')[0],
+        fullName: session.user.user_metadata?.full_name || session.user.user_metadata?.name || email.split('@')[0],
         phoneWhatsapp: session.user.user_metadata?.phone || '',
         role: 'customer',
-        createdAt: session.user.created_at,
+        createdAt: session.user.created_at || new Date().toISOString(),
       };
+      // Salva o perfil recém-descoberto para garantir sincronização de fidelidade
+      try {
+        await upsertCustomerProfileToSupabase(profile);
+      } catch {
+        // não bloqueia a restauração de sessão
+      }
     }
     return profile;
   } catch {
     return null;
+  }
+}
+
+/**
+ * Inicia o fluxo de Login com Google via Supabase OAuth (100% gratuito)
+ */
+export async function supabaseSignInWithGoogle(): Promise<{ success: boolean; message: string; url?: string }> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      success: false,
+      message: 'O Supabase não está configurado. Conecte sua URL e chave anônima (anon public key) nas configurações do sistema.',
+    };
+  }
+
+  try {
+    const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
+    const { data, error } = await client.auth.signInWithOAuth({
+      provider: 'google',
+      options: {
+        redirectTo: redirectUrl,
+        queryParams: {
+          access_type: 'offline',
+          prompt: 'consent',
+        },
+      },
+    });
+
+    if (error) {
+      return {
+        success: false,
+        message: translateSupabaseAuthError(error.message),
+      };
+    }
+
+    if (data?.url && typeof window !== 'undefined') {
+      window.location.href = data.url;
+    }
+
+    return {
+      success: true,
+      message: 'Redirecionando para a conta Google com segurança...',
+      url: data?.url,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: translateSupabaseAuthError(err?.message || 'Falha ao iniciar autenticação com o Google.'),
+    };
+  }
+}
+
+/**
+ * Envia código OTP numérico de 6 dígitos ou link mágico para o e-mail do usuário (sem senha)
+ */
+export async function supabaseSendOtp(
+  email: string
+): Promise<{ success: boolean; message: string }> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      success: false,
+      message: 'O Supabase não está configurado. Conecte sua URL e chave anônima (anon public key) nas configurações do sistema.',
+    };
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return {
+      success: false,
+      message: 'Por favor, informe um endereço de e-mail válido.',
+    };
+  }
+
+  try {
+    const redirectUrl = typeof window !== 'undefined' ? `${window.location.origin}/` : undefined;
+    const { error } = await client.auth.signInWithOtp({
+      email: cleanEmail,
+      options: {
+        shouldCreateUser: true,
+        emailRedirectTo: redirectUrl,
+      },
+    });
+
+    if (error) {
+      return {
+        success: false,
+        message: translateSupabaseAuthError(error.message),
+      };
+    }
+
+    return {
+      success: true,
+      message: 'Código de 6 dígitos enviado! Verifique sua caixa de entrada e spam.',
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: translateSupabaseAuthError(err?.message || 'Falha ao despachar código por e-mail.'),
+    };
+  }
+}
+
+/**
+ * Valida o código OTP de 6 dígitos enviado por e-mail e autentica o usuário
+ */
+export async function supabaseVerifyOtp(
+  email: string,
+  token: string
+): Promise<SupabaseAuthResponse> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      success: false,
+      message: 'O Supabase não está configurado. Conecte sua URL e chave anônima (anon public key) nas configurações do sistema.',
+      isOwner: false,
+    };
+  }
+
+  const cleanEmail = email.trim().toLowerCase();
+  const cleanToken = token.trim().replace(/\s+/g, '');
+
+  if (!cleanEmail || !cleanEmail.includes('@')) {
+    return {
+      success: false,
+      message: 'Por favor, informe um endereço de e-mail válido.',
+      isOwner: false,
+    };
+  }
+
+  if (!cleanToken || cleanToken.length < 6) {
+    return {
+      success: false,
+      message: 'Por favor, informe o código de 6 dígitos recebido no e-mail.',
+      isOwner: false,
+    };
+  }
+
+  try {
+    const { data, error } = await client.auth.verifyOtp({
+      email: cleanEmail,
+      token: cleanToken,
+      type: 'email',
+    });
+
+    if (error) {
+      return {
+        success: false,
+        message: translateSupabaseAuthError(error.message),
+        isOwner: false,
+      };
+    }
+
+    if (!data.user) {
+      return {
+        success: false,
+        message: 'Nenhum usuário retornado após validação do código.',
+        isOwner: false,
+      };
+    }
+
+    // Busca ou cria perfil na tabela customer_profiles
+    let profile = await fetchCustomerProfileFromSupabase(cleanEmail);
+    if (!profile) {
+      profile = {
+        id: data.user.id,
+        email: cleanEmail,
+        fullName: data.user.user_metadata?.full_name || cleanEmail.split('@')[0],
+        phoneWhatsapp: data.user.user_metadata?.phone || '',
+        role: 'customer',
+        createdAt: data.user.created_at || new Date().toISOString(),
+      };
+      await upsertCustomerProfileToSupabase(profile);
+    }
+
+    const isOwner = profile.role === 'owner';
+    const isAdmin = profile.role === 'admin' || isOwner;
+
+    return {
+      success: true,
+      message: isAdmin
+        ? 'Login realizado com sucesso! Bem-vindo de volta ao Painel Administrativo.'
+        : `Olá, ${profile.fullName}! Acesso validado com sucesso.`,
+      user: profile,
+      isOwner,
+    };
+  } catch (err: any) {
+    return {
+      success: false,
+      message: translateSupabaseAuthError(err?.message || 'Falha ao validar código OTP.'),
+      isOwner: false,
+    };
   }
 }
 
@@ -1629,6 +2109,48 @@ export async function saveSaleWithStock(sale: ManualSaleEntry): Promise<{ succes
 
 export async function saveManualSaleToSupabase(sale: ManualSaleEntry): Promise<boolean> {
   return (await saveSaleWithStock(sale)).success;
+}
+
+export async function upsertManualSaleDirectToSupabase(sale: ManualSaleEntry): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const payload = {
+      id: sale.id,
+      date: (sale.saleDate || new Date().toISOString()).split('T')[0],
+      customer_name: sale.customerName ?? 'Cliente Catálogo',
+      customer_contact: sale.customerPhone || null,
+      delivery_fee: Number(sale.deliveryFee) || 0,
+      discount: Number(sale.discount) || 0,
+      subtotal: Number(sale.grossTotal) || 0,
+      total: Number(sale.netTotal) || 0,
+      amount_received: Number(sale.amountReceived) || 0,
+      amount_pending: Number(sale.amountPending) || 0,
+      payment_status: sale.paymentStatus || 'pendente',
+      payment_method: sale.paymentMethod || 'Pix',
+      payment_date: sale.receivedDate ? sale.receivedDate.split('T')[0] : null,
+      due_date: sale.dueDate ? sale.dueDate.split('T')[0] : null,
+      items: sale.items || [],
+      payments: sale.receipts || [],
+      installments: sale.installments || [],
+      notes: writeFinancialNotes(sale.notes, {
+        deliveryType: sale.deliveryType,
+        orderStatus: sale.orderStatus,
+      }),
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await client.from('manual_sales').upsert(payload);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Aviso ao gravar venda direta em manual_sales:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 export async function deleteManualSaleFromSupabase(saleId: string): Promise<boolean> {
@@ -2131,7 +2653,95 @@ export async function fetchStockAvailability(): Promise<{ id: string; modelId: s
   return data.map((f) => ({ id:f.id, modelId:f.model_id, quantity:f.demo_quantity == null ? null : Number(f.demo_quantity), inStock:f.in_stock === true }));
 }
 
+export async function syncOrderFlavorStockInSupabase(
+  items: { modelId: string; flavorId: string; quantity: number }[],
+  mode: 'deduct' | 'restore'
+): Promise<{
+  success: boolean;
+  updatedFlavors: { flavorId: string; modelId: string; newQuantity: number; inStock: boolean }[];
+  error?: string;
+}> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return { success: false, updatedFlavors: [], error: 'Supabase não conectado.' };
+  }
 
+  // Agrupa quantidades por flavorId para evitar múltiplas leituras/escritas concorrentes do mesmo sabor
+  const grouped = new Map<string, { modelId: string; quantity: number }>();
+  for (const item of items) {
+    if (!item?.flavorId || !item?.modelId) continue;
+    const qty = Math.max(0, Math.round(Number(item.quantity) || 0));
+    if (qty <= 0) continue;
+    const prev = grouped.get(item.flavorId);
+    grouped.set(item.flavorId, {
+      modelId: item.modelId,
+      quantity: (prev?.quantity || 0) + qty,
+    });
+  }
 
+  if (grouped.size === 0) {
+    return { success: true, updatedFlavors: [] };
+  }
 
+  try {
+    const flavorIds = Array.from(grouped.keys());
+    const { data: rows, error: readErr } = await client
+      .from('flavor_variants')
+      .select('id, model_id, demo_quantity, in_stock')
+      .in('id', flavorIds);
 
+    if (readErr || !rows) {
+      return {
+        success: false,
+        updatedFlavors: [],
+        error: readErr?.message || 'Não foi possível ler o estoque atual no Supabase.',
+      };
+    }
+
+    const updatedFlavors: { flavorId: string; modelId: string; newQuantity: number; inStock: boolean }[] = [];
+    const nowIso = new Date().toISOString();
+
+    for (const row of rows) {
+      const target = grouped.get(String(row.id));
+      if (!target) continue;
+      const currentQty = row.demo_quantity == null ? 0 : Math.max(0, Number(row.demo_quantity));
+      const newQuantity =
+        mode === 'deduct'
+          ? Math.max(0, currentQty - target.quantity)
+          : currentQty + target.quantity;
+      const inStock = newQuantity > 0;
+
+      const { error: updErr } = await client
+        .from('flavor_variants')
+        .update({
+          demo_quantity: newQuantity,
+          in_stock: inStock,
+          updated_at: nowIso,
+        })
+        .eq('id', row.id);
+
+      if (updErr) {
+        return {
+          success: false,
+          updatedFlavors,
+          error: updErr.message,
+        };
+      }
+
+      updatedFlavors.push({
+        flavorId: String(row.id),
+        modelId: String(row.model_id || target.modelId),
+        newQuantity,
+        inStock,
+      });
+    }
+
+    return { success: true, updatedFlavors };
+  } catch (err: any) {
+    return {
+      success: false,
+      updatedFlavors: [],
+      error: err?.message || 'Erro ao sincronizar estoque no Supabase.',
+    };
+  }
+}

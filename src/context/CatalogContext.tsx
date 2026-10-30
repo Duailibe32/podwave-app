@@ -62,6 +62,9 @@ import {
   supabaseSignInWithPassword,
   supabaseSignUp,
   supabaseSignOut,
+  supabaseSignInWithGoogle,
+  supabaseSendOtp,
+  supabaseVerifyOtp,
   supabaseResetPasswordForEmail,
   supabaseGetCurrentAuthUser,
   translateSupabaseAuthError,
@@ -90,6 +93,8 @@ import {
   fetchManualCommitmentsFromSupabase,
   saveManualCommitmentToSupabase,
   deleteManualCommitmentFromSupabase,
+  syncOrderFlavorStockInSupabase,
+  upsertManualSaleDirectToSupabase,
 } from '../services/supabase';
 import {
   acquireOrderActionLock,
@@ -187,6 +192,9 @@ interface CatalogContextType {
   closeProfileModal: () => void;
   loginUser: (email: string, password?: string) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
   registerUser: (data: { email: string; fullName: string; phoneWhatsapp?: string; password?: string; address?: CustomerAddress }) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
+  signInWithGoogle: () => Promise<{ success: boolean; message: string }>;
+  sendOtpCode: (email: string) => Promise<{ success: boolean; message: string }>;
+  verifyOtpCode: (email: string, token: string) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
   logoutUser: () => void;
   resetPassword: (email: string) => Promise<{ success: boolean; message: string }>;
   updateCustomerProfile: (data: Partial<UserProfile>) => Promise<boolean>;
@@ -570,17 +578,49 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsLoadingUsers(true);
     try {
       const remoteUsers = await fetchAllCustomerProfilesFromSupabase();
+      const mapById = new Map<string, UserProfile>();
+
       if (remoteUsers && remoteUsers.length > 0) {
-        const merged = remoteUsers.map(mergeUserWithLocalLoyalty);
-        setAllUsers(merged);
-        if (currentUser) {
-          const updatedCurrent = merged.find((u) => u.id === currentUser.id);
-          if (updatedCurrent?.loyaltyCard) {
-            setCurrentUser((prev) => (prev ? { ...prev, loyaltyCard: updatedCurrent.loyaltyCard } : null));
-          }
+        for (const u of remoteUsers) {
+          mapById.set(u.id, mergeUserWithLocalLoyalty(u));
         }
-      } else if (currentUser) {
-        setAllUsers([mergeUserWithLocalLoyalty(currentUser)]);
+      }
+
+      if (currentUser) {
+        const existingCurr = mapById.get(currentUser.id);
+        mapById.set(
+          currentUser.id,
+          mergeUserWithLocalLoyalty(existingCurr ? { ...currentUser, ...existingCurr } : currentUser)
+        );
+      }
+
+      // Garante que clientes identificados em pedidos existentes também apareçam na gestão de selos
+      for (const ord of allCatalogOrders) {
+        if (ord.customerId && !mapById.has(ord.customerId)) {
+          mapById.set(
+            ord.customerId,
+            mergeUserWithLocalLoyalty({
+              id: ord.customerId,
+              email: ord.customerEmail || `${ord.customerId}@cliente.podwave`,
+              fullName: ord.customerName || 'Cliente PodWave',
+              phoneWhatsapp: ord.customerPhone || '',
+              role: 'customer',
+              createdAt: ord.createdAt,
+            })
+          );
+        }
+      }
+
+      const merged = Array.from(mapById.values());
+      setAllUsers(merged);
+
+      if (currentUser) {
+        const updatedCurrent = mapById.get(currentUser.id);
+        if (updatedCurrent?.loyaltyCard) {
+          setCurrentUser((prev) =>
+            prev ? { ...prev, loyaltyCard: updatedCurrent.loyaltyCard } : null
+          );
+        }
       }
     } catch (e) {
       console.warn('[CatalogContext] Erro ao buscar lista de usuários:', e);
@@ -592,61 +632,106 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateUserRole = async (userId: string, newRole: UserRole, customDiscount?: number): Promise<boolean> => {
     const ok = await updateCustomerRoleInSupabase(userId, newRole, customDiscount);
-    if (ok) {
-      setAllUsers((prev) =>
-        prev.map((u) =>
-          u.id === userId
-            ? { ...u, role: newRole, vipDiscountCustom: newRole === 'vip' ? (customDiscount ?? u.vipDiscountCustom) : undefined }
-            : u
-        )
-      );
-      if (currentUser && currentUser.id === userId) {
-        const updatedUser: UserProfile = {
-          ...currentUser,
-          role: newRole,
-          vipDiscountCustom: newRole === 'vip' ? (customDiscount ?? currentUser.vipDiscountCustom) : undefined,
-        };
-        setCurrentUser(updatedUser);
-      }
+    setAllUsers((prev) =>
+      prev.map((u) =>
+        u.id === userId
+          ? { ...u, role: newRole, vipDiscountCustom: newRole === 'vip' ? (customDiscount ?? u.vipDiscountCustom) : undefined }
+          : u
+      )
+    );
+    if (currentUser && currentUser.id === userId) {
+      const updatedUser: UserProfile = {
+        ...currentUser,
+        role: newRole,
+        vipDiscountCustom: newRole === 'vip' ? (customDiscount ?? currentUser.vipDiscountCustom) : undefined,
+      };
+      setCurrentUser(updatedUser);
     }
-    return ok;
+    return ok || !supabaseCreds.isConfigured;
   };
 
   const updateUserLoyalty = async (userId: string, mutation: LoyaltyMutationInput): Promise<boolean> => {
-    if (!isAdmin) return false;
+    if (!isAdmin) {
+      console.warn('[Loyalty] Apenas administradores podem atualizar o cartão de fidelidade.');
+      return false;
+    }
 
-    const targetUser =
+    const matchedOrder = allCatalogOrders.find((o) => o.customerId === userId);
+    const targetUser: UserProfile =
       allUsers.find((u) => u.id === userId) ||
-      (currentUser?.id === userId ? currentUser : undefined);
+      (currentUser?.id === userId ? currentUser : undefined) ||
+      (matchedOrder
+        ? {
+            id: userId,
+            email: matchedOrder.customerEmail || `${userId}@cliente.podwave.app`,
+            fullName: matchedOrder.customerName || 'Cliente PodWave',
+            phoneWhatsapp: matchedOrder.customerPhone || '',
+            role: 'customer' as UserRole,
+            createdAt: matchedOrder.createdAt,
+          }
+        : {
+            id: userId,
+            email: `${userId.replace(/[^a-zA-Z0-9._-]/g, '').toLowerCase() || 'cliente'}@cliente.podwave.app`,
+            fullName: 'Cliente PodWave',
+            role: 'customer' as UserRole,
+            createdAt: new Date().toISOString(),
+          });
 
     const defaultGoal = settings.loyaltyGoalStamps || 10;
     const defaultReward = settings.loyaltyDefaultReward || 'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
     const currentCard = getUserLoyaltyCard(targetUser, defaultGoal, defaultReward);
     const authorLabel = currentUser?.fullName || currentUser?.email || 'Administrador';
 
+    console.log('[Loyalty Context] Executando mutação de fidelidade:', {
+      userId,
+      userName: targetUser.fullName,
+      mutationType: mutation.type,
+      currentStamps: currentCard.stamps,
+      goal: currentCard.goal,
+    });
+
     const nextCard = applyLoyaltyMutation(currentCard, {
       ...mutation,
       author: authorLabel,
     });
 
-    if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-      const remoteOk = await updateCustomerLoyaltyInSupabase(userId, nextCard);
-      if (!remoteOk) {
-        return false;
-      }
-    }
-
+    // 1. Atualiza imediatamente o armazenamento local e o estado da aplicação para resposta instantânea
     const localMap = loadLocalLoyaltyCardsMap();
     localMap[userId] = nextCard;
     saveLocalLoyaltyCardsMap(localMap);
 
-    setAllUsers((prev) =>
-      prev.map((u) => (u.id === userId ? { ...u, loyaltyCard: nextCard } : u))
-    );
+    setAllUsers((prev) => {
+      const exists = prev.some((u) => u.id === userId);
+      if (exists) {
+        return prev.map((u) => (u.id === userId ? { ...u, loyaltyCard: nextCard } : u));
+      }
+      return [{ ...targetUser, loyaltyCard: nextCard }, ...prev];
+    });
 
     if (currentUser && currentUser.id === userId) {
       setCurrentUser((prev) => (prev ? { ...prev, loyaltyCard: nextCard } : null));
     }
+
+    // 2. Sincroniza com o Supabase (com fallback de upsert caso o perfil ainda não exista na tabela)
+    if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+      let remoteOk = await updateCustomerLoyaltyInSupabase(userId, nextCard);
+      if (!remoteOk) {
+        remoteOk = await upsertCustomerProfileToSupabase({
+          ...targetUser,
+          loyaltyCard: nextCard,
+        });
+      }
+      console.log('[Loyalty Context] Sincronização remota concluída:', { userId, success: remoteOk });
+    }
+
+    addActivityLog({
+      action: 'FIDELIDADE_ATUALIZADA',
+      actionLabel: 'Cartão Fidelidade Atualizado',
+      entity: 'customer_profiles',
+      entityName: targetUser?.fullName || targetUser?.email || userId,
+      details: `Operação "${mutation.type}" aplicada no cartão fidelidade (${nextCard.stamps}/${nextCard.goal} selos).`,
+      status: 'sucesso',
+    });
 
     return true;
   };
@@ -727,7 +812,26 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!isMounted) return;
 
         if (event === 'SIGNED_IN' && session?.user?.email) {
-          const profile = await fetchCustomerProfileFromSupabase(session.user.email);
+          const cleanEmail = session.user.email.toLowerCase().trim();
+          let profile = await fetchCustomerProfileFromSupabase(cleanEmail);
+          if (!profile) {
+            profile = {
+              id: session.user.id,
+              email: cleanEmail,
+              fullName:
+                session.user.user_metadata?.full_name ||
+                session.user.user_metadata?.name ||
+                cleanEmail.split('@')[0],
+              phoneWhatsapp: session.user.user_metadata?.phone || '',
+              role: 'customer',
+              createdAt: session.user.created_at || new Date().toISOString(),
+            };
+            try {
+              await upsertCustomerProfileToSupabase(profile);
+            } catch (err) {
+              console.warn('[Supabase Auth] Falha ao criar perfil automático:', err);
+            }
+          }
           if (profile && isMounted) {
             setCurrentUser(profile);
           }
@@ -868,6 +972,60 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return await supabaseResetPasswordForEmail(email);
   };
 
+  // LOGIN COM GOOGLE (OAUTH 1-CLIQUE 100% GRATUITO)
+  const signInWithGoogle = async (): Promise<{ success: boolean; message: string }> => {
+    setIsAuthChecking(true);
+    setAuthErrorMessage(null);
+    const res = await supabaseSignInWithGoogle();
+    setIsAuthChecking(false);
+    if (!res.success) {
+      setAuthErrorMessage(res.message);
+      toast.error('Erro no login com Google', res.message);
+    }
+    return res;
+  };
+
+  // LOGIN SEM SENHA: ENVIO DE CÓDIGO OTP (100% GRATUITO)
+  const sendOtpCode = async (email: string): Promise<{ success: boolean; message: string }> => {
+    setIsAuthChecking(true);
+    setAuthErrorMessage(null);
+    const res = await supabaseSendOtp(email);
+    setIsAuthChecking(false);
+    if (!res.success) {
+      setAuthErrorMessage(res.message);
+      toast.error('Erro ao enviar código', res.message);
+    } else {
+      toast.success('Código enviado com sucesso!', res.message);
+    }
+    return res;
+  };
+
+  // LOGIN SEM SENHA: VERIFICAÇÃO DO CÓDIGO OTP DE 6 DÍGITOS
+  const verifyOtpCode = async (
+    email: string,
+    token: string
+  ): Promise<{ success: boolean; message: string; isOwner: boolean }> => {
+    setIsAuthChecking(true);
+    setAuthErrorMessage(null);
+    const res = await supabaseVerifyOtp(email, token);
+    setIsAuthChecking(false);
+    if (res.success && res.user) {
+      setCurrentUser(res.user);
+      toast.success(
+        `Bem-vindo, ${res.user.fullName || 'ao PodWave'}!`,
+        res.isOwner ? 'Sessão de Administrador autenticada.' : 'Login sem senha validado.'
+      );
+      return res;
+    }
+    setAuthErrorMessage(res.message);
+    toast.error('Falha na validação', res.message);
+    return {
+      success: false,
+      message: res.message,
+      isOwner: false,
+    };
+  };
+
   // LOGOUT SEGURO
   const logoutUser = async () => {
     await supabaseSignOut();
@@ -909,18 +1067,57 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // CENTRAL DE PEDIDOS — ESTADO & AÇÕES ADMINISTRATIVAS
-  const [allCatalogOrders, setAllCatalogOrders] = useState<CustomerOrderHistoryItem[]>([]);
+  const LOCAL_CATALOG_ORDERS_KEY = 'podwave_local_catalog_orders_v1';
+
+  const loadLocalCatalogOrders = (): CustomerOrderHistoryItem[] => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(LOCAL_CATALOG_ORDERS_KEY);
+      if (!raw) return [];
+      const parsed = JSON.parse(raw);
+      return Array.isArray(parsed) ? parsed : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const persistLocalCatalogOrders = (orders: CustomerOrderHistoryItem[]) => {
+    if (typeof window === 'undefined') return;
+    try {
+      localStorage.setItem(LOCAL_CATALOG_ORDERS_KEY, JSON.stringify(orders.slice(0, 500)));
+    } catch {
+      // ignore quota errors
+    }
+  };
+
+  const [allCatalogOrders, setAllCatalogOrders] = useState<CustomerOrderHistoryItem[]>(() =>
+    loadLocalCatalogOrders()
+  );
   const [isLoadingCatalogOrders, setIsLoadingCatalogOrders] = useState<boolean>(false);
   const [catalogOrdersError, setCatalogOrdersError] = useState<string | null>(null);
+
+  useEffect(() => {
+    if (isAdmin && allCatalogOrders.length > 0) {
+      persistLocalCatalogOrders(allCatalogOrders);
+    }
+  }, [isAdmin, allCatalogOrders]);
 
   const enrichOrderWithProfile = React.useCallback(
     (order: CustomerOrderHistoryItem, profilesList: UserProfile[]): CustomerOrderHistoryItem => {
       const matched = order.customerId
         ? profilesList.find((u) => u.id === order.customerId)
-        : undefined;
+        : profilesList.find(
+            (u) =>
+              (order.customerEmail &&
+                u.email.toLowerCase() === order.customerEmail.toLowerCase()) ||
+              (order.customerPhone &&
+                u.phoneWhatsapp &&
+                u.phoneWhatsapp.replace(/\D/g, '') === order.customerPhone.replace(/\D/g, ''))
+          );
       if (!matched) return order;
       return {
         ...order,
+        customerId: order.customerId || matched.id,
         customerName: order.customerName || matched.fullName || undefined,
         customerPhone: order.customerPhone || matched.phoneWhatsapp || undefined,
         customerEmail: order.customerEmail || matched.email || undefined,
@@ -956,10 +1153,28 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         mapById.set(ord.id, enrichOrderWithProfile(ord, profilesToUse));
       }
 
+      // Preserva pedidos locais ou versões locais mais recentes (evita perder status/pagamento/selo caso o banco esteja offline ou com RLS restrita)
+      const localCached = loadLocalCatalogOrders();
+      for (const locOrd of localCached) {
+        const existingRemote = mapById.get(locOrd.id);
+        if (!existingRemote) {
+          mapById.set(locOrd.id, enrichOrderWithProfile(locOrd, profilesToUse));
+        } else {
+          const locVer = Number(locOrd.version) || 1;
+          const remVer = Number(existingRemote.version) || 1;
+          const locTime = locOrd.updatedAt ? new Date(locOrd.updatedAt).getTime() : 0;
+          const remTime = existingRemote.updatedAt ? new Date(existingRemote.updatedAt).getTime() : 0;
+          if (locVer > remVer || locTime > remTime) {
+            mapById.set(locOrd.id, enrichOrderWithProfile(locOrd, profilesToUse));
+          }
+        }
+      }
+
       // Include current session user's orders if any exist in memory and were not yet synced
       if (currentUser?.orderHistory) {
         for (const ownOrd of currentUser.orderHistory) {
-          if (!mapById.has(ownOrd.id)) {
+          const existing = mapById.get(ownOrd.id);
+          if (!existing) {
             mapById.set(
               ownOrd.id,
               enrichOrderWithProfile(
@@ -975,6 +1190,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       setAllCatalogOrders(sorted);
+      persistLocalCatalogOrders(sorted);
     } catch {
       setCatalogOrdersError(
         'Não foi possível carregar os pedidos. Verifique sua conexão e tente novamente.'
@@ -1120,6 +1336,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     setCurrentUser(updatedProfile);
+    const currentLocal = loadLocalCatalogOrders();
+    persistLocalCatalogOrders([orderItem, ...currentLocal.filter((o) => o.id !== orderItem.id)]);
     if (isAdmin) {
       setAllCatalogOrders((prev) => [orderItem, ...prev.filter((o) => o.id !== orderItem.id)]);
     }
@@ -1174,8 +1392,197 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return { success: false, error: transition.error || 'Transição de status inválida.' };
       }
 
+      const applyLocalAndRemoteOrderStock = async (
+        targetOrder: CustomerOrderHistoryItem,
+        mode: 'deduct' | 'restore'
+      ) => {
+        const validItems = (targetOrder.items || []).filter(
+          (i) => i && i.modelId && i.flavorId && Number(i.quantity) > 0
+        );
+        if (validItems.length === 0) return;
+
+        // Agrupa por flavorId
+        const deltaByFlavor = new Map<string, { modelId: string; qty: number }>();
+        for (const item of validItems) {
+          const prev = deltaByFlavor.get(item.flavorId);
+          deltaByFlavor.set(item.flavorId, {
+            modelId: item.modelId,
+            qty: (prev?.qty || 0) + Math.max(1, Math.round(Number(item.quantity) || 1)),
+          });
+        }
+
+        const nowStamp = new Date().toISOString();
+        const historyEntries: VariantHistoryEntry[] = [];
+
+        setModels((prevModels) =>
+          prevModels.map((m) => {
+            const hasAffectedFlavor = m.flavors.some((f) => deltaByFlavor.has(f.id));
+            if (!hasAffectedFlavor) return m;
+            return {
+              ...m,
+              flavors: m.flavors.map((f) => {
+                const delta = deltaByFlavor.get(f.id);
+                if (!delta) return f;
+                const prevQty = f.demoQuantity == null ? 0 : Math.max(0, Number(f.demoQuantity));
+                const nextQty =
+                  mode === 'deduct'
+                    ? Math.max(0, prevQty - delta.qty)
+                    : prevQty + delta.qty;
+                historyEntries.push({
+                  id: `vh-ord-${Date.now()}-${Math.random().toString(36).slice(2, 6)}`,
+                  timestamp: nowStamp,
+                  modelId: m.id,
+                  modelName: m.modelName,
+                  brandName: m.brandName,
+                  flavorId: f.id,
+                  flavorName: f.name,
+                  flavorEmoji: f.iconEmoji || '🍇',
+                  previousQuantity: f.demoQuantity ?? 0,
+                  newQuantity: nextQty,
+                  updatedBy: currentUser.email || currentUser.fullName || 'Administrador',
+                  changeType: 'quick_edit',
+                  notes:
+                    mode === 'deduct'
+                      ? `Baixa automática de estoque — Pedido #${targetOrder.referenceId} confirmado`
+                      : `Estorno automático de estoque — Pedido #${targetOrder.referenceId} cancelado`,
+                });
+                return {
+                  ...f,
+                  demoQuantity: nextQty,
+                  inStock: nextQty > 0,
+                  updatedAt: nowStamp,
+                };
+              }),
+            };
+          })
+        );
+
+        if (historyEntries.length > 0) {
+          setVariantHistory((prev) => {
+            const next = [...historyEntries, ...prev].slice(0, 100);
+            try {
+              localStorage.setItem(VARIANT_HISTORY_KEY, JSON.stringify(next));
+            } catch {
+              // ignore
+            }
+            return next;
+          });
+        }
+
+        if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+          await syncOrderFlavorStockInSupabase(
+            validItems.map((i) => ({
+              modelId: i.modelId,
+              flavorId: i.flavorId,
+              quantity: i.quantity,
+            })),
+            mode
+          );
+        }
+      };
+
+      const nowIso = new Date().toISOString();
+      let stockDeductedFlag = existing.stockDeducted === true;
+      let stockDeductedAtIso = existing.stockDeductedAt;
+      let linkedFinancialSaleId = existing.financialSaleId;
+      let linkedFinancialRecordedAt = existing.financialRecordedAt;
+
+      const isConfirmingOrActiveStage =
+        toStatus === 'confirmado' ||
+        toStatus === 'em_separacao' ||
+        toStatus === 'enviado' ||
+        toStatus === 'entregue';
+
+      // Baixa automática do estoque ao confirmar o pedido (ou avançar para etapa ativa) caso ainda não tenha sido baixado
+      if (isConfirmingOrActiveStage && !stockDeductedFlag) {
+        const existingSale = findExistingFinancialSaleForOrder(existing, manualSales);
+        if (!existingSale) {
+          const built = buildManualSaleFromCatalogOrder(
+            {
+              ...existing,
+              status: toStatus,
+              paymentStatus: options?.paymentStatus ?? existing.paymentStatus,
+            },
+            { stockManaged: true }
+          );
+          if (built.success && built.sale) {
+            let rpcRes = await saveSaleWithStock(built.sale);
+            if (!rpcRes.success && rpcRes.error && /venda foi excluída|venda excluída/i.test(rpcRes.error)) {
+              built.sale.id = `sale-ord-${existing.id}-${Date.now().toString(36)}`;
+              rpcRes = await saveSaleWithStock(built.sale);
+            }
+            if (rpcRes.success) {
+              const trackedSale: ManualSaleEntry = {
+                ...built.sale,
+                stockRequestId: undefined,
+                stockManaged: rpcRes.stockManaged ?? true,
+                stockRevision: rpcRes.stockRevision ?? 1,
+                _syncStatus: 'synced',
+                _syncError: undefined,
+                _lastSyncAttempt: nowIso,
+              };
+              setManualSales((prev) => [
+                trackedSale,
+                ...prev.filter((s) => s.id !== trackedSale.id),
+              ]);
+              await refreshSaleStock();
+              stockDeductedFlag = true;
+              stockDeductedAtIso = nowIso;
+              linkedFinancialSaleId = trackedSale.id;
+              linkedFinancialRecordedAt = nowIso;
+            } else {
+              // Fallback direto na tabela flavor_variants e estado local se a RPC save_sale_with_stock não estiver ativa
+              await applyLocalAndRemoteOrderStock(existing, 'deduct');
+              stockDeductedFlag = true;
+              stockDeductedAtIso = nowIso;
+            }
+          } else {
+            await applyLocalAndRemoteOrderStock(existing, 'deduct');
+            stockDeductedFlag = true;
+            stockDeductedAtIso = nowIso;
+          }
+        } else {
+          await applyLocalAndRemoteOrderStock(existing, 'deduct');
+          stockDeductedFlag = true;
+          stockDeductedAtIso = nowIso;
+          linkedFinancialSaleId = existingSale.id;
+        }
+      } else if (toStatus === 'cancelado' && stockDeductedFlag) {
+        // Devolve unidades ao estoque caso um pedido já confirmado/baixado seja cancelado
+        const existingSale = findExistingFinancialSaleForOrder(existing, manualSales);
+        if (existingSale && existingSale.stockManaged) {
+          const cancelSale: ManualSaleEntry = {
+            ...existingSale,
+            orderStatus: 'cancelado',
+          };
+          const rpcCancel = await saveSaleWithStock(cancelSale);
+          if (rpcCancel.success) {
+            setManualSales((prev) =>
+              prev.map((s) =>
+                s.id === existingSale.id
+                  ? {
+                      ...cancelSale,
+                      stockRevision: rpcCancel.stockRevision ?? existingSale.stockRevision,
+                      _syncStatus: 'synced',
+                    }
+                  : s
+              )
+            );
+            await refreshSaleStock();
+          } else {
+            await applyLocalAndRemoteOrderStock(existing, 'restore');
+          }
+        } else {
+          await applyLocalAndRemoteOrderStock(existing, 'restore');
+        }
+        stockDeductedFlag = false;
+        stockDeductedAtIso = undefined;
+      }
+
+      const ownerCustomerId = existing.customerId || currentUser.id;
       const updatedOrder: CustomerOrderHistoryItem = {
         ...transition.updatedOrder,
+        customerId: ownerCustomerId,
         paymentStatus: options?.paymentStatus ?? transition.updatedOrder.paymentStatus,
         amountPaid:
           typeof options?.amountPaid === 'number'
@@ -1183,23 +1590,17 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
             : options?.paymentStatus === 'pago'
             ? transition.updatedOrder.total
             : transition.updatedOrder.amountPaid,
+        stockDeducted: stockDeductedFlag,
+        stockDeductedAt: stockDeductedAtIso,
+        financialSaleId: linkedFinancialSaleId,
+        financialRecordedAt: linkedFinancialRecordedAt,
       };
 
-      const ownerCustomerId = updatedOrder.customerId || currentUser.id;
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        const ok = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-        if (!ok) {
-          return {
-            success: false,
-            error:
-              'O banco de dados não confirmou a alteração de status. Verifique sua conexão e permissões.',
-          };
-        }
-      }
-
-      setAllCatalogOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? updatedOrder : o))
-      );
+      setAllCatalogOrders((prev) => {
+        const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
+        persistLocalCatalogOrders(next);
+        return next;
+      });
 
       if (currentUser.id === ownerCustomerId) {
         setCurrentUser((prev) =>
@@ -1214,14 +1615,22 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         );
       }
 
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+      }
+
       addActivityLog({
         action: 'PEDIDO_ATUALIZADO',
         actionLabel: `Status do Pedido: ${toStatus.toUpperCase()}`,
         entity: 'customer_orders',
         entityName: `#${updatedOrder.referenceId}`,
         details: `Pedido #${updatedOrder.referenceId} alterado de "${existing.status}" para "${toStatus}"${
-          options?.reason ? ` (Motivo: ${options.reason})` : ''
-        }.`,
+          stockDeductedFlag && !existing.stockDeducted
+            ? ' (Estoque baixado e sincronizado com o banco)'
+            : toStatus === 'cancelado' && existing.stockDeducted
+            ? ' (Estoque estornado ao catálogo)'
+            : ''
+        }${options?.reason ? ` (Motivo: ${options.reason})` : ''}.`,
         status: toStatus === 'cancelado' ? 'alerta' : 'sucesso',
       });
 
@@ -1281,8 +1690,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           .replace('.', ',')})${reason ? ` — ${reason}` : ''}`,
       };
 
+      const ownerCustomerId = existing.customerId || currentUser.id;
       const updatedOrder: CustomerOrderHistoryItem = {
         ...existing,
+        customerId: ownerCustomerId,
         paymentStatus,
         amountPaid: resolvedAmountPaid,
         statusHistory: [historyEntry, ...(existing.statusHistory || [])].slice(0, 50),
@@ -1291,20 +1702,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         version: (existing.version || 1) + 1,
       };
 
-      const ownerCustomerId = updatedOrder.customerId || currentUser.id;
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        const ok = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-        if (!ok) {
-          return {
-            success: false,
-            error: 'Não foi possível salvar a atualização de pagamento no banco.',
-          };
-        }
-      }
-
-      setAllCatalogOrders((prev) =>
-        prev.map((o) => (o.id === orderId ? updatedOrder : o))
-      );
+      setAllCatalogOrders((prev) => {
+        const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
+        persistLocalCatalogOrders(next);
+        return next;
+      });
 
       if (currentUser.id === ownerCustomerId) {
         setCurrentUser((prev) =>
@@ -1317,6 +1719,37 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
               }
             : null
         );
+      }
+
+      // Se já houver venda financeira vinculada a este pedido, sincroniza o status de pagamento na venda também
+      const linkedSale = findExistingFinancialSaleForOrder(existing, manualSales);
+      if (linkedSale) {
+        const mappedSalePayStatus: 'pago' | 'parcial' | 'pendente' =
+          paymentStatus === 'pago'
+            ? 'pago'
+            : paymentStatus === 'parcial'
+            ? 'parcial'
+            : 'pendente';
+        const updatedSale: ManualSaleEntry = {
+          ...linkedSale,
+          paymentStatus: mappedSalePayStatus,
+          amountReceived: resolvedAmountPaid,
+          amountPending: Math.max(0, Number((linkedSale.netTotal - resolvedAmountPaid).toFixed(2))),
+          receivedDate:
+            paymentStatus === 'pago'
+              ? linkedSale.receivedDate || nowIso.split('T')[0]
+              : linkedSale.receivedDate,
+        };
+        setManualSales((prev) =>
+          prev.map((s) => (s.id === linkedSale.id ? updatedSale : s))
+        );
+        if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+          void upsertManualSaleDirectToSupabase(updatedSale);
+        }
+      }
+
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
       }
 
       return { success: true, updatedOrder };
@@ -1357,16 +1790,32 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return { success: false, error: 'Pedido não encontrado.' };
       }
 
-      if (!order.customerId) {
-        return {
-          success: false,
-          error: 'Este pedido não possui conta de cliente vinculada para receber selo.',
-        };
-      }
+      // Resolve o cliente pelo ID, e-mail, WhatsApp ou cria identificador determinístico para o pedido
+      const matchedCustomer =
+        (order.customerId ? allUsers.find((u) => u.id === order.customerId) : undefined) ||
+        (order.customerEmail
+          ? allUsers.find((u) => u.email.toLowerCase() === order.customerEmail!.toLowerCase())
+          : undefined) ||
+        (order.customerPhone
+          ? allUsers.find(
+              (u) =>
+                u.phoneWhatsapp &&
+                u.phoneWhatsapp.replace(/\D/g, '') === order.customerPhone!.replace(/\D/g, '')
+            )
+          : undefined) ||
+        (order.customerId && currentUser.id === order.customerId ? currentUser : undefined);
 
-      const targetCustomer =
-        allUsers.find((u) => u.id === order.customerId) ||
-        (currentUser.id === order.customerId ? currentUser : undefined);
+      const resolvedCustomerId =
+        order.customerId ||
+        matchedCustomer?.id ||
+        `cust-${(order.customerEmail || order.customerPhone || order.id)
+          .replace(/[^a-zA-Z0-9_-]/g, '')
+          .toLowerCase()}`;
+
+      const orderWithCustomer: CustomerOrderHistoryItem = {
+        ...order,
+        customerId: resolvedCustomerId,
+      };
 
       const defaultGoal = settings.loyaltyGoalStamps || 10;
       const defaultReward =
@@ -1374,8 +1823,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
 
       const evaluation = evaluateOrderLoyalty(
-        order,
-        targetCustomer,
+        orderWithCustomer,
+        matchedCustomer,
         defaultGoal,
         defaultReward
       );
@@ -1399,7 +1848,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const idempotencyKey = `stamp-order-${order.id}`;
       const authorLabel = currentUser.fullName || currentUser.email || 'Administrador';
-      const baseCard = getUserLoyaltyCard(targetCustomer, defaultGoal, defaultReward);
+      const localMap = loadLocalLoyaltyCardsMap();
+      const baseCard =
+        localMap[resolvedCustomerId] ||
+        getUserLoyaltyCard(matchedCustomer, defaultGoal, defaultReward);
 
       const updatedCard = applyLoyaltyMutation(baseCard, {
         type: 'add',
@@ -1413,23 +1865,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           `Selo validado na entrega do pedido #${order.referenceId}`,
       });
 
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        const cardSaved = await updateCustomerLoyaltyInSupabase(
-          order.customerId,
-          updatedCard
-        );
-        if (!cardSaved) {
-          return {
-            success: false,
-            error:
-              'O banco de dados não confirmou a gravação do selo no perfil do cliente. Operação abortada.',
-          };
-        }
-      }
-
       const nowIso = new Date().toISOString();
       const updatedOrder: CustomerOrderHistoryItem = {
-        ...order,
+        ...orderWithCustomer,
         loyaltyStampGranted: true,
         loyaltyStampGrantedAt: nowIso,
         loyaltyStampGrantedBy: authorLabel,
@@ -1439,46 +1877,70 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         version: (order.version || 1) + 1,
       };
 
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        const orderSaved = await saveCustomerOrderToSupabase(
-          updatedOrder,
-          order.customerId
-        );
-        if (!orderSaved) {
-          return {
-            success: false,
-            error:
-              'Selo creditado no perfil, mas houve falha ao atualizar o vínculo no pedido. Recarregue os pedidos.',
-          };
-        }
-      }
-
-      const localMap = loadLocalLoyaltyCardsMap();
-      localMap[order.customerId] = updatedCard;
+      localMap[resolvedCustomerId] = updatedCard;
       saveLocalLoyaltyCardsMap(localMap);
 
-      setAllUsers((prev) =>
-        prev.map((u) =>
-          u.id === order.customerId ? { ...u, loyaltyCard: updatedCard } : u
-        )
-      );
+      setAllUsers((prev) => {
+        const exists = prev.some((u) => u.id === resolvedCustomerId);
+        if (exists) {
+          return prev.map((u) =>
+            u.id === resolvedCustomerId ? { ...u, loyaltyCard: updatedCard } : u
+          );
+        }
+        const stubProfile: UserProfile = {
+          id: resolvedCustomerId,
+          email:
+            order.customerEmail ||
+            `${resolvedCustomerId}@cliente.podwave.app`,
+          fullName: order.customerName || 'Cliente PodWave',
+          phoneWhatsapp: order.customerPhone || '',
+          role: 'customer',
+          loyaltyCard: updatedCard,
+          createdAt: order.createdAt || nowIso,
+        };
+        return [stubProfile, ...prev];
+      });
 
-      if (currentUser.id === order.customerId) {
+      if (currentUser.id === resolvedCustomerId) {
         setCurrentUser((prev) =>
-          prev ? { ...prev, loyaltyCard: updatedCard } : null
+          prev
+            ? {
+                ...prev,
+                loyaltyCard: updatedCard,
+                orderHistory: (prev.orderHistory || []).map((o) =>
+                  o.id === order.id ? updatedOrder : o
+                ),
+              }
+            : null
         );
       }
 
-      setAllCatalogOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? updatedOrder : o))
-      );
+      setAllCatalogOrders((prev) => {
+        const next = prev.map((o) => (o.id === order.id ? updatedOrder : o));
+        persistLocalCatalogOrders(next);
+        return next;
+      });
+
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        let cardSaved = await updateCustomerLoyaltyInSupabase(
+          resolvedCustomerId,
+          updatedCard
+        );
+        if (!cardSaved && matchedCustomer) {
+          cardSaved = await upsertCustomerProfileToSupabase({
+            ...matchedCustomer,
+            loyaltyCard: updatedCard,
+          });
+        }
+        await saveCustomerOrderToSupabase(updatedOrder, resolvedCustomerId);
+      }
 
       addActivityLog({
         action: 'FIDELIDADE_ATUALIZADA',
         actionLabel: 'Selo Fidelidade Creditado',
         entity: 'customer_orders',
         entityName: `#${order.referenceId}`,
-        details: `+1 selo creditado para ${order.customerName || order.customerId} referente ao pedido #${order.referenceId} (${updatedCard.stamps}/${updatedCard.goal} selos).`,
+        details: `+1 selo creditado para ${order.customerName || resolvedCustomerId} referente ao pedido #${order.referenceId} (${updatedCard.stamps}/${updatedCard.goal} selos).`,
         status: 'sucesso',
       });
 
@@ -1532,7 +1994,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       }
 
-      const built = buildManualSaleFromCatalogOrder(order, options);
+      // Se o estoque já foi baixado na confirmação do pedido, evita descontar uma segunda vez na RPC
+      const shouldManageStockInRpc = order.stockDeducted
+        ? false
+        : options?.stockManaged ?? true;
+
+      const built = buildManualSaleFromCatalogOrder(order, {
+        ...options,
+        stockManaged: shouldManageStockInRpc,
+      });
       if (!built.success || !built.sale) {
         return {
           success: false,
@@ -1540,40 +2010,78 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         };
       }
 
-      const saveRes = await saveManualSale(built.sale);
-      if (!saveRes.success) {
-        return {
-          success: false,
-          error:
-            saveRes.error ||
-            'O banco de dados não confirmou o registro da venda no financeiro.',
-        };
+      const nowIso = new Date().toISOString();
+      let rpcRes = await saveSaleWithStock(built.sale);
+      if (!rpcRes.success && rpcRes.error && /venda foi excluída|venda excluída/i.test(rpcRes.error)) {
+        built.sale.id = `sale-ord-${order.id}-${Date.now().toString(36)}`;
+        rpcRes = await saveSaleWithStock(built.sale);
+      }
+      let syncedRemotely = rpcRes.success;
+
+      if (!syncedRemotely) {
+        // Fallback: grava diretamente na tabela manual_sales caso a RPC save_sale_with_stock não esteja instalada ou falhe por item desvinculado
+        syncedRemotely = await upsertManualSaleDirectToSupabase(built.sale);
+      } else {
+        await refreshSaleStock();
       }
 
-      const nowIso = new Date().toISOString();
+      const trackedSale: ManualSaleEntry = {
+        ...built.sale,
+        stockRequestId: undefined,
+        stockManaged: rpcRes.stockManaged ?? shouldManageStockInRpc,
+        stockRevision: rpcRes.stockRevision ?? 1,
+        _syncStatus: syncedRemotely ? 'synced' : 'pending_sync',
+        _syncError: syncedRemotely
+          ? undefined
+          : 'Salvo localmente (pendente de sincronização com o Supabase).',
+        _lastSyncAttempt: nowIso,
+      };
+
+      setManualSales((prev) => {
+        const idx = prev.findIndex((s) => s.id === trackedSale.id);
+        if (idx >= 0) {
+          const updated = [...prev];
+          updated[idx] = trackedSale;
+          return updated;
+        }
+        return [trackedSale, ...prev];
+      });
+
+      const ownerCustomerId = order.customerId || currentUser.id;
       const updatedOrder: CustomerOrderHistoryItem = {
         ...order,
-        financialSaleId: built.sale.id,
+        customerId: ownerCustomerId,
+        financialSaleId: trackedSale.id,
         financialRecordedAt: nowIso,
-        paymentStatus: built.sale.paymentStatus,
-        amountPaid: built.sale.amountReceived,
+        paymentStatus: trackedSale.paymentStatus,
+        amountPaid: trackedSale.amountReceived,
         updatedAt: nowIso,
         updatedBy: currentUser.fullName || currentUser.email || 'Administrador',
         version: (order.version || 1) + 1,
       };
 
-      const ownerCustomerId = updatedOrder.customerId || currentUser.id;
+      setAllCatalogOrders((prev) => {
+        const next = prev.map((o) => (o.id === order.id ? updatedOrder : o));
+        persistLocalCatalogOrders(next);
+        return next;
+      });
+
       if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
         await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
       }
 
-      setAllCatalogOrders((prev) =>
-        prev.map((o) => (o.id === order.id ? updatedOrder : o))
-      );
+      addActivityLog({
+        action: 'PEDIDO_ATUALIZADO',
+        actionLabel: 'Pedido Lançado no Financeiro',
+        entity: 'manual_sales',
+        entityName: `#${order.referenceId}`,
+        details: `Pedido #${order.referenceId} (${order.customerName || 'Cliente'}) registrado em Minhas Vendas (R$ ${trackedSale.netTotal.toFixed(2).replace('.', ',')}).`,
+        status: 'sucesso',
+      });
 
       return {
         success: true,
-        saleId: built.sale.id,
+        saleId: trackedSale.id,
         alreadyExists: false,
       };
     } finally {
@@ -3563,6 +4071,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           );
           synced++;
         } else {
+          // Se a venda foi previamente excluída no Supabase (tombstone registrada no log de auditoria), purga do estado local para não gerar loop
+          if (stockResult.error && /venda foi excluída|venda excluída/i.test(stockResult.error)) {
+            setManualSales((prev) => prev.filter((s) => s.id !== sale.id));
+            removeTombstone(sale.id);
+            continue;
+          }
           setManualSales((prev) =>
             prev.map((s) => (s.id === sale.id ? { ...s, _syncStatus: 'sync_error', _syncError: 'Falha ao sincronizar com Supabase', _lastSyncAttempt: now } : s))
           );
@@ -3726,6 +4240,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         closeProfileModal,
         loginUser,
         registerUser,
+        signInWithGoogle,
+        sendOtpCode,
+        verifyOtpCode,
         logoutUser,
         resetPassword,
         updateCustomerProfile,

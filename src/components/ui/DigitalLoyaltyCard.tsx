@@ -230,7 +230,7 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
         </div>
 
         {/* 10-Stamp Visual Grid */}
-        <div className="grid grid-cols-2 xs:grid-cols-3 sm:grid-cols-5 gap-2.5 sm:gap-3 pt-1">
+        <div className="grid grid-cols-5 gap-1.5 sm:gap-2.5 pt-1">
           {slots.map((slotNum) => {
             const isStamped = slotNum <= stamps;
             const isLatestStamp = slotNum === stamps && stamps > 0;
@@ -267,7 +267,7 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
                     ? `Selo ${paddedNum} validado${isMilestoneSlot ? ' (Marco de Fidelidade)' : ''}`
                     : `Selo ${paddedNum} pendente${isMilestoneSlot ? ' (Marco de Fidelidade)' : ''}`
                 }
-                className={`group relative rounded-2xl p-2.5 flex flex-col justify-between items-center gap-1.5 min-h-[118px] sm:min-h-[126px] transition-all duration-300 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00DFFF] ${
+                className={`group relative rounded-xl sm:rounded-2xl p-1.5 sm:p-2.5 flex flex-col justify-between items-center gap-1 sm:gap-1.5 min-h-[86px] sm:min-h-[122px] transition-all duration-300 select-none focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00DFFF] ${
                   interactive ? 'cursor-pointer hover:scale-[1.03] active:scale-95' : 'cursor-default'
                 } ${
                   isStamped
@@ -284,7 +284,7 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
                 {/* Top Row: #01 on left + Glowing Cyan Dot on right */}
                 <div className="w-full flex items-center justify-between px-0.5">
                   <span
-                    className={`font-mono text-xs sm:text-[13px] font-extrabold tracking-tight leading-none ${
+                    className={`font-mono text-[10px] sm:text-[13px] font-extrabold tracking-tight leading-none ${
                       isStamped
                         ? 'text-[#5CE1E6]'
                         : isFinalSlot
@@ -297,14 +297,14 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
 
                   {isStamped ? (
                     <span
-                      className="w-2.5 h-2.5 rounded-full bg-[#00DFFF] shadow-[0_0_8px_#00DFFF] shrink-0"
+                      className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full bg-[#00DFFF] shadow-[0_0_8px_#00DFFF] shrink-0"
                       aria-hidden="true"
                     />
                   ) : isFinalSlot ? (
-                    <Gift className="w-3.5 h-3.5 text-amber-400/70 shrink-0" aria-hidden="true" />
+                    <Gift className="w-3 h-3 sm:w-3.5 sm:h-3.5 text-amber-400/70 shrink-0" aria-hidden="true" />
                   ) : (
                     <span
-                      className="w-2.5 h-2.5 rounded-full border border-slate-600/80 bg-slate-800/50 shrink-0"
+                      className="w-2 h-2 sm:w-2.5 sm:h-2.5 rounded-full border border-slate-600/80 bg-slate-800/50 shrink-0"
                       aria-hidden="true"
                     />
                   )}
@@ -316,7 +316,7 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
                     src="/assets/images/logo.png"
                     alt={isStamped ? `Selo PodWave ${paddedNum} Validado` : ''}
                     aria-hidden={!isStamped}
-                    className={`w-12 h-12 sm:w-13 sm:h-13 object-contain select-none pointer-events-none transition-all duration-300 ${
+                    className={`w-8 h-8 sm:w-12 sm:h-12 object-contain select-none pointer-events-none transition-all duration-300 ${
                       isStamped
                         ? 'drop-shadow-[0_2px_10px_rgba(0,223,255,0.42)] scale-100'
                         : 'opacity-20 grayscale scale-95'
@@ -326,7 +326,7 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
 
                 {/* Bottom Status Pill: VALIDADO / PENDENTE / PRÊMIO */}
                 <div
-                  className={`w-full py-1 px-1.5 rounded-lg border text-center transition-colors ${
+                  className={`w-full py-0.5 sm:py-1 px-0.5 sm:px-1.5 rounded-md sm:rounded-lg border text-center transition-colors ${
                     isStamped
                       ? 'border-[#00DFFF]/45 bg-[#08263A]/90 text-[#66E8FA] shadow-[inset_0_0_8px_rgba(0,223,255,0.15)]'
                       : isFinalSlot
@@ -336,7 +336,7 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
                       : 'border-white/10 bg-white/[0.02] text-slate-500'
                   }`}
                 >
-                  <span className="block text-[9px] sm:text-[10px] font-black uppercase tracking-wider leading-none">
+                  <span className="block text-[7px] sm:text-[10px] font-black uppercase tracking-tight sm:tracking-wider leading-none truncate">
                     {isStamped ? 'VALIDADO' : isFinalSlot ? 'PRÊMIO' : isMilestoneSlot ? 'MARCO' : 'PENDENTE'}
                   </span>
                 </div>

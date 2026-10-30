@@ -260,15 +260,15 @@ export const CustomerProfileModal: React.FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
       aria-labelledby="customer-profile-modal-title"
     >
-      <div className="relative w-full max-w-xl rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden my-auto flex flex-col max-h-[85vh]">
+      <div className="relative w-full max-w-xl rounded-2xl sm:rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden my-auto flex flex-col max-h-[92dvh] sm:max-h-[88vh]">
         {/* User Hero Banner */}
-        <div className="p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-b border-[#8423DA]/30 flex items-center justify-between">
-          <div className="flex items-center gap-3.5">
+        <div className="p-4 sm:p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-b border-[#8423DA]/30 flex items-center justify-between gap-2">
+          <div className="flex items-center gap-3 min-w-0">
             <div className="relative w-13 h-13 rounded-2xl bg-gradient-to-br from-[#8423DA] to-[#007BFF] p-0.5 shadow-lg shadow-[#8423DA]/30 shrink-0">
               <div className="w-full h-full rounded-[14px] bg-[#0D1022] flex items-center justify-center font-heading font-black text-white text-lg">
                 {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
@@ -420,14 +420,14 @@ export const CustomerProfileModal: React.FC = () => {
 
         {/* Feedback message */}
         {feedbackMsg && (
-          <div className="mx-6 mt-3 p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
+          <div className="mx-4 sm:mx-6 mt-3 p-3 rounded-xl bg-emerald-500/15 border border-emerald-500/40 text-emerald-300 text-xs flex items-center gap-2">
             <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
             <span>{feedbackMsg}</span>
           </div>
         )}
 
         {/* Body Container */}
-        <div className="p-6 overflow-y-auto flex-1">
+        <div className="p-4 sm:p-6 overflow-y-auto flex-1">
           {/* ===================== TAB: DIGITAL LOYALTY CARD, BADGES, TIERS & HISTORY ===================== */}
           {activeTab === 'loyalty' && (
             <div className="space-y-5 text-xs animate-in fade-in duration-200">
@@ -1025,8 +1025,8 @@ export const CustomerProfileModal: React.FC = () => {
 
           {/* ===================== TAB 2: ORDER HISTORY (MEUS PEDIDOS — FASE 3) ===================== */}
           {activeTab === 'orders' && (
-            <div className="space-y-4">
-              <div className="flex items-center justify-between">
+            <div className="space-y-3.5">
+              <div className="flex items-center justify-between gap-2">
                 <div>
                   <h4 className="font-heading text-sm font-black text-white flex items-center gap-1.5">
                     <ShoppingBag className="w-4 h-4 text-[#00DFFF]" />
@@ -1040,12 +1040,14 @@ export const CustomerProfileModal: React.FC = () => {
                   type="button"
                   onClick={loadAuthenticatedOrders}
                   disabled={isLoadingCustomerOrders}
-                  className="px-3 py-1.5 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 border border-[#8423DA]/40 text-xs font-bold text-gray-200 flex items-center gap-1.5 cursor-pointer transition disabled:opacity-50"
+                  className="px-3 py-1.5 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 border border-[#8423DA]/40 text-xs font-bold text-gray-200 flex items-center gap-1.5 cursor-pointer transition disabled:opacity-50 shrink-0"
                 >
                   <RefreshCw className={`w-3.5 h-3.5 text-[#00DFFF] ${isLoadingCustomerOrders ? 'animate-spin' : ''}`} />
                   <span>Atualizar</span>
                 </button>
               </div>
+
+              <OrderNotificationSettings />
 
               {/* Error State with Retry (Never disguise error as empty list) */}
               {customerOrdersError && (
@@ -1195,9 +1197,8 @@ export const CustomerProfileModal: React.FC = () => {
           )}
         </div>
 
-        <div className="px-4 pb-3"><OrderNotificationSettings /></div>
         {/* Footer */}
-        <div className="p-4 bg-[#080811] border-t border-[#8423DA]/20 flex items-center justify-between shrink-0">
+        <div className="p-3.5 sm:p-4 bg-[#080811] border-t border-[#8423DA]/20 flex items-center justify-between shrink-0">
           <button
             type="button"
             onClick={() => {

@@ -101,16 +101,40 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   const [loyaltyNoteInput, setLoyaltyNoteInput] = useState<string>('');
   const [loyaltyRewardInput, setLoyaltyRewardInput] = useState<string>('');
   const [loyaltyGoalInput, setLoyaltyGoalInput] = useState<number>(10);
+  const [updatingLoyaltyUserId, setUpdatingLoyaltyUserId] = useState<string | null>(null);
 
   // Customer Sheet ("Ficha do Cliente") modal state
   const [customerSheetUserId, setCustomerSheetUserId] = useState<string | null>(null);
 
+  const effectiveUsers = React.useMemo(() => {
+    const map = new Map<string, UserProfile>();
+    for (const u of allUsers) {
+      map.set(u.id, u);
+    }
+    if (currentUser && !map.has(currentUser.id)) {
+      map.set(currentUser.id, currentUser);
+    }
+    for (const ord of allCatalogOrders) {
+      if (ord.customerId && !map.has(ord.customerId)) {
+        map.set(ord.customerId, {
+          id: ord.customerId,
+          email: ord.customerEmail || `${ord.customerId}@cliente.podwave`,
+          fullName: ord.customerName || 'Cliente PodWave',
+          phoneWhatsapp: ord.customerPhone || '',
+          role: 'customer',
+          createdAt: ord.createdAt,
+        });
+      }
+    }
+    return Array.from(map.values());
+  }, [allUsers, currentUser, allCatalogOrders]);
+
   const loyaltyModalUser = loyaltyModalUserId
-    ? allUsers.find((u) => u.id === loyaltyModalUserId) || null
+    ? effectiveUsers.find((u) => u.id === loyaltyModalUserId) || null
     : null;
 
   const customerSheetUser = customerSheetUserId
-    ? allUsers.find((u) => u.id === customerSheetUserId) || null
+    ? effectiveUsers.find((u) => u.id === customerSheetUserId) || null
     : null;
 
   useEffect(() => {
@@ -146,44 +170,76 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
   const handleQuickAddStamp = async (user: UserProfile) => {
     const card = getUserLoyaltyCard(user, defaultGoal, defaultReward);
+    console.log('[Painel Admin] Clique em +1 Selo Fidelidade:', {
+      userId: user.id,
+      name: user.fullName,
+      currentStamps: card.stamps,
+      goal: card.goal,
+    });
+
     if (card.stamps >= card.goal) {
       openLoyaltyModal(user);
       return;
     }
-    const ok = await updateUserLoyalty(user.id, {
-      type: 'add',
-      value: 1,
-      note: 'Selo adicionado manualmente pelo painel',
-    });
-    if (ok) {
-      const nextStamps = Math.min(card.goal, card.stamps + 1);
-      showToast(
-        'success',
-        nextStamps >= card.goal
-          ? `🎉 "${user.fullName}" completou ${nextStamps}/${card.goal} selos! Prêmio liberado!`
-          : `+1 selo adicionado para "${user.fullName}" (${nextStamps}/${card.goal} selos).`
-      );
+
+    setUpdatingLoyaltyUserId(user.id);
+    try {
+      const ok = await updateUserLoyalty(user.id, {
+        type: 'add',
+        value: 1,
+        note: 'Selo adicionado manualmente pelo painel',
+      });
+
+      console.log('[Painel Admin] Resultado do incremento de selo:', { userId: user.id, success: ok });
+
+      if (ok) {
+        const nextStamps = Math.min(card.goal, card.stamps + 1);
+        showToast(
+          'success',
+          nextStamps >= card.goal
+            ? `🎉 "${user.fullName}" completou ${nextStamps}/${card.goal} selos! Prêmio liberado!`
+            : `+1 selo adicionado para "${user.fullName}" (${nextStamps}/${card.goal} selos).`
+        );
+      } else {
+        showToast('error', 'Não foi possível adicionar o selo. Verifique sua permissão administrativa.');
+      }
+    } catch (err) {
+      console.error('[Painel Admin] Erro inesperado ao incrementar selo:', err);
+      showToast('error', 'Erro ao salvar selo de fidelidade.');
+    } finally {
+      setUpdatingLoyaltyUserId(null);
     }
   };
 
   const handleQuickRemoveStamp = async (user: UserProfile) => {
     const card = getUserLoyaltyCard(user, defaultGoal, defaultReward);
     if (card.stamps <= 0) return;
-    const ok = await updateUserLoyalty(user.id, {
-      type: 'remove',
-      value: 1,
-      note: 'Ajuste manual (-1 selo)',
-    });
-    if (ok) {
-      showToast(
-        'success',
-        `1 selo removido de "${user.fullName}" (${Math.max(0, card.stamps - 1)}/${card.goal} selos).`
-      );
+
+    setUpdatingLoyaltyUserId(user.id);
+    try {
+      const ok = await updateUserLoyalty(user.id, {
+        type: 'remove',
+        value: 1,
+        note: 'Ajuste manual (-1 selo)',
+      });
+      if (ok) {
+        showToast(
+          'success',
+          `1 selo removido de "${user.fullName}" (${Math.max(0, card.stamps - 1)}/${card.goal} selos).`
+        );
+      } else {
+        showToast('error', 'Não foi possível remover o selo.');
+      }
+    } catch (err) {
+      console.error('[Painel Admin] Erro ao remover selo:', err);
+      showToast('error', 'Erro ao remover selo de fidelidade.');
+    } finally {
+      setUpdatingLoyaltyUserId(null);
     }
   };
 
   // Filtered users list
-  const filteredUsers = allUsers.filter((u) => {
+  const filteredUsers = effectiveUsers.filter((u) => {
     const q = searchQuery.toLowerCase().trim();
     const matchesSearch =
       !q ||
@@ -203,15 +259,15 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
   });
 
   // Metrics
-  const totalUsers = allUsers.length;
-  const totalAdmins = allUsers.filter((u) => u.role === 'admin' || u.role === 'owner').length;
-  const totalVips = allUsers.filter((u) => u.role === 'vip').length;
-  const totalCustomers = allUsers.filter((u) => u.role === 'customer').length;
-  const totalWithLoyalty = allUsers.filter((u) => {
+  const totalUsers = effectiveUsers.length;
+  const totalAdmins = effectiveUsers.filter((u) => u.role === 'admin' || u.role === 'owner').length;
+  const totalVips = effectiveUsers.filter((u) => u.role === 'vip').length;
+  const totalCustomers = effectiveUsers.filter((u) => u.role === 'customer').length;
+  const totalWithLoyalty = effectiveUsers.filter((u) => {
     const c = getUserLoyaltyCard(u, defaultGoal, defaultReward);
     return c.stamps > 0 || c.completedCards > 0;
   }).length;
-  const totalRewardsReady = allUsers.filter((u) => {
+  const totalRewardsReady = effectiveUsers.filter((u) => {
     const c = getUserLoyaltyCard(u, defaultGoal, defaultReward);
     return c.stamps >= c.goal;
   }).length;
@@ -382,7 +438,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
       </div>
 
       {/* Metrics Row */}
-      <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-3 sm:gap-4">
         {/* Total Users */}
         <div className="p-5 rounded-2xl bg-[#0D1022] border border-[#8423DA]/30 shadow-lg relative overflow-hidden">
           <div className="flex items-center justify-between">
@@ -668,7 +724,7 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                           <button
                             type="button"
                             onClick={() => handleQuickRemoveStamp(user)}
-                            disabled={loyalty.stamps <= 0}
+                            disabled={loyalty.stamps <= 0 || updatingLoyaltyUserId === user.id}
                             className="w-7 h-7 rounded-lg bg-[#141838] hover:bg-rose-500/20 border border-white/10 hover:border-rose-400/40 text-gray-300 hover:text-rose-300 flex items-center justify-center transition cursor-pointer disabled:opacity-30 disabled:cursor-not-allowed"
                             title="Remover 1 selo"
                           >
@@ -702,12 +758,13 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                           {/* +1 Stamp Button */}
                           <button
                             type="button"
+                            disabled={updatingLoyaltyUserId === user.id}
                             onClick={() => handleQuickAddStamp(user)}
-                            className="px-2 py-1 rounded-lg bg-[#00DFFF]/15 hover:bg-[#00DFFF]/30 border border-[#00DFFF]/40 text-[#00DFFF] font-black text-[10px] flex items-center gap-0.5 transition cursor-pointer"
+                            className="px-2 py-1 rounded-lg bg-[#00DFFF]/15 hover:bg-[#00DFFF]/30 border border-[#00DFFF]/40 text-[#00DFFF] font-black text-[10px] flex items-center gap-0.5 transition cursor-pointer disabled:opacity-50 disabled:cursor-wait"
                             title={isLoyaltyFull ? 'Abrir modal para resgatar prêmio' : 'Adicionar +1 selo manualmente'}
                           >
-                            <Plus className="w-3 h-3" />
-                            <span>1 Selo</span>
+                            <Plus className={`w-3 h-3 ${updatingLoyaltyUserId === user.id ? 'animate-spin' : ''}`} />
+                            <span>{updatingLoyaltyUserId === user.id ? '...' : '1 Selo'}</span>
                           </button>
 
                           {loyalty.completedCards > 0 && (
@@ -1631,11 +1688,11 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
                                     </button>
                                   ))}
 
-                                {order.status === 'entregue' && !order.loyaltyStampGranted && (
+                                {order.status !== 'cancelado' && !order.loyaltyStampGranted && (
                                   <button
                                     type="button"
                                     onClick={async () => {
-                                      const res = await grantLoyaltyStampForOrder(order.id);
+                                      const res = await grantLoyaltyStampForOrder(order.id, undefined, true);
                                       showToast(
                                         res.success ? 'success' : 'error',
                                         res.success

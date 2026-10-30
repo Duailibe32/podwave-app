@@ -119,10 +119,38 @@ export function OrderNotificationsProvider({children}: {children: React.ReactNod
 
 export function OrderNotificationSettings() {
   const {enabled,busy,permission,message,activate,deactivate}=useContext(Context);
-  return <section className="rounded-xl border border-white/10 p-3 space-y-2 text-sm">
-    <h3 className="font-bold">Avisos de pedidos</h3>
-    <p className="text-xs text-gray-400">Avise-me quando o status mudar com o aplicativo aberto em segundo plano. Se o sistema suspender ou fechar o aplicativo, o aviso pode não chegar.</p>
-    {permission==='unsupported' ? <p className="text-xs text-amber-300">Indisponível nesta prévia ou navegador. Use o site publicado por HTTPS.</p> : <button type="button" disabled={busy} onClick={enabled ? deactivate : activate} className="rounded-lg border border-cyan-500/30 px-3 py-2 text-cyan-300 disabled:opacity-40">{busy ? 'Ativando...' : enabled ? 'Desativar avisos' : 'Ativar avisos'}</button>}
-    {message && <p role="status" className="text-xs text-gray-300">{message}</p>}
-  </section>;
+  return (
+    <section className="rounded-xl bg-[#11152A]/70 border border-white/10 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
+      <div className="flex items-center gap-2 min-w-0">
+        <span
+          className={`w-2 h-2 rounded-full shrink-0 ${
+            enabled ? 'bg-[#00DFFF] shadow-[0_0_8px_#00DFFF]' : 'bg-gray-500'
+          }`}
+          aria-hidden="true"
+        />
+        <span className="font-semibold text-gray-200 truncate">Avisos de status em 2º plano</span>
+        {message && (
+          <span role="status" className="text-[11px] text-[#A5A5B8] truncate hidden sm:inline">
+            • {message}
+          </span>
+        )}
+      </div>
+      {permission === 'unsupported' ? (
+        <span className="text-[11px] text-amber-300/90 font-medium">Requer HTTPS</span>
+      ) : (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={enabled ? deactivate : activate}
+          className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer disabled:opacity-40 shrink-0 ${
+            enabled
+              ? 'bg-white/5 hover:bg-rose-500/15 border border-white/15 hover:border-rose-400/40 text-gray-300 hover:text-rose-200'
+              : 'bg-[#00DFFF]/15 hover:bg-[#00DFFF]/25 border border-[#00DFFF]/40 text-[#00DFFF]'
+          }`}
+        >
+          {busy ? 'Ativando...' : enabled ? 'Desativar' : 'Ativar avisos'}
+        </button>
+      )}
+    </section>
+  );
 }

@@ -225,6 +225,8 @@ export interface CustomerOrderHistoryItem {
   loyaltyGrantIdempotencyKey?: string;
   financialSaleId?: string;
   financialRecordedAt?: string;
+  stockDeducted?: boolean;
+  stockDeductedAt?: string;
   version?: number;
 }
 

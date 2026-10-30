@@ -9,6 +9,9 @@ import {
   ORDER_STATUS_LIST,
   OrderPeriodFilter,
   WhatsappOrderTemplates,
+  WhatsappTemplatePresetId,
+  WHATSAPP_TEMPLATE_PRESETS,
+  WHATSAPP_TEMPLATE_VARIABLES,
   buildWhatsappConversationUrl,
   calculateOrdersDashboardKPIs,
   evaluateOrderLoyalty,
@@ -51,6 +54,8 @@ import {
   List,
   ShieldCheck,
   RotateCcw,
+  Sparkles,
+  Plus,
 } from 'lucide-react';
 
 interface OrdersCenterTabProps {
@@ -72,7 +77,6 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
     allUsers,
     manualSales,
     settings,
-    isOwner,
   } = useCatalog();
 
   // Filter states
@@ -99,12 +103,17 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
     order: CustomerOrderHistoryItem;
     statusContext?: CatalogOrderStatus;
   } | null>(null);
+  const [whatsappModalPhone, setWhatsappModalPhone] = useState<string>('');
   const [customWhatsappText, setCustomWhatsappText] = useState<string>('');
   const [copiedWhatsapp, setCopiedWhatsapp] = useState<boolean>(false);
   const [isTemplateConfigOpen, setIsTemplateConfigOpen] = useState<boolean>(false);
   const [whatsappTemplates, setWhatsappTemplates] = useState<WhatsappOrderTemplates>(() =>
     loadWhatsappOrderTemplates()
   );
+  const [activeTemplateStage, setActiveTemplateStage] =
+    useState<CatalogOrderStatus>('confirmado');
+  const [activePresetId, setActivePresetId] =
+    useState<WhatsappTemplatePresetId>('neon_interativo');
 
   // Busy & feedback states
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
@@ -224,6 +233,9 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
     targetStatus: CatalogOrderStatus,
     reason?: string
   ) => {
+    const previousOrder = allCatalogOrders.find((o) => o.id === orderId);
+    const hadStockDeductedBefore = previousOrder?.stockDeducted === true;
+
     setBusyOrderId(orderId);
     try {
       const res = await updateCatalogOrderStatus(orderId, targetStatus, {
@@ -242,18 +254,25 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
       setReasonModalState(null);
       setReasonInput('');
 
+      const stockNote =
+        !hadStockDeductedBefore && res.updatedOrder.stockDeducted
+          ? ' • Estoque baixado e sincronizado com o banco!'
+          : hadStockDeductedBefore && targetStatus === 'cancelado'
+          ? ' • Estoque devolvido ao catálogo!'
+          : '';
+
       if (targetStatus === 'entregue') {
         setDeliveredPromptOrderId(orderId);
         showFeedback(
           'success',
-          `Pedido #${res.updatedOrder.referenceId} marcado como ENTREGUE!`
+          `Pedido #${res.updatedOrder.referenceId} marcado como ENTREGUE!${stockNote}`
         );
       } else {
         showFeedback(
           'success',
           `Status do pedido #${res.updatedOrder.referenceId} atualizado para "${
             getOrderStatusMeta(targetStatus).shortLabel
-          }".`
+          }".${stockNote}`
         );
       }
     } finally {
@@ -362,6 +381,7 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
       profile?.loyaltyCard
     );
     setCustomWhatsappText(msg);
+    setWhatsappModalPhone(order.customerPhone || profile?.phoneWhatsapp || '');
     setCopiedWhatsapp(false);
     setWhatsappModalOrder({ order, statusContext });
   };
@@ -375,6 +395,108 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
       'Modelos de mensagens do WhatsApp salvos com sucesso!'
     );
   };
+
+  const handleApplyPreset = (presetId: WhatsappTemplatePresetId) => {
+    const preset = WHATSAPP_TEMPLATE_PRESETS[presetId];
+    if (!preset) return;
+    setActivePresetId(presetId);
+    setWhatsappTemplates((prev) => ({
+      ...prev,
+      presetId,
+      templates: { ...preset.templates },
+    }));
+  };
+
+  const handleInsertVariableIntoActiveStage = (token: string) => {
+    setWhatsappTemplates((prev) => {
+      const current = prev.templates[activeTemplateStage] || '';
+      const separator = current.endsWith(' ') || current.endsWith('\n') || !current ? '' : ' ';
+      return {
+        ...prev,
+        templates: {
+          ...prev.templates,
+          [activeTemplateStage]: `${current}${separator}${token}`,
+        },
+      };
+    });
+  };
+
+  // Sample order for live WhatsApp preview in Template Studio
+  const samplePreviewOrder: CustomerOrderHistoryItem = useMemo(() => {
+    if (allCatalogOrders.length > 0) {
+      return {
+        ...allCatalogOrders[0],
+        loyaltyStampGranted: true,
+        cancelReason:
+          allCatalogOrders[0].cancelReason || 'Solicitação do cliente via atendimento',
+      };
+    }
+    return {
+      id: 'preview-ord-1',
+      referenceId: 'PW-8492',
+      customerId: 'preview-cust-1',
+      customerName: 'Lucas Duailibe',
+      customerPhone: '(86) 99988-7766',
+      createdAt: new Date().toISOString(),
+      subtotal: 190,
+      discount: 10,
+      deliveryFee: 10,
+      total: 190,
+      paymentMethod: 'PIX',
+      paymentStatus: 'pago',
+      amountPaid: 190,
+      deliveryType: 'delivery',
+      addressSummary: 'Av. Nossa Senhora de Fátima, 1420 - Fátima, Teresina/PI',
+      status: activeTemplateStage,
+      loyaltyEligible: true,
+      loyaltyStampGranted: true,
+      cancelReason: 'Solicitação de reagendamento pelo cliente',
+      items: [
+        {
+          id: 'item-prev-1',
+          modelId: 'm1',
+          modelName: 'Ignite V150',
+          brandName: 'IGNITE',
+          flavorId: 'f1',
+          flavorName: 'Watermelon Ice',
+          flavorEmoji: '🍉',
+          flavorColor: '#FF3366',
+          imageUrl: '',
+          quantity: 1,
+          price: 110,
+        },
+        {
+          id: 'item-prev-2',
+          modelId: 'm2',
+          modelName: 'Elfbar BC10000',
+          brandName: 'ELFBAR',
+          flavorId: 'f2',
+          flavorName: 'Grape Ice',
+          flavorEmoji: '🍇',
+          flavorColor: '#8423DA',
+          imageUrl: '',
+          quantity: 1,
+          price: 80,
+        },
+      ],
+    };
+  }, [allCatalogOrders, activeTemplateStage]);
+
+  const liveTemplatePreviewText = useMemo(
+    () =>
+      formatWhatsappOrderMessage(
+        samplePreviewOrder,
+        activeTemplateStage,
+        whatsappTemplates,
+        {
+          stamps: 4,
+          goal: defaultGoal,
+          completedCards: 0,
+          rewardDescription: defaultReward,
+        }
+      ),
+    [samplePreviewOrder, activeTemplateStage, whatsappTemplates, defaultGoal, defaultReward]
+  );
 
   const renderOrderCard = (order: CustomerOrderHistoryItem, compact = false) => {
     const statusMeta = getOrderStatusMeta(order.status);
@@ -498,6 +620,16 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                 : 'Pag. Pendente'}
             </span>
 
+            {order.stockDeducted && (
+              <span
+                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-[10px] font-bold"
+                title="Itens deste pedido já foram descontados automaticamente do estoque"
+              >
+                <PackageCheck className="w-2.5 h-2.5 text-[#00DFFF]" />
+                Estoque Baixado
+              </span>
+            )}
+
             <span
               className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-md border text-[10px] font-bold ${
                 loyaltyEval.state === 'granted'
@@ -550,6 +682,19 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
               </button>
             )}
 
+            {order.status !== 'cancelado' && !order.loyaltyStampGranted && (
+              <button
+                type="button"
+                disabled={isBusy}
+                onClick={() => handleGrantStamp(order, true)}
+                title="Creditar +1 Selo Fidelidade para este pedido"
+                className="px-2.5 py-2 rounded-xl bg-[#E53CF3]/15 hover:bg-[#E53CF3]/30 border border-[#E53CF3]/40 text-[#E53CF3] text-[11px] font-black flex items-center gap-1 cursor-pointer transition shrink-0 disabled:opacity-40"
+              >
+                <Gift className="w-3.5 h-3.5" />
+                <span>+1 Selo</span>
+              </button>
+            )}
+
             <button
               type="button"
               onClick={() => openWhatsappComposer(order)}
@@ -586,21 +731,19 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
             Gerenciamento de Pedidos, Fidelidade e Financeiro
           </h2>
           <p className="text-xs sm:text-sm text-[#A5A5B8] max-w-2xl">
-            Acompanhe a fila de pedidos do catálogo, atualize etapas com auditoria, credite selos sem duplicidade e integre vendas reais ao módulo Meu Negócio.
+            Acompanhe a fila de pedidos do catálogo, dê baixa automática no estoque ao confirmar, credite selos sem duplicidade e integre vendas reais ao módulo Meu Negócio.
           </p>
         </div>
 
         <div className="flex flex-wrap items-center gap-2.5">
-          {isOwner && (
-            <button
-              type="button"
-              onClick={() => setIsTemplateConfigOpen(true)}
-              className="px-3.5 py-2.5 rounded-xl bg-[#181D3D] hover:bg-[#8423DA]/30 border border-[#8423DA]/40 text-xs font-bold text-gray-200 flex items-center gap-1.5 cursor-pointer transition"
-            >
-              <Settings className="w-4 h-4 text-[#00DFFF]" />
-              <span>Modelos WhatsApp</span>
-            </button>
-          )}
+          <button
+            type="button"
+            onClick={() => setIsTemplateConfigOpen(true)}
+            className="px-3.5 py-2.5 rounded-xl bg-[#181D3D] hover:bg-[#8423DA]/30 border border-[#8423DA]/40 text-xs font-bold text-gray-200 flex items-center gap-1.5 cursor-pointer transition"
+          >
+            <Settings className="w-4 h-4 text-[#00DFFF]" />
+            <span>Modelos WhatsApp</span>
+          </button>
 
           <button
             type="button"
@@ -1172,12 +1315,20 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                 </div>
               </div>
 
-              {/* Loyalty & Financial Quick Integration */}
+              {/* Loyalty, Stock & Financial Quick Integration */}
               <div className="p-4 rounded-2xl bg-[#141838] border border-[#8423DA]/35 flex flex-col sm:flex-row items-stretch sm:items-center justify-between gap-3">
-                <div className="space-y-0.5">
-                  <span className="text-[10px] font-black uppercase text-[#00DFFF] block">
-                    Fidelidade & Financeiro ("Meu Negócio")
-                  </span>
+                <div className="space-y-1">
+                  <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-[10px] font-black uppercase text-[#00DFFF] block">
+                      Fidelidade, Estoque & Financeiro ("Meu Negócio")
+                    </span>
+                    {selectedOrder.stockDeducted && (
+                      <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-cyan-500/15 border border-cyan-400/40 text-cyan-200 text-[10px] font-bold">
+                        <PackageCheck className="w-3 h-3 text-[#00DFFF]" />
+                        Estoque Baixado
+                      </span>
+                    )}
+                  </div>
                   <p className="text-xs text-gray-300">
                     {selectedOrder.loyaltyStampGranted
                       ? '✓ Selo fidelidade já creditado para este pedido.'
@@ -1191,7 +1342,7 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                     disabled={
                       busyOrderId === selectedOrder.id ||
                       selectedOrder.loyaltyStampGranted === true ||
-                      selectedOrder.status !== 'entregue'
+                      selectedOrder.status === 'cancelado'
                     }
                     onClick={() => handleGrantStamp(selectedOrder, true)}
                     className="px-3 py-2 rounded-xl bg-amber-500/20 hover:bg-amber-500/30 border border-amber-400/50 text-amber-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
@@ -1226,6 +1377,15 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                       <span>Registrar no Financeiro</span>
                     </button>
                   )}
+
+                  <button
+                    type="button"
+                    onClick={() => openWhatsappComposer(selectedOrder)}
+                    className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
+                  >
+                    <MessageSquare className="w-3.5 h-3.5" />
+                    <span>WhatsApp</span>
+                  </button>
                 </div>
               </div>
             </div>
@@ -1295,10 +1455,7 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                 ) : (
                   <button
                     type="button"
-                    disabled={
-                      busyOrderId === deliveredPromptOrder.id ||
-                      !deliveredPromptOrder.customerId
-                    }
+                    disabled={busyOrderId === deliveredPromptOrder.id}
                     onClick={() => handleGrantStamp(deliveredPromptOrder, true)}
                     className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#8423DA] to-[#00DFFF] text-white font-black cursor-pointer shrink-0 disabled:opacity-40"
                   >
@@ -1428,36 +1585,98 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
       {/* ===================== MODAL DE PRÉVIA E ENVIO WHATSAPP (SECTION 7) ===================== */}
       {whatsappModalOrder && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto"
           role="dialog"
           aria-modal="true"
         >
-          <div className="w-full max-w-lg rounded-3xl bg-[#0D1022] border-2 border-emerald-500/40 p-6 space-y-4">
-            <div className="flex items-center justify-between">
+          <div className="w-full max-w-xl rounded-3xl bg-[#0D1022] border-2 border-emerald-500/40 p-6 space-y-4 my-auto">
+            <div className="flex items-center justify-between gap-2">
               <h3 className="font-heading text-base font-black text-white flex items-center gap-2">
                 <MessageSquare className="w-5 h-5 text-emerald-400" />
-                <span>Comunicação pelo WhatsApp</span>
+                <span>Comunicação Interativa pelo WhatsApp</span>
               </h3>
-              <button
-                type="button"
-                onClick={() => setWhatsappModalOrder(null)}
-                aria-label="Fechar janela de WhatsApp"
-                className="p-2 rounded-xl bg-[#141838] text-gray-300 hover:text-white cursor-pointer"
-              >
-                <X className="w-4 h-4" />
-              </button>
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => {
+                    setActiveTemplateStage(
+                      whatsappModalOrder.statusContext || whatsappModalOrder.order.status
+                    );
+                    setIsTemplateConfigOpen(true);
+                  }}
+                  className="px-2.5 py-1.5 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 border border-[#8423DA]/40 text-[11px] font-bold text-[#00DFFF] flex items-center gap-1 cursor-pointer"
+                >
+                  <Settings className="w-3.5 h-3.5" />
+                  <span>Personalizar Modelos</span>
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setWhatsappModalOrder(null)}
+                  aria-label="Fechar janela de WhatsApp"
+                  className="p-2 rounded-xl bg-[#141838] text-gray-300 hover:text-white cursor-pointer"
+                >
+                  <X className="w-4 h-4" />
+                </button>
+              </div>
             </div>
 
-            <p className="text-[11px] text-[#A5A5B8]">
-              Confira ou edite a mensagem abaixo antes de abrir a conversa no WhatsApp. O envio final é confirmado por você no aplicativo do WhatsApp.
-            </p>
+            {/* Stage Quick Switcher inside Composer */}
+            <div className="space-y-1.5">
+              <span className="text-[10px] font-black uppercase text-[#00DFFF] block">
+                Escolher modelo por etapa do pedido:
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {ORDER_STATUS_LIST.map((st) => {
+                  const currentStage =
+                    whatsappModalOrder.statusContext || whatsappModalOrder.order.status;
+                  return (
+                    <button
+                      key={st.status}
+                      type="button"
+                      onClick={() =>
+                        openWhatsappComposer(whatsappModalOrder.order, st.status)
+                      }
+                      className={`px-2.5 py-1 rounded-lg text-[11px] font-bold border transition cursor-pointer ${
+                        currentStage === st.status
+                          ? 'bg-emerald-500/20 border-emerald-400 text-emerald-200 font-black'
+                          : 'bg-[#141838] border-white/10 text-gray-300 hover:border-emerald-400/40'
+                      }`}
+                    >
+                      {st.shortLabel}
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
 
-            <textarea
-              rows={4}
-              value={customWhatsappText}
-              onChange={(e) => setCustomWhatsappText(e.target.value)}
-              className="w-full p-3 rounded-xl bg-[#141838] border border-white/15 text-xs text-white focus:outline-none focus:border-emerald-400"
-            />
+            {/* Editable WhatsApp Phone Number */}
+            <div className="space-y-1">
+              <label className="block text-[10px] font-black uppercase text-[#A5A5B8]">
+                WhatsApp do Cliente (com DDD)
+              </label>
+              <div className="relative">
+                <Phone className="w-3.5 h-3.5 text-emerald-400 absolute left-3 top-1/2 -translate-y-1/2" />
+                <input
+                  type="tel"
+                  value={whatsappModalPhone}
+                  onChange={(e) => setWhatsappModalPhone(e.target.value)}
+                  placeholder="Ex: (86) 99999-9999"
+                  className="w-full pl-9 pr-3 py-2 rounded-xl bg-[#141838] border border-white/15 text-xs text-white focus:outline-none focus:border-emerald-400"
+                />
+              </div>
+            </div>
+
+            <div className="space-y-1">
+              <label className="block text-[10px] font-black uppercase text-[#A5A5B8]">
+                Mensagem Pronta (editável antes de enviar)
+              </label>
+              <textarea
+                rows={7}
+                value={customWhatsappText}
+                onChange={(e) => setCustomWhatsappText(e.target.value)}
+                className="w-full p-3 rounded-xl bg-[#141838] border border-white/15 text-xs text-white font-sans leading-relaxed focus:outline-none focus:border-emerald-400"
+              />
+            </div>
 
             <div className="flex flex-wrap items-center justify-between gap-2 pt-2">
               <button
@@ -1485,16 +1704,15 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
               <button
                 type="button"
                 onClick={() => {
-                  const phone = whatsappModalOrder.order.customerPhone || '';
                   const built = buildWhatsappConversationUrl(
-                    phone,
+                    whatsappModalPhone,
                     customWhatsappText
                   );
                   if (!built.valid || !built.url) {
                     showFeedback(
                       'error',
                       built.error ||
-                        'O cliente não possui um número de WhatsApp válido cadastrado.'
+                        'Informe um número de WhatsApp válido com DDD no campo acima.'
                     );
                     return;
                   }
@@ -1510,98 +1728,234 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
         </div>
       )}
 
-      {/* ===================== MODAL DE CONFIGURAÇÃO DE MODELOS WHATSAPP (SECTION 7.5) ===================== */}
+      {/* ===================== MODAL DE CONFIGURAÇÃO DE MODELOS WHATSAPP (ESTÚDIO INTERATIVO) ===================== */}
       {isTemplateConfigOpen && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md overflow-y-auto"
+          className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto"
           role="dialog"
           aria-modal="true"
         >
           <form
             onSubmit={handleSaveTemplates}
-            className="w-full max-w-xl rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/50 p-6 space-y-4 my-auto max-h-[88vh] overflow-y-auto"
+            className="w-full max-w-4xl rounded-3xl bg-[#0D1022] border-2 border-[#00DFFF]/40 shadow-2xl p-5 sm:p-6 space-y-5 my-auto max-h-[92vh] overflow-y-auto"
           >
-            <div className="flex items-center justify-between">
-              <h3 className="font-heading text-base font-black text-white">
-                Personalizar Modelos de Mensagens (WhatsApp)
-              </h3>
+            {/* Header */}
+            <div className="flex items-start justify-between gap-3 border-b border-white/10 pb-4">
+              <div>
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[10px] font-black uppercase tracking-wider mb-1">
+                  <Sparkles className="w-3 h-3" />
+                  <span>Estúdio Interativo WhatsApp • PodWave</span>
+                </div>
+                <h3 className="font-heading text-lg sm:text-xl font-black text-white">
+                  Personalizar Modelos de Mensagens (WhatsApp)
+                </h3>
+                <p className="text-xs text-[#A5A5B8]">
+                  Escolha um pacote visual pronto, insira variáveis dinâmicas com 1 clique e veja como a mensagem aparece no celular do cliente.
+                </p>
+              </div>
               <button
                 type="button"
                 onClick={() => setIsTemplateConfigOpen(false)}
                 aria-label="Fechar configurações de modelos"
-                className="p-2 rounded-xl bg-[#141838] text-gray-300 hover:text-white cursor-pointer"
+                className="p-2 rounded-xl bg-[#141838] text-gray-300 hover:text-white cursor-pointer shrink-0"
               >
-                <X className="w-4 h-4" />
+                <X className="w-5 h-5" />
               </button>
             </div>
 
-            <p className="text-[11px] text-[#A5A5B8]">
-              Variáveis disponíveis: <code className="text-[#00DFFF]">{'{nome}'}</code>,{' '}
-              <code className="text-[#00DFFF]">{'{referencia}'}</code>,{' '}
-              <code className="text-[#00DFFF]">{'{total}'}</code>,{' '}
-              <code className="text-[#00DFFF]">{'{selo_info}'}</code> (incluído apenas quando o selo for confirmado no banco).
-            </p>
-
-            <div className="space-y-3 text-xs">
-              {ORDER_STATUS_LIST.map((st) => (
-                <div
-                  key={st.status}
-                  className="p-3 rounded-2xl bg-[#141838] border border-white/10 space-y-1.5"
-                >
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-white">{st.label}</span>
-                    <label className="flex items-center gap-1.5 text-[11px] text-gray-300 cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={whatsappTemplates.enabled[st.status] !== false}
-                        onChange={(e) =>
-                          setWhatsappTemplates((prev) => ({
-                            ...prev,
-                            enabled: {
-                              ...prev.enabled,
-                              [st.status]: e.target.checked,
-                            },
-                          }))
-                        }
-                      />
-                      <span>Modelo Ativo</span>
-                    </label>
-                  </div>
-                  <textarea
-                    rows={2}
-                    value={whatsappTemplates.templates[st.status] || ''}
-                    onChange={(e) =>
-                      setWhatsappTemplates((prev) => ({
-                        ...prev,
-                        templates: {
-                          ...prev.templates,
-                          [st.status]: e.target.value,
-                        },
-                      }))
-                    }
-                    className="w-full p-2 rounded-xl bg-[#080811] border border-white/10 text-xs text-white"
-                  />
-                </div>
-              ))}
+            {/* 1. Pacotes de Estilo Interativos (Presets) */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-[#00DFFF] block">
+                1. Escolha um Estilo de Comunicação (Aplicação Instantânea)
+              </span>
+              <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                {Object.values(WHATSAPP_TEMPLATE_PRESETS).map((preset) => {
+                  const isSelected = activePresetId === preset.id;
+                  return (
+                    <button
+                      key={preset.id}
+                      type="button"
+                      onClick={() => handleApplyPreset(preset.id)}
+                      className={`p-3.5 rounded-2xl border text-left transition cursor-pointer flex flex-col justify-between gap-1.5 ${
+                        isSelected
+                          ? 'bg-gradient-to-br from-[#181F48] to-[#121631] border-[#00DFFF] shadow-[0_0_15px_rgba(0,223,255,0.18)]'
+                          : 'bg-[#141838] border-white/10 hover:border-[#00DFFF]/40'
+                      }`}
+                    >
+                      <div className="flex items-center justify-between gap-2">
+                        <span className="font-heading font-black text-xs text-white">
+                          {preset.name}
+                        </span>
+                        <span className="px-2 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/35 text-[9px] font-black uppercase text-[#00DFFF]">
+                          {preset.badge}
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#A5A5B8] leading-snug">
+                        {preset.description}
+                      </p>
+                    </button>
+                  );
+                })}
+              </div>
             </div>
 
-            <div className="flex items-center justify-between pt-2">
+            {/* 2. Stage Tabs */}
+            <div className="space-y-2">
+              <span className="text-[11px] font-black uppercase tracking-wider text-[#00DFFF] block">
+                2. Selecione a Etapa do Pedido para Editar
+              </span>
+              <div className="flex flex-wrap gap-1.5">
+                {ORDER_STATUS_LIST.map((st) => {
+                  const isActive = activeTemplateStage === st.status;
+                  const isEnabled = whatsappTemplates.enabled[st.status] !== false;
+                  return (
+                    <button
+                      key={st.status}
+                      type="button"
+                      onClick={() => setActiveTemplateStage(st.status)}
+                      className={`px-3 py-2 rounded-xl text-xs font-bold border transition cursor-pointer flex items-center gap-1.5 ${
+                        isActive
+                          ? 'bg-[#00DFFF] text-[#080811] border-[#00DFFF] font-black'
+                          : 'bg-[#141838] text-gray-200 border-white/10 hover:border-[#00DFFF]/40'
+                      }`}
+                    >
+                      <span>{st.shortLabel}</span>
+                      <span
+                        className={`w-2 h-2 rounded-full ${
+                          isEnabled ? 'bg-emerald-400' : 'bg-gray-500'
+                        }`}
+                        title={isEnabled ? 'Modelo ativo' : 'Modelo desativado'}
+                      />
+                    </button>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* 3. Editor + Live Preview Side-by-Side */}
+            <div className="grid grid-cols-1 lg:grid-cols-12 gap-4 items-start">
+              {/* Left Column: Variable Chips + Textarea Editor */}
+              <div className="lg:col-span-7 space-y-3 p-4 rounded-2xl bg-[#141838] border border-white/10">
+                <div className="flex items-center justify-between gap-2">
+                  <div>
+                    <span className="font-heading font-black text-sm text-white">
+                      {getOrderStatusMeta(activeTemplateStage).label}
+                    </span>
+                    <p className="text-[11px] text-[#A5A5B8]">
+                      Clique nas variáveis abaixo para inserir no texto da etapa.
+                    </p>
+                  </div>
+
+                  <label className="flex items-center gap-1.5 text-xs font-bold text-gray-200 cursor-pointer">
+                    <input
+                      type="checkbox"
+                      checked={whatsappTemplates.enabled[activeTemplateStage] !== false}
+                      onChange={(e) =>
+                        setWhatsappTemplates((prev) => ({
+                          ...prev,
+                          enabled: {
+                            ...prev.enabled,
+                            [activeTemplateStage]: e.target.checked,
+                          },
+                        }))
+                      }
+                    />
+                    <span>Modelo Ativo</span>
+                  </label>
+                </div>
+
+                {/* Interactive Variable Insertion Chips */}
+                <div className="flex flex-wrap gap-1.5">
+                  {WHATSAPP_TEMPLATE_VARIABLES.map((v) => (
+                    <button
+                      key={v.token}
+                      type="button"
+                      onClick={() => handleInsertVariableIntoActiveStage(v.token)}
+                      title={`${v.label} — Ex: ${v.example}`}
+                      className="px-2.5 py-1 rounded-lg bg-[#080811] hover:bg-[#00DFFF]/20 border border-[#00DFFF]/35 text-[11px] font-mono font-bold text-[#00DFFF] flex items-center gap-1 cursor-pointer transition"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>{v.token}</span>
+                    </button>
+                  ))}
+                </div>
+
+                <textarea
+                  rows={8}
+                  value={whatsappTemplates.templates[activeTemplateStage] || ''}
+                  onChange={(e) =>
+                    setWhatsappTemplates((prev) => ({
+                      ...prev,
+                      templates: {
+                        ...prev.templates,
+                        [activeTemplateStage]: e.target.value,
+                      },
+                    }))
+                  }
+                  placeholder="Digite o modelo da mensagem para esta etapa..."
+                  className="w-full p-3.5 rounded-xl bg-[#080811] border border-white/15 text-xs text-white font-sans leading-relaxed focus:outline-none focus:border-[#00DFFF]"
+                />
+              </div>
+
+              {/* Right Column: Live WhatsApp Chat Bubble Preview */}
+              <div className="lg:col-span-5 rounded-2xl bg-[#0B141A] border border-emerald-500/35 overflow-hidden shadow-xl">
+                <div className="px-4 py-3 bg-[#202C33] border-b border-white/10 flex items-center justify-between">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-full bg-emerald-500/20 border border-emerald-400/50 flex items-center justify-center text-emerald-300 font-black text-xs">
+                      PW
+                    </div>
+                    <div>
+                      <p className="text-xs font-bold text-white leading-tight">
+                        Prévia Real no WhatsApp
+                      </p>
+                      <p className="text-[10px] text-emerald-400">
+                        {getOrderStatusMeta(activeTemplateStage).shortLabel} • online
+                      </p>
+                    </div>
+                  </div>
+                  <MessageSquare className="w-4 h-4 text-emerald-400" />
+                </div>
+
+                <div className="p-4 bg-[#0B141A] min-h-[230px] flex flex-col justify-end">
+                  <div className="rounded-2xl rounded-tr-none bg-[#005C4B] text-[#E9EDEF] p-3.5 text-xs whitespace-pre-wrap leading-relaxed shadow-md border border-emerald-400/20">
+                    {liveTemplatePreviewText}
+                    <div className="text-[10px] text-emerald-200/75 text-right mt-1.5">
+                      Agora • ✓✓
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            {/* Footer Actions */}
+            <div className="flex flex-wrap items-center justify-between gap-3 pt-2 border-t border-white/10">
               <button
                 type="button"
-                onClick={() =>
-                  setWhatsappTemplates(DEFAULT_WHATSAPP_ORDER_TEMPLATES)
-                }
-                className="text-xs text-gray-400 hover:text-white flex items-center gap-1 cursor-pointer"
+                onClick={() => {
+                  setActivePresetId('neon_interativo');
+                  setWhatsappTemplates(DEFAULT_WHATSAPP_ORDER_TEMPLATES);
+                }}
+                className="text-xs text-gray-300 hover:text-white flex items-center gap-1.5 cursor-pointer font-bold"
               >
-                <RotateCcw className="w-3.5 h-3.5" />
-                <span>Restaurar Padrão</span>
+                <RotateCcw className="w-3.5 h-3.5 text-[#00DFFF]" />
+                <span>Restaurar Padrão Neon Interativo</span>
               </button>
-              <button
-                type="submit"
-                className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] font-black text-xs cursor-pointer"
-              >
-                Salvar Modelos
-              </button>
+
+              <div className="flex items-center gap-2">
+                <button
+                  type="button"
+                  onClick={() => setIsTemplateConfigOpen(false)}
+                  className="px-4 py-2.5 rounded-xl bg-[#141838] hover:bg-white/10 text-xs font-bold text-gray-300 cursor-pointer"
+                >
+                  Cancelar
+                </button>
+                <button
+                  type="submit"
+                  className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] font-black text-xs cursor-pointer hover:brightness-110"
+                >
+                  Salvar Modelos do WhatsApp
+                </button>
+              </div>
             </div>
           </form>
         </div>

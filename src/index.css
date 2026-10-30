@@ -29,11 +29,21 @@
     --color-gold: #CA8A04;
   }
 
+  html {
+    overflow-x: hidden;
+    -webkit-text-size-adjust: 100%;
+    text-size-adjust: 100%;
+    scroll-behavior: smooth;
+  }
+
   body {
     font-family: 'Plus Jakarta Sans', system-ui, -apple-system, sans-serif;
     background-color: var(--bg-primary);
     color: var(--text-primary);
     transition: background-color 0.25s ease, color 0.25s ease;
+    overflow-x: hidden;
+    -webkit-tap-highlight-color: transparent;
+    min-width: 320px;
   }
 
   h1, h2, h3, h4, .font-heading {
