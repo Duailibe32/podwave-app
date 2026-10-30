@@ -2,6 +2,7 @@ import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
 import { CustomerAddress } from '../../types/catalog';
 import { OrderNotificationSettings } from '../../context/OrderNotificationsContext';
+import { OrderStatusTimeline } from '../OrderStatusTimeline';
 import { getUserLoyaltyCard } from '../../utils/loyaltyCard';
 import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
 import {
@@ -515,6 +516,7 @@ export const CustomerProfileModal: React.FC = () => {
                         </span>
                       </div>
 
+                      <OrderStatusTimeline status={order.status} />
                       {/* Items */}
                       <div className="space-y-1.5 pt-1 border-t border-white/5">
                         {order.items.map((item, idx) => (

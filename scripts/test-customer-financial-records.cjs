@@ -45,7 +45,7 @@ assert.equal(build([sale('legacy-null',{receipts:[null]})],[])[0].records[0].pay
 const React=require('react');const {renderToStaticMarkup}=require('react-dom/server');
 let fixture={isOwner:false,manualSales:sales,manualCommitments:accounts,isLoadingBusinessData:false};
 const ui={exports:{}};
-vm.runInNewContext(transformSync(fs.readFileSync('src/components/admin/CustomerFinancialSection.tsx','utf8'),{loader:'tsx',format:'cjs'}).code,{module:ui,exports:ui.exports,require:name=>name==='react'?React:name.includes('CatalogContext')?{useCatalog:()=>fixture}:name.includes('customerFinancialRecords')?moduleFor.exports:require(name)});
+vm.runInNewContext(transformSync(fs.readFileSync('src/components/admin/CustomerFinancialSection.tsx','utf8'),{loader:'tsx',format:'cjs'}).code,{module:ui,exports:ui.exports,require:name=>name==='react'?React:name.includes('CatalogContext')?{useCatalog:()=>fixture}:name.includes('customerFinancialRecords')?moduleFor.exports:name.includes('CustomerServiceHistory')?{CustomerServiceHistory:()=>null}:require(name)});
 let html=renderToStaticMarkup(React.createElement(ui.exports.CustomerFinancialSection));
 assert.ok(html.includes('restrita ao proprietário'));assert.ok(!html.includes('José'));
 fixture={...fixture,isOwner:true};html=renderToStaticMarkup(React.createElement(ui.exports.CustomerFinancialSection));
