@@ -355,21 +355,21 @@ export const AuthModal: React.FC = () => {
         </div>
 
         {/* Tab Switcher - 3 Opções Modernas & Intuitivas */}
-        <div className="flex border-b border-[#8423DA]/20 bg-[#080811]/60 p-1.5 gap-1.5">
+        <div className="grid grid-cols-3 border-b border-[#8423DA]/20 bg-[#080811]/60 p-1.5 gap-1.5">
           <button
             type="button"
             onClick={() => {
               setMode('login');
               setErrorMsg(null);
             }}
-            className={`flex-1 py-2 px-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 min-h-11 py-2 px-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               mode === 'login'
                 ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white shadow-md'
                 : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <Lock className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Com Senha</span>
+            <span className="min-w-0 whitespace-normal leading-tight">Com senha</span>
           </button>
 
           <button
@@ -378,14 +378,14 @@ export const AuthModal: React.FC = () => {
               setMode('otp');
               setErrorMsg(null);
             }}
-            className={`flex-1 py-2 px-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 min-h-11 py-2 px-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               mode === 'otp'
                 ? 'bg-gradient-to-r from-[#00DFFF] to-[#007BFF] text-[#080811] font-black shadow-md'
                 : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <KeyRound className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Sem Senha (Código)</span>
+            <span className="min-w-0 whitespace-normal leading-tight">Código por e-mail</span>
           </button>
 
           <button
@@ -394,14 +394,14 @@ export const AuthModal: React.FC = () => {
               setMode('signup');
               setErrorMsg(null);
             }}
-            className={`flex-1 py-2 px-1.5 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 min-h-11 py-2 px-1.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               mode === 'signup'
                 ? 'bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] text-white font-black shadow-md'
                 : 'text-gray-400 hover:text-white hover:bg-white/5'
             }`}
           >
             <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
-            <span className="truncate">Criar Conta</span>
+            <span className="min-w-0 whitespace-normal leading-tight">Criar conta</span>
           </button>
         </div>
 
@@ -933,8 +933,8 @@ export const AuthModal: React.FC = () => {
                 <span className="text-[10px] text-gray-400">Opcional</span>
               </div>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
+                <div className="min-[420px]:col-span-2">
                   <div className="flex items-center gap-2">
                     <input
                       type="text"
@@ -953,7 +953,8 @@ export const AuthModal: React.FC = () => {
                       onClick={handleLookupCep}
                       aria-label="Buscar endereço pelo CEP"
                       disabled={isSearchingCep}
-                      className="p-2 rounded-xl bg-[#00DFFF]/20 hover:bg-[#00DFFF]/30 text-[#00DFFF] font-bold text-xs cursor-pointer shrink-0"
+                      className="min-h-11 min-w-11 p-2 rounded-xl bg-[#00DFFF]/20 hover:bg-[#00DFFF]/30 text-[#00DFFF] font-bold text-xs cursor-pointer shrink-0"
+                      aria-busy={isSearchingCep}
                       title="Buscar CEP no ViaCEP"
                     >
                       {isSearchingCep ? <RefreshCw className="w-3.5 h-3.5 animate-spin" /> : <Search className="w-3.5 h-3.5" />}
@@ -977,8 +978,8 @@ export const AuthModal: React.FC = () => {
 
               <p role="status" aria-live="polite" className="text-[11px] text-[#A5A5B8] break-words">{cepMessage || 'Ao buscar, apenas o CEP é consultado no ViaCEP. Você também pode preencher manualmente.'}</p>
 
-              <div className="grid grid-cols-3 gap-2">
-                <div className="col-span-2">
+              <div className="grid grid-cols-1 min-[420px]:grid-cols-3 gap-2">
+                <div className="min-[420px]:col-span-2">
                   <input
                     type="text"
                     autoComplete="shipping address-line1"

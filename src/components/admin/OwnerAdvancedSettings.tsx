@@ -11,6 +11,17 @@ export function OwnerAdvancedSettings() {
   const [confirmation, setConfirmation] = useState('');
   useEffect(() => { setOwnerUid(configuredOwnerUid); }, [configuredOwnerUid]);
   if (!isOwner) return null;
+  const legacyKeys = ['podwave_local_manual_sales','podwave_local_manual_expenses','podwave_local_merchandise_purchases','podwave_local_cash_movements','podwave_local_manual_commitments','podwave_initial_cash_balances','podwave_deleted_record_tombstones','podwave_local_catalog_orders_v1','podwave_activity_logs_v2'];
+  const hasLegacyCache = typeof localStorage !== 'undefined' && legacyKeys.some(key => !!localStorage.getItem(key));
+  const exportLegacyCache = () => {
+    if (!isOwner) return;
+    const records = Object.fromEntries(legacyKeys.map(key => [key, localStorage.getItem(key)]));
+    const url = URL.createObjectURL(new Blob([JSON.stringify({ exportedAt: new Date().toISOString(), records }, null, 2)], {type:'application/json'}));
+    const link = document.createElement('a');
+    link.href = url; link.download = 'podwave-dados-locais-antigos.json';
+    document.body.appendChild(link); link.click(); link.remove();
+    setTimeout(() => URL.revokeObjectURL(url), 1000);
+  };
   const confirmReset = () => {
     if (!isOwner || isAutoSyncEnabled || confirmation !== 'RESTAURAR') return;
     resetAllData(); setShowReset(false); setConfirmation('');
@@ -19,6 +30,10 @@ export function OwnerAdvancedSettings() {
   return <section className="rounded-2xl border border-white/10 bg-[#0D1022] p-5 text-white space-y-4">
     <button type="button" aria-expanded={expanded} onClick={() => setExpanded(!expanded)} className="w-full flex justify-between text-left font-bold">Configurações avançadas do proprietário <span>{expanded ? '−' : '+'}</span></button>
     <p className="text-xs text-gray-400">Conexão, identificação local e restauração. Estas opções não são necessárias na rotina.</p>
+    {hasLegacyCache && <div role="status" className="rounded-xl border border-amber-400/30 p-3 text-xs text-amber-200 space-y-2">
+      <p>Há dados locais de uma versão anterior. Eles foram preservados e precisam de conferência antes de importar para uma conta. Não limpe os dados deste navegador.</p>
+      <button type="button" onClick={exportLegacyCache} className="min-h-11 rounded-lg border border-amber-400/40 px-3">Baixar cópia dos dados locais antigos</button>
+    </div>}
     {expanded && <div className="space-y-5">
       {notice && <p role="status" className="text-sm text-cyan-300">{notice}</p>}
       <SupabaseTab mode="advanced" />
@@ -50,3 +65,4 @@ export function OwnerAdvancedSettings() {
     </div>}
   </section>;
 }
+
