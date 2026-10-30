@@ -16,6 +16,15 @@ import {
   CustomerAddress,
   CustomerOrderHistoryItem,
   ActivityLogEntry,
+  ManualSaleEntry,
+  ManualExpenseEntry,
+  MerchandisePurchaseEntry,
+  CashMovementEntry,
+  BusinessSection,
+  InitialChannelBalanceRecord,
+  InitialCashBalanceConfig,
+  ManualCommitmentEntry,
+  SyncStatus,
 } from '../types/catalog';
 import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, AVAILABLE_COUPONS } from '../data/initialData';
 import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
@@ -47,6 +56,23 @@ import {
   updateCustomerRoleInSupabase,
   deleteCustomerProfileFromSupabase,
   createAdminOrVipUserInSupabase,
+  fetchManualSalesFromSupabase,
+  saveManualSaleToSupabase,
+  deleteManualSaleFromSupabase,
+  fetchManualExpensesFromSupabase,
+  saveManualExpenseToSupabase,
+  deleteManualExpenseFromSupabase,
+  fetchMerchandisePurchasesFromSupabase,
+  saveMerchandisePurchaseToSupabase,
+  deleteMerchandisePurchaseFromSupabase,
+  fetchCashMovementsFromSupabase,
+  saveCashMovementToSupabase,
+  deleteCashMovementFromSupabase,
+  fetchInitialCashBalancesFromSupabase,
+  saveInitialCashBalancesToSupabase,
+  fetchManualCommitmentsFromSupabase,
+  saveManualCommitmentToSupabase,
+  deleteManualCommitmentFromSupabase,
 } from '../services/supabase';
 
 // ==============================================================================
@@ -247,6 +273,34 @@ interface CatalogContextType {
   addActivityLog: (entry: Omit<ActivityLogEntry, 'id' | 'timestamp' | 'author'> & { author?: string }) => void;
   clearActivityLogs: () => void;
   refreshActivityLogs: () => Promise<void>;
+
+  // Meu Negócio: Controle Gerencial e Financeiro Manual
+  manualSales: ManualSaleEntry[];
+  manualExpenses: ManualExpenseEntry[];
+  merchandisePurchases: MerchandisePurchaseEntry[];
+  cashMovements: CashMovementEntry[];
+  isLoadingBusinessData: boolean;
+  fetchBusinessData: () => Promise<void>;
+  saveManualSale: (sale: ManualSaleEntry) => Promise<{ success: boolean; error?: string }>;
+  removeManualSale: (id: string) => Promise<{ success: boolean; error?: string }>;
+  saveManualExpense: (expense: ManualExpenseEntry) => Promise<{ success: boolean; error?: string }>;
+  removeManualExpense: (id: string) => Promise<{ success: boolean; error?: string }>;
+  saveMerchandisePurchase: (purchase: MerchandisePurchaseEntry) => Promise<{ success: boolean; error?: string }>;
+  removeMerchandisePurchase: (id: string) => Promise<{ success: boolean; error?: string }>;
+  saveCashMovement: (movement: CashMovementEntry) => Promise<{ success: boolean; error?: string }>;
+  removeCashMovement: (id: string) => Promise<{ success: boolean; error?: string }>;
+  initialCashBalances: InitialChannelBalanceRecord[];
+  initialCashConfig: InitialCashBalanceConfig;
+  saveInitialCashBalances: (config: InitialCashBalanceConfig, notes?: string) => Promise<{ success: boolean; error?: string }>;
+  hasLocalInitialBalancesPendingMigration: boolean;
+  importLocalInitialBalancesToSupabase: () => Promise<{ success: boolean; message: string }>;
+  dismissLocalInitialBalancesPrompt: () => void;
+  manualCommitments: ManualCommitmentEntry[];
+  saveManualCommitment: (commitment: ManualCommitmentEntry) => Promise<{ success: boolean; error?: string }>;
+  removeManualCommitment: (id: string) => Promise<{ success: boolean; error?: string }>;
+  pendingSyncCount: number;
+  isSyncingPending: boolean;
+  syncPendingFinancialData: () => Promise<{ success: boolean; synced: number; failed: number }>;
 }
 
 const CatalogContext = createContext<CatalogContextType | undefined>(undefined);
@@ -357,18 +411,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const CUSTOMER_LOCAL_STORE = 'podwave_registered_users_store_v3';
   const ACTIVE_USER_STORAGE_KEY = 'podwave_logged_in_user_v3';
 
-  const isOwnerAccount = (email: string, configuredUid: string): boolean => {
-    const norm = email.trim().toLowerCase();
-    const ownerEmails = [
-      'duailibe32@gmail.com',
-      'proprietario@podwave.com',
-      'admin@podwave.com',
-      'admin',
-    ];
-    if (configuredUid && norm === configuredUid.trim().toLowerCase()) return true;
-    return ownerEmails.includes(norm);
-  };
-
   // User State (strictly authenticated via Supabase Auth)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(() => {
     if (typeof window !== 'undefined') {
@@ -376,9 +418,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const stored = localStorage.getItem(ACTIVE_USER_STORAGE_KEY);
         if (stored) {
           const parsed: UserProfile = JSON.parse(stored);
-          if (parsed && parsed.email && isOwnerAccount(parsed.email, configuredOwnerUid)) {
-            parsed.role = 'owner';
-          }
           return parsed;
         }
       } catch {
@@ -388,23 +427,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return null;
   });
 
-  const isOwner = currentUser
-    ? currentUser.role === 'owner' || isOwnerAccount(currentUser.email, configuredOwnerUid)
-    : false;
-  const isAdmin = currentUser
-    ? currentUser.role === 'admin' || currentUser.role === 'owner' || isOwner
-    : false;
+  const isOwner = currentUser?.role === 'owner';
+  const isAdmin = currentUser?.role === 'admin' || isOwner;
   const isVip = currentUser?.role === 'vip';
   const isCustomer = currentUser?.role === 'customer' || (!isAdmin && !isVip);
   const isAdminAuthenticated = isAdmin;
 
-  // Sync currentUser with localStorage and guarantee owner role
+  // Sync currentUser with localStorage
   useEffect(() => {
     if (currentUser) {
-      if (isOwnerAccount(currentUser.email, configuredOwnerUid) && currentUser.role !== 'owner') {
-        setCurrentUser((prev) => (prev ? { ...prev, role: 'owner' } : null));
-        return;
-      }
       if (typeof window !== 'undefined') {
         localStorage.setItem(ACTIVE_USER_STORAGE_KEY, JSON.stringify(currentUser));
       }
@@ -413,7 +444,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         localStorage.removeItem(ACTIVE_USER_STORAGE_KEY);
       }
     }
-  }, [currentUser, configuredOwnerUid]);
+  }, [currentUser]);
 
   // Modals for Auth and Profile
   const [isAuthModalOpen, setIsAuthModalOpen] = useState(false);
@@ -526,9 +557,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       try {
         const authUser = await supabaseGetCurrentAuthUser();
         if (isMounted && authUser) {
-          if (isOwnerAccount(authUser.email, configuredOwnerUid)) {
-            authUser.role = 'owner';
-          }
           setCurrentUser(authUser);
         }
       } catch (err) {
@@ -548,9 +576,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (event === 'SIGNED_IN' && session?.user?.email) {
           const profile = await fetchCustomerProfileFromSupabase(session.user.email);
           if (profile && isMounted) {
-            if (isOwnerAccount(session.user.email, configuredOwnerUid)) {
-              profile.role = 'owner';
-            }
             setCurrentUser(profile);
           }
         } else if (event === 'SIGNED_OUT') {
@@ -612,21 +637,17 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsAuthChecking(false);
 
     if (res.success && res.user) {
-      if (isOwnerAccount(cleanEmail, configuredOwnerUid)) {
-        res.user.role = 'owner';
-        res.isOwner = true;
-      }
       setCurrentUser(res.user);
       toast.success(
         `Bem-vindo, ${res.user.fullName || 'ao PodWave'}!`,
-        res.isOwner || isOwnerAccount(cleanEmail, configuredOwnerUid)
+        res.isOwner
           ? 'Sessão de Proprietário autenticada.'
           : 'Sessão iniciada com sucesso.'
       );
       return {
         success: true,
         message: res.message,
-        isOwner: res.isOwner || isOwnerAccount(cleanEmail, configuredOwnerUid),
+        isOwner: res.isOwner,
       };
     }
 
@@ -789,8 +810,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       return false;
     }
 
-    const isOwnerByEmail = isOwnerAccount(cleanEmail, configuredOwnerUid);
-    const hasAdminAccess = res.user && (res.user.role === 'admin' || res.user.role === 'owner' || isOwnerByEmail);
+    const hasAdminAccess = res.user && (res.user.role === 'admin' || res.user.role === 'owner');
     if (!hasAdminAccess) {
       setAuthErrorMessage(
         'Esta conta não possui permissão de Administrador (role: admin ou owner). Apenas administradores autorizados podem acessar o painel administrativo.'
@@ -800,10 +820,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     if (!res.user) {
       return false;
-    }
-
-    if (isOwnerByEmail) {
-      res.user.role = 'owner';
     }
 
     setCurrentUser(res.user);
@@ -1961,6 +1977,872 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => clearTimeout(timer);
   }, [brands, models, banners, coupons, settings, isAutoSyncEnabled, supabaseStatus]);
 
+  // -------------------------------------------------------------
+  // MEU NEGÓCIO: CONTROLE GERENCIAL E FINANCEIRO MANUAL
+  // -------------------------------------------------------------
+  const [manualSales, setManualSales] = useState<ManualSaleEntry[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('podwave_local_manual_sales');
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return [];
+  });
+  const [manualExpenses, setManualExpenses] = useState<ManualExpenseEntry[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('podwave_local_manual_expenses');
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return [];
+  });
+  const [merchandisePurchases, setMerchandisePurchases] = useState<MerchandisePurchaseEntry[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('podwave_local_merchandise_purchases');
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return [];
+  });
+  const [cashMovements, setCashMovements] = useState<CashMovementEntry[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('podwave_local_cash_movements');
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return [];
+  });
+  const [initialCashBalances, setInitialCashBalances] = useState<InitialChannelBalanceRecord[]>([]);
+  const [manualCommitments, setManualCommitments] = useState<ManualCommitmentEntry[]>(() => {
+    if (typeof window !== 'undefined') {
+      try {
+        const stored = localStorage.getItem('podwave_local_manual_commitments');
+        if (stored) return JSON.parse(stored);
+      } catch {}
+    }
+    return [];
+  });
+  const [hasDismissedLocalBalancesPrompt, setHasDismissedLocalBalancesPrompt] = useState<boolean>(() => {
+    if (typeof window !== 'undefined') {
+      return sessionStorage.getItem('podwave_dismiss_local_balances_prompt') === 'true';
+    }
+    return false;
+  });
+  const [isLoadingBusinessData, setIsLoadingBusinessData] = useState<boolean>(false);
+
+  // Derived initialCashConfig from Supabase records with safe fallback
+  const initialCashConfig = React.useMemo<InitialCashBalanceConfig>(() => {
+    if (initialCashBalances.length > 0) {
+      const pix = initialCashBalances.find((b) => b.accountChannel === 'pix_banco');
+      const caixa = initialCashBalances.find((b) => b.accountChannel === 'dinheiro_caixa');
+      const cartao = initialCashBalances.find((b) => b.accountChannel === 'cartao_maquininha');
+      const outro = initialCashBalances.find((b) => b.accountChannel === 'outro');
+
+      const defaultRefDate =
+        pix?.referenceDate ||
+        caixa?.referenceDate ||
+        cartao?.referenceDate ||
+        outro?.referenceDate ||
+        `${new Date().getFullYear()}-01-01`;
+
+      return {
+        referenceDate: defaultRefDate,
+        pix_banco: pix?.amount || 0,
+        dinheiro_caixa: caixa?.amount || 0,
+        cartao_maquininha: cartao?.amount || 0,
+        outro: outro?.amount || 0,
+        channelReferenceDates: {
+          pix_banco: pix?.referenceDate || defaultRefDate,
+          dinheiro_caixa: caixa?.referenceDate || defaultRefDate,
+          cartao_maquininha: cartao?.referenceDate || defaultRefDate,
+          outro: outro?.referenceDate || defaultRefDate,
+        },
+      };
+    }
+
+    // Fallback: se Supabase ainda não tem a tabela executada, verificar se há dados locais
+    if (typeof window !== 'undefined') {
+      try {
+        const local = localStorage.getItem('podwave_initial_cash_balances');
+        if (local) {
+          const parsed = JSON.parse(local);
+          return {
+            referenceDate: parsed.referenceDate || `${new Date().getFullYear()}-01-01`,
+            pix_banco: Number(parsed.pix_banco) || 0,
+            dinheiro_caixa: Number(parsed.dinheiro_caixa) || 0,
+            cartao_maquininha: Number(parsed.cartao_maquininha) || 0,
+            outro: Number(parsed.outro) || 0,
+            channelReferenceDates: {
+              pix_banco: parsed.channelReferenceDates?.pix_banco || parsed.referenceDate || `${new Date().getFullYear()}-01-01`,
+              dinheiro_caixa: parsed.channelReferenceDates?.dinheiro_caixa || parsed.referenceDate || `${new Date().getFullYear()}-01-01`,
+              cartao_maquininha: parsed.channelReferenceDates?.cartao_maquininha || parsed.referenceDate || `${new Date().getFullYear()}-01-01`,
+              outro: parsed.channelReferenceDates?.outro || parsed.referenceDate || `${new Date().getFullYear()}-01-01`,
+            },
+          };
+        }
+      } catch {
+        // fallback para padrão
+      }
+    }
+
+    const defaultDate = `${new Date().getFullYear()}-01-01`;
+    return {
+      referenceDate: defaultDate,
+      pix_banco: 0,
+      dinheiro_caixa: 0,
+      cartao_maquininha: 0,
+      outro: 0,
+      channelReferenceDates: {
+        pix_banco: defaultDate,
+        dinheiro_caixa: defaultDate,
+        cartao_maquininha: defaultDate,
+        outro: defaultDate,
+      },
+    };
+  }, [initialCashBalances]);
+
+  // Verificar se há saldos locais pendentes de confirmação para importar ao Supabase
+  const hasLocalInitialBalancesPendingMigration = React.useMemo<boolean>(() => {
+    if (hasDismissedLocalBalancesPrompt) return false;
+    if (initialCashBalances.length > 0) return false; // Já existem no Supabase
+    if (typeof window === 'undefined') return false;
+    try {
+      const local = localStorage.getItem('podwave_initial_cash_balances');
+      if (!local) return false;
+      const parsed = JSON.parse(local);
+      const total =
+        (Number(parsed.pix_banco) || 0) +
+        (Number(parsed.dinheiro_caixa) || 0) +
+        (Number(parsed.cartao_maquininha) || 0) +
+        (Number(parsed.outro) || 0);
+      return total > 0;
+    } catch {
+      return false;
+    }
+  }, [hasDismissedLocalBalancesPrompt, initialCashBalances]);
+
+  const dismissLocalInitialBalancesPrompt = () => {
+    setHasDismissedLocalBalancesPrompt(true);
+    if (typeof window !== 'undefined') {
+      sessionStorage.setItem('podwave_dismiss_local_balances_prompt', 'true');
+    }
+  };
+
+  // Sincronização e persistência local (fallback offline e pré-migration) — exclusiva para sessões administrativas
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isAdmin) {
+      try {
+        localStorage.setItem('podwave_local_manual_sales', JSON.stringify(manualSales));
+      } catch (e) {
+        console.warn('Erro ao salvar manualSales no localStorage:', e);
+      }
+    }
+  }, [manualSales, isAdmin]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isAdmin) {
+      try {
+        localStorage.setItem('podwave_local_manual_expenses', JSON.stringify(manualExpenses));
+      } catch (e) {
+        console.warn('Erro ao salvar manualExpenses no localStorage:', e);
+      }
+    }
+  }, [manualExpenses, isAdmin]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isAdmin) {
+      try {
+        localStorage.setItem('podwave_local_merchandise_purchases', JSON.stringify(merchandisePurchases));
+      } catch (e) {
+        console.warn('Erro ao salvar merchandisePurchases no localStorage:', e);
+      }
+    }
+  }, [merchandisePurchases, isAdmin]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isAdmin) {
+      try {
+        localStorage.setItem('podwave_local_cash_movements', JSON.stringify(cashMovements));
+      } catch (e) {
+        console.warn('Erro ao salvar cashMovements no localStorage:', e);
+      }
+    }
+  }, [cashMovements, isAdmin]);
+
+  useEffect(() => {
+    if (typeof window !== 'undefined' && isAdmin) {
+      try {
+        localStorage.setItem('podwave_local_manual_commitments', JSON.stringify(manualCommitments));
+      } catch (e) {
+        console.warn('Erro ao salvar manualCommitments no localStorage:', e);
+      }
+    }
+  }, [manualCommitments, isAdmin]);
+
+  // Helper para deduplicar pagamentos, recebimentos e parcelas por ID único
+  const deduplicateById = <T extends { id?: string }>(arr?: T[]): T[] => {
+    if (!Array.isArray(arr)) return [];
+    const seen = new Set<string>();
+    const result: T[] = [];
+    for (const item of arr) {
+      if (item && item.id) {
+        if (!seen.has(item.id)) {
+          seen.add(item.id);
+          result.push(item);
+        }
+      } else if (item) {
+        result.push(item);
+      }
+    }
+    return result;
+  };
+
+  // Chave e estrutura para registro de exclusões pendentes (tombstones)
+  const TOMBSTONES_STORAGE_KEY = 'podwave_deleted_record_tombstones';
+  interface TombstoneRecord {
+    id: string;
+    table: 'sales' | 'expenses' | 'purchases' | 'movements' | 'commitments';
+    deletedAt: string;
+  }
+
+  const getTombstones = (): TombstoneRecord[] => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(TOMBSTONES_STORAGE_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const addTombstone = (id: string, table: TombstoneRecord['table']) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const current = getTombstones().filter((t) => t.id !== id);
+      current.push({ id, table, deletedAt: new Date().toISOString() });
+      localStorage.setItem(TOMBSTONES_STORAGE_KEY, JSON.stringify(current));
+    } catch (e) {
+      console.warn('Erro ao salvar tombstone:', e);
+    }
+  };
+
+  const removeTombstone = (id: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const updated = getTombstones().filter((t) => t.id !== id);
+      localStorage.setItem(TOMBSTONES_STORAGE_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Erro ao remover tombstone:', e);
+    }
+  };
+
+  const clearBusinessDataInMemory = () => {
+    setManualSales([]);
+    setManualExpenses([]);
+    setMerchandisePurchases([]);
+    setCashMovements([]);
+    setInitialCashBalances([]);
+    setManualCommitments([]);
+  };
+
+  const hydrateLocalBusinessDataForAdmin = () => {
+    if (typeof window === 'undefined') return;
+    try {
+      const s = localStorage.getItem('podwave_local_manual_sales');
+      if (s) setManualSales((prev) => (prev.length === 0 ? JSON.parse(s) : prev));
+      const e = localStorage.getItem('podwave_local_manual_expenses');
+      if (e) setManualExpenses((prev) => (prev.length === 0 ? JSON.parse(e) : prev));
+      const p = localStorage.getItem('podwave_local_merchandise_purchases');
+      if (p) setMerchandisePurchases((prev) => (prev.length === 0 ? JSON.parse(p) : prev));
+      const m = localStorage.getItem('podwave_local_cash_movements');
+      if (m) setCashMovements((prev) => (prev.length === 0 ? JSON.parse(m) : prev));
+      const c = localStorage.getItem('podwave_local_manual_commitments');
+      if (c) setManualCommitments((prev) => (prev.length === 0 ? JSON.parse(c) : prev));
+    } catch (err) {
+      console.warn('Erro ao restaurar cache local administrativo:', err);
+    }
+  };
+
+  // Helper de mesclagem resiliente: preserva dados remotos, não ressuscita itens deletados (tombstones) e resolve conflitos por timestamp
+  const mergeFinancialRecords = <T extends { id: string; updatedAt?: string; _syncStatus?: SyncStatus }>(
+    remoteItems: T[] | null,
+    currentLocalItems: T[]
+  ): T[] => {
+    const tombstones = getTombstones().map((t) => t.id);
+    const tombstoneSet = new Set(tombstones);
+
+    if (!remoteItems || remoteItems.length === 0) {
+      // Se não há dados remotos ou a tabela ainda não foi criada, preserva os locais (exceto deletados) marcando como pendentes
+      return currentLocalItems
+        .filter((item) => !tombstoneSet.has(item.id))
+        .map((item) => ({
+          ...item,
+          _syncStatus: item._syncStatus || 'pending_sync',
+        }));
+    }
+
+    const map = new Map<string, T>();
+    // 1. Carrega itens do Supabase com status 'synced', excluindo registros que possuem tombstone de exclusão local
+    remoteItems.forEach((r) => {
+      if (!tombstoneSet.has(r.id)) {
+        map.set(r.id, { ...r, _syncStatus: 'synced', _syncError: undefined });
+      }
+    });
+
+    // 2. Preserva itens locais com identificadores únicos pendentes de sincronização
+    currentLocalItems.forEach((loc) => {
+      if (tombstoneSet.has(loc.id)) {
+        return; // não ressuscita registros deletados
+      }
+      if (loc._syncStatus === 'pending_sync' || loc._syncStatus === 'sync_error') {
+        const existingRemote = map.get(loc.id);
+        if (existingRemote && existingRemote.updatedAt && loc.updatedAt) {
+          // Se a alteração local for mais recente ou simultânea, preserva a versão local pendente de envio
+          if (new Date(loc.updatedAt) >= new Date(existingRemote.updatedAt)) {
+            map.set(loc.id, loc);
+          }
+        } else {
+          // Versão local pendente tem prioridade para ser sincronizada
+          map.set(loc.id, loc);
+        }
+      }
+    });
+
+    return Array.from(map.values());
+  };
+
+  const [isSyncingPending, setIsSyncingPending] = useState<boolean>(false);
+
+  const fetchBusinessData = async () => {
+    // Isolamento estrito de sessão: apenas usuários com privilégio de administrador carregam dados financeiros
+    if (!isAdmin) {
+      return;
+    }
+    setIsLoadingBusinessData(true);
+    try {
+      const [sales, expenses, purchases, movements, initialBalances, commitments] = await Promise.all([
+        fetchManualSalesFromSupabase(),
+        fetchManualExpensesFromSupabase(),
+        fetchMerchandisePurchasesFromSupabase(),
+        fetchCashMovementsFromSupabase(),
+        fetchInitialCashBalancesFromSupabase(),
+        fetchManualCommitmentsFromSupabase(),
+      ]);
+
+      setManualSales((prev) => mergeFinancialRecords(sales, prev));
+      setManualExpenses((prev) => mergeFinancialRecords(expenses, prev));
+      setMerchandisePurchases((prev) => mergeFinancialRecords(purchases, prev));
+      setCashMovements((prev) => mergeFinancialRecords(movements, prev));
+      if (initialBalances && initialBalances.length > 0) {
+        setInitialCashBalances(initialBalances.map((b) => ({ ...b, _syncStatus: 'synced' })));
+      }
+      setManualCommitments((prev) => mergeFinancialRecords(commitments, prev));
+    } catch (e) {
+      console.warn('[Meu Negócio] Aviso ao sincronizar com Supabase:', e);
+    } finally {
+      setIsLoadingBusinessData(false);
+    }
+  };
+
+  useEffect(() => {
+    if (isAdmin) {
+      hydrateLocalBusinessDataForAdmin();
+      if (supabaseStatus === 'connected' || Boolean(activeSupabaseClient)) {
+        fetchBusinessData();
+      }
+    } else {
+      clearBusinessDataInMemory();
+    }
+  }, [isAdmin, supabaseStatus, activeSupabaseClient]);
+
+  const saveManualSale = async (sale: ManualSaleEntry): Promise<{ success: boolean; error?: string }> => {
+    const cleanSale: ManualSaleEntry = {
+      ...sale,
+      items: deduplicateById(sale.items),
+      receipts: deduplicateById(sale.receipts),
+      installments: deduplicateById(sale.installments),
+    };
+    const ok = await saveManualSaleToSupabase(cleanSale);
+    const now = new Date().toISOString();
+    const trackedSale: ManualSaleEntry = {
+      ...cleanSale,
+      _syncStatus: ok ? 'synced' : 'pending_sync',
+      _syncError: ok ? undefined : 'Pendente de sincronização com o banco de dados Supabase.',
+      _lastSyncAttempt: now,
+    };
+
+    setManualSales((prev) => {
+      const idx = prev.findIndex((s) => s.id === trackedSale.id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = trackedSale;
+        return updated;
+      }
+      return [trackedSale, ...prev];
+    });
+
+    if (!ok) {
+      toast.info('Venda salva localmente (Pendente de sincronização com o Supabase).');
+      return { success: true };
+    }
+    toast.success('Venda registrada com sucesso no Supabase!');
+    return { success: true };
+  };
+
+  const removeManualSale = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const ok = await deleteManualSaleFromSupabase(id);
+    setManualSales((prev) => prev.filter((s) => s.id !== id));
+    if (!ok) {
+      addTombstone(id, 'sales');
+      toast.info('Venda removida localmente (exclusão pendente no Supabase).');
+      return { success: true };
+    }
+    removeTombstone(id);
+    toast.info('Venda removida com sucesso.');
+    return { success: true };
+  };
+
+  const saveManualExpense = async (expense: ManualExpenseEntry): Promise<{ success: boolean; error?: string }> => {
+    const sanitizedExpense: ManualExpenseEntry = {
+      ...expense,
+      payments: deduplicateById(expense.payments || []),
+      installments: deduplicateById(expense.installments || []),
+    };
+    const ok = await saveManualExpenseToSupabase(sanitizedExpense);
+    const now = new Date().toISOString();
+    const trackedExpense: ManualExpenseEntry = {
+      ...sanitizedExpense,
+      _syncStatus: ok ? 'synced' : 'pending_sync',
+      _syncError: ok ? undefined : 'Pendente de sincronização com o banco de dados Supabase.',
+      _lastSyncAttempt: now,
+    };
+
+    setManualExpenses((prev) => {
+      const idx = prev.findIndex((e) => e.id === trackedExpense.id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = trackedExpense;
+        return updated;
+      }
+      return [trackedExpense, ...prev];
+    });
+
+    if (!ok) {
+      toast.info('Despesa salva localmente (Pendente de sincronização com o Supabase).');
+      return { success: true };
+    }
+    toast.success('Despesa registrada com sucesso no Supabase!');
+    return { success: true };
+  };
+
+  const removeManualExpense = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const ok = await deleteManualExpenseFromSupabase(id);
+    setManualExpenses((prev) => prev.filter((e) => e.id !== id));
+    if (!ok) {
+      addTombstone(id, 'expenses');
+      toast.info('Despesa removida localmente (exclusão pendente no Supabase).');
+      return { success: true };
+    }
+    removeTombstone(id);
+    toast.info('Despesa removida.');
+    return { success: true };
+  };
+
+  const saveMerchandisePurchase = async (purchase: MerchandisePurchaseEntry): Promise<{ success: boolean; error?: string }> => {
+    const sanitizedPurchase: MerchandisePurchaseEntry = {
+      ...purchase,
+      items: deduplicateById(purchase.items || []),
+      payments: deduplicateById(purchase.payments || []),
+      installments: deduplicateById(purchase.installments || []),
+    };
+    const ok = await saveMerchandisePurchaseToSupabase(sanitizedPurchase);
+    const now = new Date().toISOString();
+    const trackedPurchase: MerchandisePurchaseEntry = {
+      ...sanitizedPurchase,
+      _syncStatus: ok ? 'synced' : 'pending_sync',
+      _syncError: ok ? undefined : 'Pendente de sincronização com o banco de dados Supabase.',
+      _lastSyncAttempt: now,
+    };
+
+    setMerchandisePurchases((prev) => {
+      const idx = prev.findIndex((p) => p.id === trackedPurchase.id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = trackedPurchase;
+        return updated;
+      }
+      return [trackedPurchase, ...prev];
+    });
+
+    if (!ok) {
+      toast.info('Compra salva localmente (Pendente de sincronização com o Supabase).');
+      return { success: true };
+    }
+    toast.success('Compra de mercadorias salva com sucesso!');
+    return { success: true };
+  };
+
+  const removeMerchandisePurchase = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const ok = await deleteMerchandisePurchaseFromSupabase(id);
+    setMerchandisePurchases((prev) => prev.filter((p) => p.id !== id));
+    if (!ok) {
+      addTombstone(id, 'purchases');
+      toast.info('Compra removida localmente (exclusão pendente no Supabase).');
+      return { success: true };
+    }
+    removeTombstone(id);
+    toast.info('Compra de mercadoria removida.');
+    return { success: true };
+  };
+
+  const saveCashMovement = async (movement: CashMovementEntry): Promise<{ success: boolean; error?: string }> => {
+    const ok = await saveCashMovementToSupabase(movement);
+    const now = new Date().toISOString();
+    const trackedMovement: CashMovementEntry = {
+      ...movement,
+      _syncStatus: ok ? 'synced' : 'pending_sync',
+      _syncError: ok ? undefined : 'Pendente de sincronização com o banco de dados Supabase.',
+      _lastSyncAttempt: now,
+    };
+
+    setCashMovements((prev) => {
+      const idx = prev.findIndex((m) => m.id === trackedMovement.id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = trackedMovement;
+        return updated;
+      }
+      return [trackedMovement, ...prev];
+    });
+
+    if (!ok) {
+      toast.info('Movimentação salva localmente (Pendente de sincronização com o Supabase).');
+      return { success: true };
+    }
+    toast.success('Movimentação de caixa registrada!');
+    return { success: true };
+  };
+
+  const removeCashMovement = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const ok = await deleteCashMovementFromSupabase(id);
+    setCashMovements((prev) => prev.filter((m) => m.id !== id));
+    if (!ok) {
+      addTombstone(id, 'movements');
+      toast.info('Movimentação removida localmente (exclusão pendente no Supabase).');
+      return { success: true };
+    }
+    removeTombstone(id);
+    toast.info('Movimentação de caixa removida.');
+    return { success: true };
+  };
+
+  const saveInitialCashBalances = async (
+    config: InitialCashBalanceConfig,
+    notes?: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    const defaultRef = config.referenceDate || `${new Date().getFullYear()}-01-01`;
+    const now = new Date().toISOString();
+    const records: InitialChannelBalanceRecord[] = [
+      {
+        id: 'init_pix_banco',
+        accountChannel: 'pix_banco',
+        amount: Number(config.pix_banco) || 0,
+        referenceDate: config.channelReferenceDates?.pix_banco || defaultRef,
+        notes: notes || 'Saldo inicial Pix / Banco',
+        _syncStatus: 'pending_sync',
+        _lastSyncAttempt: now,
+      },
+      {
+        id: 'init_dinheiro_caixa',
+        accountChannel: 'dinheiro_caixa',
+        amount: Number(config.dinheiro_caixa) || 0,
+        referenceDate: config.channelReferenceDates?.dinheiro_caixa || defaultRef,
+        notes: notes || 'Saldo inicial Dinheiro Físico',
+        _syncStatus: 'pending_sync',
+        _lastSyncAttempt: now,
+      },
+      {
+        id: 'init_cartao_maquininha',
+        accountChannel: 'cartao_maquininha',
+        amount: Number(config.cartao_maquininha) || 0,
+        referenceDate: config.channelReferenceDates?.cartao_maquininha || defaultRef,
+        notes: notes || 'Saldo inicial Cartão / Maquininha',
+        _syncStatus: 'pending_sync',
+        _lastSyncAttempt: now,
+      },
+      {
+        id: 'init_outro',
+        accountChannel: 'outro',
+        amount: Number(config.outro) || 0,
+        referenceDate: config.channelReferenceDates?.outro || defaultRef,
+        notes: notes || 'Saldo inicial Outro Canal',
+        _syncStatus: 'pending_sync',
+        _lastSyncAttempt: now,
+      },
+    ];
+
+    // Persistir no Supabase
+    const ok = await saveInitialCashBalancesToSupabase(records);
+    const finalRecords = records.map((r) => ({
+      ...r,
+      _syncStatus: ok ? ('synced' as const) : ('pending_sync' as const),
+      _syncError: ok ? undefined : 'Pendente de sincronização com o banco de dados Supabase.',
+    }));
+
+    if (!ok) {
+      if (typeof window !== 'undefined') {
+        localStorage.setItem('podwave_initial_cash_balances', JSON.stringify(config));
+      }
+      setInitialCashBalances(finalRecords);
+      toast.info('Saldos iniciais salvos localmente (Pendente de sincronização com o Supabase).');
+      return { success: true };
+    }
+
+    // Sucesso no Supabase
+    setInitialCashBalances(finalRecords);
+    if (typeof window !== 'undefined') {
+      localStorage.setItem('podwave_initial_cash_balances', JSON.stringify(config));
+    }
+    toast.success('Saldos iniciais salvos no Supabase com sucesso!');
+    return { success: true };
+  };
+
+  const importLocalInitialBalancesToSupabase = async (): Promise<{ success: boolean; message: string }> => {
+    if (typeof window === 'undefined') {
+      return { success: false, message: 'Ambiente inválido.' };
+    }
+
+    try {
+      const localStr = localStorage.getItem('podwave_initial_cash_balances');
+      if (!localStr) {
+        return { success: false, message: 'Nenhum saldo local encontrado para importação.' };
+      }
+      const parsed = JSON.parse(localStr);
+      const res = await saveInitialCashBalances(parsed, 'Importado de configuração local');
+      if (res.success) {
+        dismissLocalInitialBalancesPrompt();
+        return { success: true, message: 'Saldos locais importados para o Supabase com sucesso!' };
+      }
+      return { success: false, message: res.error || 'Erro ao importar para o Supabase.' };
+    } catch (e: any) {
+      return { success: false, message: e.message || 'Falha ao processar importação.' };
+    }
+  };
+
+  const saveManualCommitment = async (
+    commitment: ManualCommitmentEntry
+  ): Promise<{ success: boolean; error?: string }> => {
+    const sanitizedCommitment: ManualCommitmentEntry = {
+      ...commitment,
+      payments: deduplicateById(commitment.payments || []),
+      installments: deduplicateById(commitment.installments || []),
+    };
+    const ok = await saveManualCommitmentToSupabase(sanitizedCommitment);
+    const now = new Date().toISOString();
+    const trackedCommitment: ManualCommitmentEntry = {
+      ...sanitizedCommitment,
+      _syncStatus: ok ? 'synced' : 'pending_sync',
+      _syncError: ok ? undefined : 'Pendente de sincronização com o banco de dados Supabase.',
+      _lastSyncAttempt: now,
+    };
+
+    setManualCommitments((prev) => {
+      const idx = prev.findIndex((c) => c.id === trackedCommitment.id);
+      if (idx >= 0) {
+        const updated = [...prev];
+        updated[idx] = trackedCommitment;
+        return updated;
+      }
+      return [trackedCommitment, ...prev];
+    });
+
+    if (!ok) {
+      toast.info('Compromisso salvo localmente (Pendente de sincronização com o Supabase).');
+      return { success: true };
+    }
+    toast.success('Compromisso financeiro salvo com sucesso!');
+    return { success: true };
+  };
+
+  const removeManualCommitment = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    const ok = await deleteManualCommitmentFromSupabase(id);
+    setManualCommitments((prev) => prev.filter((c) => c.id !== id));
+    if (!ok) {
+      addTombstone(id, 'commitments');
+      toast.info('Compromisso removido localmente (exclusão pendente no Supabase).');
+      return { success: true };
+    }
+    removeTombstone(id);
+    toast.info('Compromisso financeiro excluído.');
+    return { success: true };
+  };
+
+  // Sincronização em lote de todos os registros pendentes, com erro ou tombstones de exclusão
+  const syncPendingFinancialData = async (): Promise<{ success: boolean; synced: number; failed: number }> => {
+    setIsSyncingPending(true);
+    let synced = 0;
+    let failed = 0;
+    const now = new Date().toISOString();
+
+    try {
+      // 0. Exclusões pendentes (tombstones de itens deletados localmente)
+      const pendingTombstones = getTombstones();
+      for (const tomb of pendingTombstones) {
+        let deleted = false;
+        try {
+          if (tomb.table === 'sales') {
+            deleted = await deleteManualSaleFromSupabase(tomb.id);
+          } else if (tomb.table === 'expenses') {
+            deleted = await deleteManualExpenseFromSupabase(tomb.id);
+          } else if (tomb.table === 'purchases') {
+            deleted = await deleteMerchandisePurchaseFromSupabase(tomb.id);
+          } else if (tomb.table === 'movements') {
+            deleted = await deleteCashMovementFromSupabase(tomb.id);
+          } else if (tomb.table === 'commitments') {
+            deleted = await deleteManualCommitmentFromSupabase(tomb.id);
+          }
+        } catch {
+          deleted = false;
+        }
+
+        if (deleted) {
+          removeTombstone(tomb.id);
+          synced++;
+        } else {
+          failed++;
+        }
+      }
+
+      // 1. Vendas Manuais
+      const pendingSales = manualSales.filter((s) => s._syncStatus !== 'synced');
+      for (const sale of pendingSales) {
+        const ok = await saveManualSaleToSupabase(sale);
+        if (ok) {
+          setManualSales((prev) =>
+            prev.map((s) => (s.id === sale.id ? { ...s, _syncStatus: 'synced', _syncError: undefined, _lastSyncAttempt: now } : s))
+          );
+          synced++;
+        } else {
+          setManualSales((prev) =>
+            prev.map((s) => (s.id === sale.id ? { ...s, _syncStatus: 'sync_error', _syncError: 'Falha ao sincronizar com Supabase', _lastSyncAttempt: now } : s))
+          );
+          failed++;
+        }
+      }
+
+      // 2. Gastos Manuais
+      const pendingExpenses = manualExpenses.filter((e) => e._syncStatus !== 'synced');
+      for (const expense of pendingExpenses) {
+        const ok = await saveManualExpenseToSupabase(expense);
+        if (ok) {
+          setManualExpenses((prev) =>
+            prev.map((e) => (e.id === expense.id ? { ...e, _syncStatus: 'synced', _syncError: undefined, _lastSyncAttempt: now } : e))
+          );
+          synced++;
+        } else {
+          setManualExpenses((prev) =>
+            prev.map((e) => (e.id === expense.id ? { ...e, _syncStatus: 'sync_error', _syncError: 'Falha ao sincronizar com Supabase', _lastSyncAttempt: now } : e))
+          );
+          failed++;
+        }
+      }
+
+      // 3. Compras de Mercadorias
+      const pendingPurchases = merchandisePurchases.filter((p) => p._syncStatus !== 'synced');
+      for (const purchase of pendingPurchases) {
+        const ok = await saveMerchandisePurchaseToSupabase(purchase);
+        if (ok) {
+          setMerchandisePurchases((prev) =>
+            prev.map((p) => (p.id === purchase.id ? { ...p, _syncStatus: 'synced', _syncError: undefined, _lastSyncAttempt: now } : p))
+          );
+          synced++;
+        } else {
+          setMerchandisePurchases((prev) =>
+            prev.map((p) => (p.id === purchase.id ? { ...p, _syncStatus: 'sync_error', _syncError: 'Falha ao sincronizar com Supabase', _lastSyncAttempt: now } : p))
+          );
+          failed++;
+        }
+      }
+
+      // 4. Fluxo de Caixa
+      const pendingMovements = cashMovements.filter((m) => m._syncStatus !== 'synced');
+      for (const movement of pendingMovements) {
+        const ok = await saveCashMovementToSupabase(movement);
+        if (ok) {
+          setCashMovements((prev) =>
+            prev.map((m) => (m.id === movement.id ? { ...m, _syncStatus: 'synced', _syncError: undefined, _lastSyncAttempt: now } : m))
+          );
+          synced++;
+        } else {
+          setCashMovements((prev) =>
+            prev.map((m) => (m.id === movement.id ? { ...m, _syncStatus: 'sync_error', _syncError: 'Falha ao sincronizar com Supabase', _lastSyncAttempt: now } : m))
+          );
+          failed++;
+        }
+      }
+
+      // 5. Saldos Iniciais
+      const pendingBalances = initialCashBalances.filter((b) => b._syncStatus !== 'synced');
+      if (pendingBalances.length > 0) {
+        const ok = await saveInitialCashBalancesToSupabase(pendingBalances);
+        if (ok) {
+          setInitialCashBalances((prev) =>
+            prev.map((b) => ({ ...b, _syncStatus: 'synced', _syncError: undefined, _lastSyncAttempt: now }))
+          );
+          synced += pendingBalances.length;
+        } else {
+          setInitialCashBalances((prev) =>
+            prev.map((b) => ({ ...b, _syncStatus: 'sync_error', _syncError: 'Falha ao salvar saldos iniciais', _lastSyncAttempt: now }))
+          );
+          failed += pendingBalances.length;
+        }
+      }
+
+      // 6. Compromissos
+      const pendingCommitments = manualCommitments.filter((c) => c._syncStatus !== 'synced');
+      for (const commitment of pendingCommitments) {
+        const ok = await saveManualCommitmentToSupabase(commitment);
+        if (ok) {
+          setManualCommitments((prev) =>
+            prev.map((c) => (c.id === commitment.id ? { ...c, _syncStatus: 'synced', _syncError: undefined, _lastSyncAttempt: now } : c))
+          );
+          synced++;
+        } else {
+          setManualCommitments((prev) =>
+            prev.map((c) => (c.id === commitment.id ? { ...c, _syncStatus: 'sync_error', _syncError: 'Falha ao sincronizar com Supabase', _lastSyncAttempt: now } : c))
+          );
+          failed++;
+        }
+      }
+
+      if (synced > 0) {
+        toast.success(`${synced} registro(s) sincronizado(s) com sucesso no Supabase!`);
+      }
+      if (failed > 0) {
+        toast.warning(`${failed} registro(s) não puderam ser sincronizados. Verifique credenciais ou migrations.`);
+      }
+
+      return { success: failed === 0, synced, failed };
+    } finally {
+      setIsSyncingPending(false);
+    }
+  };
+
+  const pendingSyncCount = React.useMemo(() => {
+    const s = manualSales.filter((i) => i._syncStatus === 'pending_sync' || i._syncStatus === 'sync_error').length;
+    const e = manualExpenses.filter((i) => i._syncStatus === 'pending_sync' || i._syncStatus === 'sync_error').length;
+    const p = merchandisePurchases.filter((i) => i._syncStatus === 'pending_sync' || i._syncStatus === 'sync_error').length;
+    const m = cashMovements.filter((i) => i._syncStatus === 'pending_sync' || i._syncStatus === 'sync_error').length;
+    const b = initialCashBalances.filter((i) => i._syncStatus === 'pending_sync' || i._syncStatus === 'sync_error').length;
+    const c = manualCommitments.filter((i) => i._syncStatus === 'pending_sync' || i._syncStatus === 'sync_error').length;
+    const t = getTombstones().length;
+    return s + e + p + m + b + c + t;
+  }, [manualSales, manualExpenses, merchandisePurchases, cashMovements, initialCashBalances, manualCommitments]);
+
   return (
     <CatalogContext.Provider
       value={{
@@ -2089,6 +2971,32 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         addActivityLog,
         clearActivityLogs,
         refreshActivityLogs,
+        manualSales,
+        manualExpenses,
+        merchandisePurchases,
+        cashMovements,
+        isLoadingBusinessData,
+        fetchBusinessData,
+        saveManualSale,
+        removeManualSale,
+        saveManualExpense,
+        removeManualExpense,
+        saveMerchandisePurchase,
+        removeMerchandisePurchase,
+        saveCashMovement,
+        removeCashMovement,
+        initialCashBalances,
+        initialCashConfig,
+        saveInitialCashBalances,
+        hasLocalInitialBalancesPendingMigration,
+        importLocalInitialBalancesToSupabase,
+        dismissLocalInitialBalancesPrompt,
+        manualCommitments,
+        saveManualCommitment,
+        removeManualCommitment,
+        pendingSyncCount,
+        isSyncingPending,
+        syncPendingFinancialData,
       }}
     >
       {children}

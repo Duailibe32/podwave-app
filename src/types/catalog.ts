@@ -222,3 +222,321 @@ export interface ActivityLogEntry {
   errorMessage?: string;
   timestamp: string;
 }
+
+// -------------------------------------------------------------
+// MEU NEGÓCIO — CONTROLE GERENCIAL & FINANCEIRO MANUAL
+// -------------------------------------------------------------
+
+export type SyncStatus = 'synced' | 'pending_sync' | 'sync_error';
+
+export interface SyncMetadata {
+  _syncStatus?: SyncStatus;
+  _syncError?: string;
+  _lastSyncAttempt?: string;
+}
+
+export type BusinessSection =
+  | 'visao_geral'
+  | 'vendas'
+  | 'gastos'
+  | 'compras'
+  | 'fluxo_caixa'
+  | 'pendentes'
+  | 'relatorios';
+
+export type PeriodPreset =
+  | 'hoje'
+  | 'ontem'
+  | 'ultimos_7_dias'
+  | 'ultimos_30_dias'
+  | 'este_mes'
+  | 'mes_anterior'
+  | 'este_ano'
+  | 'personalizado'
+  | 'todo_historico';
+
+export interface DateRange {
+  startDate: string; // YYYY-MM-DD
+  endDate: string; // YYYY-MM-DD
+}
+
+export interface ManualSaleItem {
+  id?: string;
+  productId?: string;
+  productName: string;
+  brandName?: string;
+  modelName?: string;
+  flavorName?: string;
+  quantity: number;
+  unitPrice: number;
+  unitCost?: number;
+  subtotal: number;
+}
+
+export interface SaleReceiptItem {
+  id: string;
+  amount: number;
+  receiptDate: string; // YYYY-MM-DD or ISO string
+  paymentMethod: string;
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface ManualSaleEntry {
+  id: string;
+  saleDate: string; // ISO string
+  customerName?: string;
+  customerPhone?: string;
+  deliveryType: 'Entrega Própria' | 'Retirada no Local' | 'Motoboy Terceirizado' | 'Correios / Envio' | string;
+  deliveryFee: number;
+  discount: number;
+  grossTotal: number;
+  netTotal: number;
+  amountReceived: number;
+  amountPending: number;
+  paymentStatus: 'pago' | 'parcial' | 'pendente';
+  paymentMethod: 'Pix' | 'Dinheiro' | 'Cartão de Débito' | 'Cartão de Crédito' | 'Fiado' | 'Misto' | string;
+  orderStatus: 'pendente' | 'confirmado' | 'entregue' | 'cancelado';
+  receivedDate?: string;
+  dueDate?: string; // Data de vencimento prevista para pagamentos a prazo/fiado
+  items: ManualSaleItem[];
+  receipts?: SaleReceiptItem[];
+  installments?: CommitmentInstallmentItem[];
+  notes?: string;
+  createdAt?: string;
+  _syncStatus?: SyncStatus;
+  _syncError?: string;
+  _lastSyncAttempt?: string;
+}
+
+export type ExpenseCategory =
+  | 'Combustível / Entregas'
+  | 'Embalagens / Sacolas'
+  | 'Aluguel / Ponto Físico'
+  | 'Alimentação'
+  | 'Manutenção / Moto'
+  | 'Marketing / Divulgação'
+  | 'Software / Telefonia'
+  | 'Outros';
+
+export interface ExpensePaymentItem {
+  id: string;
+  amount: number;
+  paymentDate: string; // YYYY-MM-DD
+  paymentMethod: string;
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface ManualExpenseEntry {
+  id: string;
+  expenseDate: string; // YYYY-MM-DD
+  category: ExpenseCategory | string;
+  description: string;
+  amount: number;
+  amountPaid: number;
+  amountPending: number;
+  paymentStatus: 'pago' | 'parcial' | 'a_pagar';
+  paymentMethod: 'Pix' | 'Dinheiro' | 'Cartão' | 'Boleto' | string;
+  dueDate?: string;
+  payments?: ExpensePaymentItem[];
+  installments?: CommitmentInstallmentItem[];
+  notes?: string;
+  createdAt?: string;
+  _syncStatus?: SyncStatus;
+  _syncError?: string;
+  _lastSyncAttempt?: string;
+}
+
+export interface PurchasePaymentItem {
+  id: string;
+  amount: number;
+  paymentDate: string; // YYYY-MM-DD
+  paymentMethod: string;
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface MerchandisePurchaseItem {
+  id?: string;
+  productId?: string;
+  name: string;
+  flavorName?: string;
+  quantity: number;
+  unitCost: number;
+  totalCost: number;
+}
+
+export interface MerchandisePurchaseEntry {
+  id: string;
+  purchaseDate: string; // YYYY-MM-DD
+  supplierName: string;
+  supplierContact?: string;
+  invoiceOrRef?: string;
+  itemsSubtotal: number;
+  shippingCost: number;
+  otherCosts: number;
+  discount: number;
+  totalCost: number;
+  amountPaid: number;
+  amountPending: number;
+  paymentStatus: 'pago' | 'parcial' | 'pendente';
+  paymentMethod: string;
+  receivingStatus: 'aguardando' | 'parcialmente_recebido' | 'recebido';
+  dueDate?: string;
+  items: MerchandisePurchaseItem[];
+  payments?: PurchasePaymentItem[];
+  installments?: CommitmentInstallmentItem[];
+  notes?: string;
+  createdAt?: string;
+  _syncStatus?: SyncStatus;
+  _syncError?: string;
+  _lastSyncAttempt?: string;
+}
+
+export type CashAccountChannel = 'pix_banco' | 'dinheiro_caixa' | 'cartao_maquininha' | 'outro';
+
+export interface CashMovementEntry {
+  id: string;
+  movementDate: string; // ISO string
+  type: 'entrada' | 'saida';
+  originType:
+    | 'venda'
+    | 'despesa'
+    | 'compra_estoque'
+    | 'aporte_inicial'
+    | 'retirada_pro_labore'
+    | 'ajuste_saldo'
+    | 'transferencia'
+    | 'avulso';
+  referenceId?: string;
+  category?: string;
+  accountChannel: CashAccountChannel;
+  destinationAccountChannel?: CashAccountChannel; // para transferências internas
+  amount: number;
+  description: string;
+  notes?: string;
+  createdAt?: string;
+  _syncStatus?: SyncStatus;
+  _syncError?: string;
+  _lastSyncAttempt?: string;
+}
+
+export interface InitialChannelBalanceRecord {
+  id: string; // e.g. 'init_pix_banco'
+  accountChannel: CashAccountChannel;
+  amount: number;
+  referenceDate: string; // YYYY-MM-DD
+  notes?: string;
+  updatedAt?: string;
+  _syncStatus?: SyncStatus;
+  _syncError?: string;
+  _lastSyncAttempt?: string;
+}
+
+export interface InitialCashBalanceConfig {
+  referenceDate: string; // YYYY-MM-DD (global de referência padrão)
+  pix_banco: number;
+  dinheiro_caixa: number;
+  cartao_maquininha: number;
+  outro: number;
+  channelReferenceDates?: {
+    pix_banco?: string;
+    dinheiro_caixa?: string;
+    cartao_maquininha?: string;
+    outro?: string;
+  };
+}
+
+// -------------------------------------------------------------
+// MEU NEGÓCIO: ETAPA 6 — CONTAS PENDENTES & COMPROMISSOS AVULSOS
+// -------------------------------------------------------------
+
+export interface CommitmentPaymentItem {
+  id: string;
+  amount: number;
+  paymentDate: string; // YYYY-MM-DD
+  paymentMethod: string;
+  accountChannel: CashAccountChannel;
+  notes?: string;
+  createdAt?: string;
+}
+
+export interface CommitmentInstallmentItem {
+  id: string;
+  installmentNumber: number;
+  totalInstallments: number;
+  amount: number;
+  dueDate: string; // YYYY-MM-DD
+  amountPaid: number;
+  amountPending: number;
+  status: 'pendente' | 'parcial' | 'pago' | 'vencido';
+  notes?: string;
+}
+
+export interface ManualCommitmentEntry {
+  id: string;
+  type: 'a_pagar' | 'a_receber';
+  description: string;
+  counterpartyName: string; // cliente, fornecedor ou credor
+  counterpartyContact?: string;
+  category: string;
+  totalAmount: number;
+  amountPaid: number;
+  amountPending: number;
+  issueDate: string; // YYYY-MM-DD
+  dueDate?: string; // YYYY-MM-DD
+  paymentMethod?: string;
+  accountChannel?: CashAccountChannel;
+  paymentStatus: 'pendente' | 'parcial' | 'pago' | 'cancelado';
+  installments?: CommitmentInstallmentItem[];
+  payments?: CommitmentPaymentItem[];
+  notes?: string;
+  createdAt?: string;
+  updatedAt?: string;
+  _syncStatus?: SyncStatus;
+  _syncError?: string;
+  _lastSyncAttempt?: string;
+}
+
+export type PendingAccountOrigin = 'venda' | 'despesa' | 'compra_estoque' | 'avulso';
+export type PendingAccountType = 'a_pagar' | 'a_receber';
+export type PendingAccountUrgency =
+  | 'vencido'
+  | 'vence_hoje'
+  | 'vence_breve'
+  | 'em_aberto'
+  | 'sem_vencimento'
+  | 'quitado';
+
+export interface PendingAccountItem {
+  id: string;
+  originId: string;
+  originType: PendingAccountOrigin;
+  type: PendingAccountType;
+  description: string;
+  counterpartyName: string;
+  counterpartyContact?: string;
+  category?: string;
+  issueDate?: string; // YYYY-MM-DD
+  dueDate?: string; // YYYY-MM-DD
+  totalAmount: number;
+  amountPaid: number;
+  amountPending: number;
+  paymentStatus?: 'pendente' | 'parcial' | 'pago' | 'cancelado';
+  paymentMethod?: string;
+  accountChannel?: CashAccountChannel;
+  notes?: string;
+  urgency: PendingAccountUrgency;
+  urgencyStatus?: PendingAccountUrgency;
+  diasAtraso?: number;
+  daysDifference?: number; // dias até o vencimento (negativo = dias de atraso)
+  installments?: CommitmentInstallmentItem[];
+  paymentsCount?: number;
+  createdAt?: string;
+  sourceRecord?: ManualSaleEntry | ManualExpenseEntry | MerchandisePurchaseEntry | ManualCommitmentEntry;
+}
+
+
+
+

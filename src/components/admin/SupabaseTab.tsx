@@ -20,420 +20,544 @@ import {
   Info,
 } from 'lucide-react';
 
-const SCHEMA_SQL = `-- ==============================================================================
--- PODWAVE CATALOG - SUPABASE POSTGRESQL MIGRATION
--- Migration: 20261025000000_initial_schema.sql
--- Description: Criação da estrutura de tabelas, índices, RLS e dados iniciais
--- ==============================================================================
+const SCHEMA_SQL = `-- ============================================================================
+-- PODWAVE — MIGRATION 01: INITIAL SCHEMA & CORE CATALOG SECURITY
+-- Arquivo: 20261025000000_initial_schema.sql
+-- ============================================================================
 
--- 1. TABELA DE MARCAS (BRANDS)
+CREATE EXTENSION IF NOT EXISTS "uuid-ossp";
+CREATE EXTENSION IF NOT EXISTS "pgcrypto";
+
+CREATE SCHEMA IF NOT EXISTS app_security;
+REVOKE ALL ON SCHEMA app_security FROM PUBLIC;
+GRANT USAGE ON SCHEMA app_security TO authenticated, service_role;
+
 CREATE TABLE IF NOT EXISTS public.brands (
-    id TEXT PRIMARY KEY,
-    name TEXT NOT NULL,
-    logo_text TEXT,
-    featured BOOLEAN DEFAULT true,
-    logo_url TEXT,
-    country TEXT DEFAULT 'Global',
-    description TEXT,
-    card_color TEXT DEFAULT 'black',
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  description TEXT,
+  banner_image TEXT,
+  sort_order INTEGER DEFAULT 0,
+  is_active BOOLEAN DEFAULT true,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 2. TABELA DE MODELOS / PRODUTOS (PRODUCT_MODELS)
 CREATE TABLE IF NOT EXISTS public.product_models (
-    id TEXT PRIMARY KEY,
-    brand_id TEXT NOT NULL REFERENCES public.brands(id) ON DELETE CASCADE,
-    brand_name TEXT NOT NULL,
-    model_name TEXT NOT NULL,
-    puffs INTEGER NOT NULL,
-    puffs_label TEXT NOT NULL,
-    badge TEXT,
-    starting_price NUMERIC(10, 2) NOT NULL,
-    image_url TEXT,
-    category TEXT DEFAULT 'Descartável Premium' NOT NULL,
-    description TEXT,
-    battery TEXT DEFAULT '650mAh USB-C',
-    e_liquid TEXT DEFAULT '16ml',
-    nicotine TEXT DEFAULT '5% (50mg)',
-    charge_type TEXT DEFAULT 'USB Tipo C Fast Charge',
-    coil TEXT DEFAULT 'Dual Mesh Coil',
-    airflow TEXT,
-    low_quantity_threshold INTEGER DEFAULT 3,
-    active BOOLEAN DEFAULT true NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  id TEXT PRIMARY KEY,
+  brand_id TEXT NOT NULL REFERENCES public.brands(id) ON DELETE CASCADE,
+  name TEXT NOT NULL,
+  puffs INTEGER NOT NULL CHECK (puffs >= 0),
+  description TEXT,
+  price NUMERIC(10, 2) NOT NULL CHECK (price >= 0),
+  promotional_price NUMERIC(10, 2) CHECK (promotional_price IS NULL OR promotional_price >= 0),
+  image TEXT,
+  is_active BOOLEAN DEFAULT true,
+  is_featured BOOLEAN DEFAULT false,
+  is_new BOOLEAN DEFAULT false,
+  in_stock BOOLEAN DEFAULT true,
+  stock_quantity INTEGER DEFAULT 0 CHECK (stock_quantity >= 0),
+  low_stock_threshold INTEGER DEFAULT 5 CHECK (low_stock_threshold >= 0),
+  features TEXT[] DEFAULT '{}',
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 3. TABELA DE SABORES / VARIANTES (FLAVOR_VARIANTS)
 CREATE TABLE IF NOT EXISTS public.flavor_variants (
-    id TEXT PRIMARY KEY,
-    model_id TEXT NOT NULL REFERENCES public.product_models(id) ON DELETE CASCADE,
-    name TEXT NOT NULL,
-    color_hex TEXT DEFAULT '#9333EA' NOT NULL,
-    icon_emoji TEXT DEFAULT '🍇' NOT NULL,
-    in_stock BOOLEAN DEFAULT true NOT NULL,
-    demo_quantity INTEGER,
-    low_quantity_threshold INTEGER DEFAULT 3,
-    custom_image TEXT,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  id TEXT PRIMARY KEY,
+  model_id TEXT NOT NULL REFERENCES public.product_models(id) ON DELETE CASCADE,
+  flavor_name TEXT NOT NULL,
+  tag TEXT,
+  in_stock BOOLEAN DEFAULT true,
+  stock_quantity INTEGER DEFAULT 0 CHECK (stock_quantity >= 0),
+  low_stock_threshold INTEGER DEFAULT 3 CHECK (low_stock_threshold >= 0),
+  image TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 4. TABELA DE BANNERS ROTATIVOS (BANNERS)
 CREATE TABLE IF NOT EXISTS public.banners (
-    id TEXT PRIMARY KEY,
-    title TEXT NOT NULL,
-    subtitle TEXT NOT NULL,
-    badge TEXT,
-    cta_text TEXT NOT NULL,
-    cta_link TEXT NOT NULL,
-    image_url TEXT NOT NULL,
-    background_gradient TEXT NOT NULL,
-    active BOOLEAN DEFAULT true NOT NULL,
-    sort_order INTEGER DEFAULT 0 NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  id TEXT PRIMARY KEY,
+  title TEXT NOT NULL,
+  subtitle TEXT,
+  description TEXT,
+  button_text TEXT,
+  button_link TEXT,
+  image_desktop TEXT NOT NULL,
+  image_mobile TEXT,
+  badge_text TEXT,
+  type TEXT NOT NULL,
+  is_active BOOLEAN DEFAULT true,
+  sort_order INTEGER DEFAULT 0,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 5. TABELA DE CUPONS PROMOCIONAIS (COUPONS)
 CREATE TABLE IF NOT EXISTS public.coupons (
-    id TEXT PRIMARY KEY,
-    code TEXT NOT NULL UNIQUE,
-    discount_type TEXT NOT NULL CHECK (discount_type IN ('percent', 'fixed')),
-    value NUMERIC(10, 2) NOT NULL,
-    min_order_value NUMERIC(10, 2),
-    applicable_model_id TEXT,
-    max_uses INTEGER,
-    used_count INTEGER DEFAULT 0 NOT NULL,
-    description TEXT,
-    active BOOLEAN DEFAULT true NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  id TEXT PRIMARY KEY,
+  code TEXT NOT NULL UNIQUE,
+  type TEXT NOT NULL CHECK (type IN ('percent', 'fixed')),
+  value NUMERIC(10, 2) NOT NULL CHECK (value >= 0),
+  min_order_value NUMERIC(10, 2) CHECK (min_order_value IS NULL OR min_order_value >= 0),
+  max_uses INTEGER CHECK (max_uses IS NULL OR max_uses >= 0),
+  used_count INTEGER DEFAULT 0 CHECK (used_count >= 0),
+  expires_at TIMESTAMPTZ,
+  is_active BOOLEAN DEFAULT true,
+  description TEXT,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 6. TABELA DE CONFIGURAÇÕES GERAIS DA LOJA (STORE_SETTINGS)
 CREATE TABLE IF NOT EXISTS public.store_settings (
-    id TEXT PRIMARY KEY DEFAULT 'primary',
-    store_name TEXT DEFAULT 'PodWave' NOT NULL,
-    support_email TEXT DEFAULT 'contato@podwave.com.br',
-    support_phone TEXT DEFAULT '(86) 99901-4685',
-    whatsapp_number TEXT DEFAULT '5586999014685',
-    legal_notice TEXT,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  id TEXT PRIMARY KEY DEFAULT 'main',
+  store_name TEXT NOT NULL DEFAULT 'PodWave',
+  support_email TEXT,
+  support_phone TEXT,
+  whatsapp_number TEXT NOT NULL DEFAULT '5598984360626',
+  legal_notice TEXT,
+  owner_uid TEXT,
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 7. TABELA DE LOGS DE AUDITORIA (AUDIT_LOGS)
 CREATE TABLE IF NOT EXISTS public.audit_logs (
-    id TEXT PRIMARY KEY,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    model_id TEXT,
-    flavor_id TEXT,
-    action TEXT NOT NULL,
-    previous_quantity INTEGER,
-    new_quantity INTEGER,
-    previous_status TEXT,
-    new_status TEXT,
-    actor_uid TEXT,
-    actor_email TEXT,
-    notes TEXT
+  id TEXT PRIMARY KEY,
+  timestamp TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  action TEXT NOT NULL,
+  entity_type TEXT NOT NULL,
+  entity_id TEXT NOT NULL,
+  entity_name TEXT NOT NULL,
+  details TEXT
 );
 
--- 8. TABELA DE PERFIS DE CLIENTES E USUÁRIOS
 CREATE TABLE IF NOT EXISTS public.customer_profiles (
-    id TEXT PRIMARY KEY,
-    email TEXT NOT NULL UNIQUE,
-    full_name TEXT NOT NULL,
-    phone TEXT,
-    cpf TEXT,
-    role TEXT DEFAULT 'customer' CHECK (role IN ('customer', 'owner')) NOT NULL,
-    address_cep TEXT,
-    address_street TEXT,
-    address_number TEXT,
-    address_neighborhood TEXT,
-    address_complement TEXT,
-    address_city TEXT,
-    address_state TEXT,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL,
-    updated_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  id TEXT PRIMARY KEY,
+  name TEXT NOT NULL,
+  email TEXT NOT NULL,
+  phone TEXT NOT NULL,
+  cpf TEXT,
+  birth_date TEXT,
+  default_address JSONB,
+  saved_addresses JSONB DEFAULT '[]'::jsonb,
+  favorite_model_ids TEXT[] DEFAULT '{}',
+  role TEXT NOT NULL DEFAULT 'customer' CHECK (role IN ('customer', 'admin', 'owner')),
+  is_vip BOOLEAN NOT NULL DEFAULT false,
+  vip_since TIMESTAMPTZ,
+  vip_expires_at TIMESTAMPTZ,
+  vip_plan TEXT,
+  vip_status TEXT DEFAULT 'inactive' CHECK (vip_status IN ('active', 'inactive', 'expired')),
+  vip_discount_custom NUMERIC(5, 2) CHECK (vip_discount_custom IS NULL OR (vip_discount_custom >= 0 AND vip_discount_custom <= 100)),
+  vip_benefit_note TEXT,
+  vip_Granted_by TEXT,
+  vip_Updated_at TIMESTAMPTZ,
+  created_at TIMESTAMPTZ DEFAULT NOW(),
+  updated_at TIMESTAMPTZ DEFAULT NOW()
 );
 
--- 9. TABELA DE HISTÓRICO DE PEDIDOS DE CLIENTES
 CREATE TABLE IF NOT EXISTS public.customer_orders (
-    id TEXT PRIMARY KEY,
-    customer_id TEXT NOT NULL REFERENCES public.customer_profiles(id) ON DELETE CASCADE,
-    reference_id TEXT NOT NULL,
-    items JSONB NOT NULL,
-    subtotal NUMERIC(10, 2) NOT NULL,
-    discount NUMERIC(10, 2) DEFAULT 0 NOT NULL,
-    total NUMERIC(10, 2) NOT NULL,
-    payment_method TEXT NOT NULL,
-    delivery_type TEXT DEFAULT 'delivery' NOT NULL,
-    address_summary TEXT,
-    status TEXT DEFAULT 'recebido' NOT NULL,
-    created_at TIMESTAMPTZ DEFAULT timezone('utc'::text, now()) NOT NULL
+  id TEXT PRIMARY KEY,
+  order_code TEXT NOT NULL,
+  customer_id TEXT NOT NULL REFERENCES public.customer_profiles(id) ON DELETE CASCADE,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  status TEXT NOT NULL,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  subtotal NUMERIC(10, 2) NOT NULL CHECK (subtotal >= 0),
+  discount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
+  total NUMERIC(10, 2) NOT NULL CHECK (total >= 0),
+  coupon_code TEXT,
+  vip_discount_applied BOOLEAN DEFAULT false,
+  vip_discount_amount NUMERIC(10, 2) DEFAULT 0 CHECK (vip_discount_amount >= 0),
+  payment_method TEXT NOT NULL,
+  delivery_info JSONB NOT NULL DEFAULT '{}'::jsonb,
+  whatsapp_Confirmation_Sent BOOLEAN DEFAULT false
 );
+`;
 
--- ÍNDICES PARA ALTA PERFORMANCE
-CREATE INDEX IF NOT EXISTS idx_product_models_brand_id ON public.product_models(brand_id);
-CREATE INDEX IF NOT EXISTS idx_flavor_variants_model_id ON public.flavor_variants(model_id);
-CREATE INDEX IF NOT EXISTS idx_flavor_variants_stock ON public.flavor_variants(in_stock);
-CREATE INDEX IF NOT EXISTS idx_coupons_code ON public.coupons(code);
-CREATE INDEX IF NOT EXISTS idx_audit_logs_created_at ON public.audit_logs(created_at DESC);
-CREATE INDEX IF NOT EXISTS idx_customer_profiles_email ON public.customer_profiles(email);
-CREATE INDEX IF NOT EXISTS idx_customer_profiles_role ON public.customer_profiles(role);
-CREATE INDEX IF NOT EXISTS idx_customer_orders_customer_id ON public.customer_orders(customer_id);
-CREATE INDEX IF NOT EXISTS idx_customer_orders_created_at ON public.customer_orders(created_at DESC);
+const BUSINESS_MANAGEMENT_SQL = `-- ============================================================================
+-- PODWAVE — CONSOLIDATED PRODUCTION MIGRATION: MÓDULO "MEU NEGÓCIO" & HARDENING
+-- Arquivo: 20261029000000_consolidated_financial_management_production.sql
+--
+-- Script SQL 100% IDEMPOTENTE e NÃO-DESTRUTIVO para o Supabase (PostgreSQL).
+-- Sem uso de current_user em funções SECURITY DEFINER, proteção integral de RLS
+-- nas 15 tabelas e deduplicação automática de pagamentos em JSONB.
+-- ============================================================================
 
--- HABILITAR ROW LEVEL SECURITY (RLS)
-ALTER TABLE public.brands ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.product_models ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.flavor_variants ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.banners ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.audit_logs ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.customer_profiles ENABLE ROW LEVEL SECURITY;
-ALTER TABLE public.customer_orders ENABLE ROW LEVEL SECURITY;
+CREATE SCHEMA IF NOT EXISTS app_security;
+REVOKE ALL ON SCHEMA app_security FROM PUBLIC;
+GRANT USAGE ON SCHEMA app_security TO authenticated, service_role;
 
--- POLÍTICAS: LEITURA PÚBLICA PARA CLIENTES
-CREATE POLICY "Public Read Brands" ON public.brands FOR SELECT USING (true);
-CREATE POLICY "Public Read Models" ON public.product_models FOR SELECT USING (true);
-CREATE POLICY "Public Read Flavors" ON public.flavor_variants FOR SELECT USING (true);
-CREATE POLICY "Public Read Banners" ON public.banners FOR SELECT USING (true);
-CREATE POLICY "Public Read Coupons" ON public.coupons FOR SELECT USING (true);
-CREATE POLICY "Public Read Settings" ON public.store_settings FOR SELECT USING (true);
-CREATE POLICY "Public Read Customer Profiles" ON public.customer_profiles FOR SELECT USING (true);
-CREATE POLICY "Public Read Customer Orders" ON public.customer_orders FOR SELECT USING (true);
-
--- POLÍTICAS: ADMINISTRAÇÃO TOTAL VIA ANON KEY COM CHAVE DO SUPABASE
-CREATE POLICY "Admin Full Brands" ON public.brands FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full Models" ON public.product_models FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full Flavors" ON public.flavor_variants FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full Banners" ON public.banners FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full Coupons" ON public.coupons FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full Settings" ON public.store_settings FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full AuditLogs" ON public.audit_logs FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full Customer Profiles" ON public.customer_profiles FOR ALL USING (true) WITH CHECK (true);
-CREATE POLICY "Admin Full Customer Orders" ON public.customer_orders FOR ALL USING (true) WITH CHECK (true);`;
-
-const SEED_SQL = `-- ==============================================================================
--- PODWAVE CATALOG - SUPABASE SEED DATA
--- Description: Dados padrão de Marcas, Modelos, Sabores, Banners e Cupons
--- ==============================================================================
-
--- INSERIR MARCAS
-INSERT INTO public.brands (id, name, logo_text, featured, country, description, card_color)
-VALUES
-('ignite', 'IGNITE', 'IGNITE', true, 'USA', 'Marca global de estilo de vida premium, conhecida por seu acabamento fosco ultra-fino e alto rendimento.', 'black'),
-('elfbar', 'ELFBAR', 'ELFBAR', true, 'UK', 'Líder mundial em tecnologia de vaporização compacta com modos Turbo e Smooth.', 'magenta'),
-('geekbar', 'GEEK BAR', 'GEEK BAR', true, 'USA', 'Pioneira em displays inteligentes e tecnologia de bobina dupla Pulse Mesh.', 'slate'),
-('oxbar', 'OXBAR', 'OXBAR', true, 'USA', 'Dispositivos de altíssima capacidade com controle de fluxo de ar e sabores intensos.', 'cyan'),
-('lostmary', 'LOST MARY', 'LOST MARY', true, 'UK', 'Design anatômico ergonômico com texturas suaves e nuances aromáticas requintadas.', 'cyan'),
-('fumot', 'FUMOT', 'FUMOT', true, 'Global', 'Criadora do famoso Fumot Tornado e Digital Box com iluminação RGB.', 'blue'),
-('vaporesso', 'VAPORESSO', 'VAPORESSO', true, 'Global', 'Excelência em sistemas pod recarregáveis com tecnologia anti-vazamento SSS.', 'emerald')
-ON CONFLICT (id) DO UPDATE SET 
-    name = EXCLUDED.name,
-    country = EXCLUDED.country,
-    description = EXCLUDED.description;
-
--- INSERIR CONFIGURAÇÕES DA LOJA
-INSERT INTO public.store_settings (id, store_name, support_email, support_phone, whatsapp_number, legal_notice)
-VALUES (
-    'primary',
-    'PodWave',
-    'contato@podwave.com.br',
-    '(86) 99901-4685',
-    '5586999014685',
-    'AVISO LEGAL IMPORTANTE (+18): A venda de dispositivos eletrônicos para fumar (DEF) é estritamente proibida para menores de 18 anos conforme a legislação vigente e resoluções da ANVISA. Este catálogo possui finalidade exclusivamente demonstrativa de portfólio e especificações técnicas.'
-)
-ON CONFLICT (id) DO UPDATE SET 
-    store_name = EXCLUDED.store_name,
-    support_phone = EXCLUDED.support_phone,
-    whatsapp_number = EXCLUDED.whatsapp_number;
-
--- INSERIR CUPONS PADRÃO
-INSERT INTO public.coupons (id, code, discount_type, value, min_order_value, max_uses, used_count, description, active)
-VALUES
-('cupom-wave10', 'WAVE10', 'percent', 10.00, 100.00, 100, 8, '10% OFF em pedidos acima de R$ 100', true),
-('cupom-vip20', 'VIP20', 'fixed', 20.00, 150.00, 50, 14, 'R$ 20,00 OFF em compras acima de R$ 150', true),
-('cupom-ignite15', 'IGNITE15', 'percent', 15.00, 0.00, 30, 6, '15% de desconto especial na linha IGNITE', true)
-ON CONFLICT (id) DO UPDATE SET
-    discount_type = EXCLUDED.discount_type,
-    value = EXCLUDED.value;`;
-
-const RLS_ROLES_SQL = `-- ==============================================================================
--- PODWAVE CATALOG - SUPABASE MIGRATION: RLS ROLE-BASED ACCESS CONTROL & VIPS
--- Migration: 20261025000002_role_based_access_control_and_vips.sql
--- Description:
---   1. Permissões de escrita no catálogo restritas a Administradores (role: 'admin' ou 'owner').
---   2. Funções de segurança PostgreSQL: is_admin(), is_vip(), get_user_role().
---   3. Suporte a Clientes VIP com desconto automático configurável.
--- ==============================================================================
-
--- 1. ATUALIZAR CONSTRAINT DE ROLE NA TABELA customer_profiles
-ALTER TABLE public.customer_profiles 
-    DROP CONSTRAINT IF EXISTS customer_profiles_role_check;
-
-ALTER TABLE public.customer_profiles 
-    ADD CONSTRAINT customer_profiles_role_check 
-    CHECK (role IN ('customer', 'vip', 'admin', 'owner'));
-
-ALTER TABLE public.customer_profiles
-    ADD COLUMN IF NOT EXISTS vip_discount_custom NUMERIC(5, 2) DEFAULT NULL;
-
-ALTER TABLE public.store_settings
-    ADD COLUMN IF NOT EXISTS vip_discount_percent NUMERIC(5, 2) DEFAULT 10.00;
-
--- 2. FUNÇÃO SECURITY DEFINER: is_admin()
-CREATE OR REPLACE FUNCTION public.is_admin()
+CREATE OR REPLACE FUNCTION app_security.is_admin()
 RETURNS BOOLEAN
 LANGUAGE plpgsql
 SECURITY DEFINER
-SET search_path = public
-STABLE
-AS $$
-BEGIN
-  IF auth.uid() IS NULL THEN
-    RETURN FALSE;
-  END IF;
-
-  RETURN EXISTS (
-    SELECT 1 
-    FROM public.customer_profiles
-    WHERE id = auth.uid()::text
-      AND role IN ('admin', 'owner')
-  );
-END;
-$$;
-
--- 3. FUNÇÃO SECURITY DEFINER: is_vip()
-CREATE OR REPLACE FUNCTION public.is_vip()
-RETURNS BOOLEAN
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-STABLE
-AS $$
-BEGIN
-  IF auth.uid() IS NULL THEN
-    RETURN FALSE;
-  END IF;
-
-  RETURN EXISTS (
-    SELECT 1 
-    FROM public.customer_profiles
-    WHERE id = auth.uid()::text
-      AND role = 'vip'
-  );
-END;
-$$;
-
--- 4. FUNÇÃO SECURITY DEFINER: get_user_role()
-CREATE OR REPLACE FUNCTION public.get_user_role()
-RETURNS TEXT
-LANGUAGE plpgsql
-SECURITY DEFINER
-SET search_path = public
-STABLE
+SET search_path = public, auth, pg_temp
 AS $$
 DECLARE
-  current_role TEXT;
+  v_uid UUID;
+  v_role TEXT;
 BEGIN
-  IF auth.uid() IS NULL THEN
-    RETURN 'anon';
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    RETURN FALSE;
   END IF;
 
-  SELECT role INTO current_role
-  FROM public.customer_profiles
-  WHERE id = auth.uid()::text;
+  SELECT cp.role INTO v_role
+  FROM public.customer_profiles cp
+  WHERE cp.id = v_uid::text
+  LIMIT 1;
 
-  RETURN COALESCE(current_role, 'customer');
+  RETURN COALESCE(v_role IN ('admin', 'owner'), FALSE);
 END;
 $$;
 
--- Permissões de execução para os papéis do Supabase
-GRANT EXECUTE ON FUNCTION public.is_admin() TO anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.is_vip() TO anon, authenticated, service_role;
-GRANT EXECUTE ON FUNCTION public.get_user_role() TO anon, authenticated, service_role;
+REVOKE ALL ON FUNCTION app_security.is_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_security.is_admin() TO authenticated, service_role;
 
--- 5. ATUALIZAÇÃO DAS POLÍTICAS DE RLS PARA O CATÁLOGO (APENAS ADMIN PODE MODIFICAR)
--- PRODUCT_MODELS
-ALTER TABLE public.product_models ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Admin Insert Product Models" ON public.product_models;
-DROP POLICY IF EXISTS "Admin Update Product Models" ON public.product_models;
-DROP POLICY IF EXISTS "Admin Delete Product Models" ON public.product_models;
+CREATE OR REPLACE FUNCTION app_security.trg_protect_customer_role()
+RETURNS TRIGGER
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_caller_is_admin BOOLEAN;
+  v_jwt_role TEXT;
+  v_priv_flag TEXT;
+  v_sess_user TEXT;
+BEGIN
+  v_jwt_role := COALESCE(pg_catalog.current_setting('request.jwt.claim.role', true), '');
+  v_priv_flag := COALESCE(pg_catalog.current_setting('app_security.allow_privileged_role_change', true), '');
+  v_sess_user := session_user;
 
-CREATE POLICY "Admin Insert Product Models" ON public.product_models FOR INSERT WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Update Product Models" ON public.product_models FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Delete Product Models" ON public.product_models FOR DELETE USING (public.is_admin());
+  IF v_jwt_role = 'service_role' THEN
+    RETURN NEW;
+  END IF;
 
--- BRANDS
-ALTER TABLE public.brands ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Admin Insert Brands" ON public.brands;
-DROP POLICY IF EXISTS "Admin Update Brands" ON public.brands;
-DROP POLICY IF EXISTS "Admin Delete Brands" ON public.brands;
+  IF v_priv_flag = 'on'
+     AND v_sess_user NOT IN ('anon', 'authenticated', 'authenticator')
+     AND v_jwt_role NOT IN ('anon', 'authenticated')
+     AND auth.uid() IS NULL THEN
+    RETURN NEW;
+  END IF;
 
-CREATE POLICY "Admin Insert Brands" ON public.brands FOR INSERT WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Update Brands" ON public.brands FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Delete Brands" ON public.brands FOR DELETE USING (public.is_admin());
+  v_caller_is_admin := app_security.is_admin();
 
--- FLAVOR_VARIANTS
-ALTER TABLE public.flavor_variants ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Admin Insert Flavors" ON public.flavor_variants;
-DROP POLICY IF EXISTS "Admin Update Flavors" ON public.flavor_variants;
-DROP POLICY IF EXISTS "Admin Delete Flavors" ON public.flavor_variants;
+  IF TG_OP = 'INSERT' THEN
+    IF NOT v_caller_is_admin THEN
+      NEW.role := 'customer';
+      NEW.is_vip := false;
+      NEW.vip_status := 'inactive';
+      NEW.vip_plan := NULL;
+      NEW.vip_since := NULL;
+      NEW.vip_expires_at := NULL;
+      NEW.vip_discount_custom := NULL;
+      NEW.vip_benefit_note := NULL;
+      NEW.vip_Granted_by := NULL;
+      NEW.vip_Updated_at := NULL;
+    END IF;
+    RETURN NEW;
+  END IF;
 
-CREATE POLICY "Admin Insert Flavors" ON public.flavor_variants FOR INSERT WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Update Flavors" ON public.flavor_variants FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Delete Flavors" ON public.flavor_variants FOR DELETE USING (public.is_admin());
+  IF TG_OP = 'UPDATE' THEN
+    IF NOT v_caller_is_admin THEN
+      IF NEW.id IS DISTINCT FROM OLD.id THEN
+        RAISE EXCEPTION 'Acesso negado: o identificador do perfil não pode ser alterado.';
+      END IF;
+      IF NEW.role IS DISTINCT FROM OLD.role THEN
+        RAISE EXCEPTION 'Acesso negado: apenas administradores podem alterar o nível de permissão (role).';
+      END IF;
+      IF NEW.vip_discount_custom IS DISTINCT FROM OLD.vip_discount_custom
+         OR NEW.is_vip IS DISTINCT FROM OLD.is_vip
+         OR NEW.vip_status IS DISTINCT FROM OLD.vip_status
+         OR NEW.vip_plan IS DISTINCT FROM OLD.vip_plan
+         OR NEW.vip_since IS DISTINCT FROM OLD.vip_since
+         OR NEW.vip_expires_at IS DISTINCT FROM OLD.vip_expires_at
+         OR NEW.vip_benefit_note IS DISTINCT FROM OLD.vip_benefit_note
+         OR NEW.vip_Granted_by IS DISTINCT FROM OLD.vip_Granted_by THEN
+        RAISE EXCEPTION 'Acesso negado: apenas administradores podem conceder ou alterar benefícios VIP.';
+      END IF;
+    END IF;
+    RETURN NEW;
+  END IF;
 
--- BANNERS
-ALTER TABLE public.banners ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Admin Insert Banners" ON public.banners;
-DROP POLICY IF EXISTS "Admin Update Banners" ON public.banners;
-DROP POLICY IF EXISTS "Admin Delete Banners" ON public.banners;
+  RETURN NEW;
+END;
+$$;
 
-CREATE POLICY "Admin Insert Banners" ON public.banners FOR INSERT WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Update Banners" ON public.banners FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Delete Banners" ON public.banners FOR DELETE USING (public.is_admin());
+REVOKE ALL ON FUNCTION app_security.trg_protect_customer_role() FROM PUBLIC, anon, authenticated;
 
--- COUPONS
-ALTER TABLE public.coupons ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Admin Insert Coupons" ON public.coupons;
-DROP POLICY IF EXISTS "Admin Update Coupons" ON public.coupons;
-DROP POLICY IF EXISTS "Admin Delete Coupons" ON public.coupons;
+DROP TRIGGER IF EXISTS ensure_customer_role_protection ON public.customer_profiles;
+CREATE TRIGGER ensure_customer_role_protection
+  BEFORE INSERT OR UPDATE ON public.customer_profiles
+  FOR EACH ROW
+  EXECUTE FUNCTION app_security.trg_protect_customer_role();
 
-CREATE POLICY "Admin Insert Coupons" ON public.coupons FOR INSERT WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Update Coupons" ON public.coupons FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Delete Coupons" ON public.coupons FOR DELETE USING (public.is_admin());
+-- Tabelas Financeiras (Módulo Meu Negócio)
+CREATE TABLE IF NOT EXISTS public.manual_sales (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  time TEXT,
+  customer_name TEXT NOT NULL,
+  customer_contact TEXT,
+  sale_origin TEXT DEFAULT 'outro',
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (subtotal >= 0),
+  discount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
+  delivery_fee NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (delivery_fee >= 0),
+  total NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (total >= 0),
+  payment_method TEXT NOT NULL,
+  payment_status TEXT NOT NULL DEFAULT 'pago',
+  amount_received NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount_received >= 0),
+  amount_pending NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount_pending >= 0),
+  due_date TEXT,
+  payment_date TEXT,
+  account_channel TEXT DEFAULT 'dinheiro_caixa',
+  installments JSONB DEFAULT '[]'::jsonb,
+  payments JSONB DEFAULT '[]'::jsonb,
+  notes TEXT,
+  stock_deducted BOOLEAN DEFAULT false,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
--- STORE_SETTINGS
-ALTER TABLE public.store_settings ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Admin Insert Settings" ON public.store_settings;
-DROP POLICY IF EXISTS "Admin Update Settings" ON public.store_settings;
+CREATE TABLE IF NOT EXISTS public.manual_expenses (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  time TEXT,
+  title TEXT NOT NULL,
+  category TEXT NOT NULL,
+  expense_type TEXT DEFAULT 'variavel',
+  amount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
+  payment_method TEXT NOT NULL,
+  payment_status TEXT NOT NULL DEFAULT 'pago',
+  amount_paid NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount_paid >= 0),
+  amount_pending NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount_pending >= 0),
+  due_date TEXT,
+  payment_date TEXT,
+  account_channel TEXT DEFAULT 'dinheiro_caixa',
+  installments JSONB DEFAULT '[]'::jsonb,
+  payments JSONB DEFAULT '[]'::jsonb,
+  supplier_or_beneficiary TEXT,
+  is_recurring BOOLEAN DEFAULT false,
+  recurring_frequency TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-CREATE POLICY "Admin Insert Settings" ON public.store_settings FOR INSERT WITH CHECK (public.is_admin());
-CREATE POLICY "Admin Update Settings" ON public.store_settings FOR UPDATE USING (public.is_admin()) WITH CHECK (public.is_admin());
+CREATE TABLE IF NOT EXISTS public.merchandise_purchases (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  supplier TEXT NOT NULL,
+  supplier_contact TEXT,
+  items JSONB NOT NULL DEFAULT '[]'::jsonb,
+  subtotal NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (subtotal >= 0),
+  freight_or_extra_cost NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (freight_or_extra_cost >= 0),
+  discount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (discount >= 0),
+  total NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (total >= 0),
+  payment_method TEXT NOT NULL,
+  payment_status TEXT NOT NULL DEFAULT 'pago',
+  amount_paid NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount_paid >= 0),
+  amount_pending NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount_pending >= 0),
+  due_date TEXT,
+  payment_date TEXT,
+  account_channel TEXT DEFAULT 'pix_banco',
+  installments JSONB DEFAULT '[]'::jsonb,
+  payments JSONB DEFAULT '[]'::jsonb,
+  stock_added BOOLEAN DEFAULT false,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
--- 6. POLÍTICAS DE RLS PARA CUSTOMER_PROFILES
-ALTER TABLE public.customer_profiles ENABLE ROW LEVEL SECURITY;
-DROP POLICY IF EXISTS "Users can read own or admin read all" ON public.customer_profiles;
-CREATE POLICY "Users can read own or admin read all" 
-  ON public.customer_profiles FOR SELECT 
-  USING (id = auth.uid()::text OR public.is_admin());
+CREATE TABLE IF NOT EXISTS public.cash_movements (
+  id TEXT PRIMARY KEY,
+  date TEXT NOT NULL,
+  time TEXT,
+  movement_type TEXT NOT NULL,
+  category TEXT NOT NULL,
+  description TEXT NOT NULL,
+  amount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount >= 0),
+  account_channel TEXT NOT NULL,
+  destination_channel TEXT,
+  payment_method TEXT,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
-DROP POLICY IF EXISTS "Users can update own or admin update all" ON public.customer_profiles;
-CREATE POLICY "Users can update own or admin update all" 
-  ON public.customer_profiles FOR UPDATE 
-  USING (id = auth.uid()::text OR public.is_admin())
-  WITH CHECK (id = auth.uid()::text OR public.is_admin());
+CREATE TABLE IF NOT EXISTS public.initial_cash_balances (
+  id TEXT PRIMARY KEY,
+  account_channel TEXT NOT NULL UNIQUE,
+  amount NUMERIC(10, 2) NOT NULL DEFAULT 0,
+  reference_date TEXT NOT NULL DEFAULT '2026-01-01',
+  notes TEXT,
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
 
--- 7. GARANTIR QUE OS E-MAILS DE PROPRIETÁRIO TENHAM O CARGO 'owner'
-UPDATE public.customer_profiles
-SET role = 'owner'
-WHERE email IN ('duailibe32@gmail.com', 'proprietario@podwave.com', 'admin@podwave.com');`;
+CREATE TABLE IF NOT EXISTS public.manual_commitments (
+  id TEXT PRIMARY KEY,
+  commitment_type TEXT NOT NULL,
+  title TEXT NOT NULL,
+  person_or_supplier TEXT NOT NULL,
+  contact TEXT,
+  category TEXT NOT NULL,
+  issue_date TEXT NOT NULL,
+  due_date TEXT NOT NULL,
+  total_amount NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (total_amount >= 0),
+  amount_paid NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount_paid >= 0),
+  amount_pending NUMERIC(10, 2) NOT NULL DEFAULT 0 CHECK (amount_pending >= 0),
+  payment_status TEXT NOT NULL DEFAULT 'pendente',
+  payment_method TEXT NOT NULL,
+  account_channel TEXT NOT NULL DEFAULT 'pix_banco',
+  payment_date TEXT,
+  installments JSONB DEFAULT '[]'::jsonb,
+  payments JSONB DEFAULT '[]'::jsonb,
+  notes TEXT,
+  created_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+  updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW()
+);
+
+ALTER TABLE public.manual_sales ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.manual_expenses ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.merchandise_purchases ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.cash_movements ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.initial_cash_balances ENABLE ROW LEVEL SECURITY;
+ALTER TABLE public.manual_commitments ENABLE ROW LEVEL SECURITY;
+
+REVOKE ALL ON public.manual_sales, public.manual_expenses, public.merchandise_purchases, public.cash_movements, public.initial_cash_balances, public.manual_commitments FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT, UPDATE, DELETE ON public.manual_sales, public.manual_expenses, public.merchandise_purchases, public.cash_movements, public.initial_cash_balances, public.manual_commitments TO authenticated, service_role;
+
+DROP POLICY IF EXISTS "Admin Full Access Manual Sales" ON public.manual_sales;
+CREATE POLICY "Admin Full Access Manual Sales" ON public.manual_sales FOR ALL TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());
+
+DROP POLICY IF EXISTS "Admin Full Access Manual Expenses" ON public.manual_expenses;
+CREATE POLICY "Admin Full Access Manual Expenses" ON public.manual_expenses FOR ALL TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());
+
+DROP POLICY IF EXISTS "Admin Full Access Merchandise Purchases" ON public.merchandise_purchases;
+CREATE POLICY "Admin Full Access Merchandise Purchases" ON public.merchandise_purchases FOR ALL TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());
+
+DROP POLICY IF EXISTS "Admin Full Access Cash Movements" ON public.cash_movements;
+CREATE POLICY "Admin Full Access Cash Movements" ON public.cash_movements FOR ALL TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());
+
+DROP POLICY IF EXISTS "Admin Full Access Initial Cash Balances" ON public.initial_cash_balances;
+CREATE POLICY "Admin Full Access Initial Cash Balances" ON public.initial_cash_balances FOR ALL TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());
+
+DROP POLICY IF EXISTS "Admin Full Access Manual Commitments" ON public.manual_commitments;
+CREATE POLICY "Admin Full Access Manual Commitments" ON public.manual_commitments FOR ALL TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());
+`;
+
+const RLS_TESTS_SQL = `-- ============================================================================
+-- PODWAVE — BATERIA TRANSACIONAL DE TESTES DE SEGURANÇA E RLS (COM ROLLBACK)
+-- ============================================================================
+BEGIN;
+
+  SET LOCAL app_security.allow_privileged_role_change = 'on';
+
+  INSERT INTO public.customer_profiles (id, name, email, phone, role)
+  VALUES
+    ('00000000-0000-0000-0000-0000000000a1', 'Admin Teste', 'admin.teste.rls@podwave.local', '11999990001', 'admin'),
+    ('00000000-0000-0000-0000-0000000000c1', 'Cliente 1', 'cliente1.rls@podwave.local', '11999990002', 'customer'),
+    ('00000000-0000-0000-0000-0000000000c2', 'Cliente 2', 'cliente2.rls@podwave.local', '11999990003', 'customer')
+  ON CONFLICT (id) DO NOTHING;
+
+  SET LOCAL app_security.allow_privileged_role_change = 'off';
+
+  -- Simular sessão de Cliente 1 (customer autenticado)
+  SET LOCAL ROLE authenticated;
+  SET LOCAL "request.jwt.claim.role" = 'authenticated';
+  SET LOCAL "request.jwt.claim.sub" = '00000000-0000-0000-0000-0000000000c1';
+  SET LOCAL "request.jwt.claims" = '{"sub":"00000000-0000-0000-0000-0000000000c1","role":"authenticated"}';
+
+  SELECT app_security.is_admin() AS is_admin_must_be_false;
+  SELECT COUNT(*) AS manual_sales_visible_to_customer_must_be_zero FROM public.manual_sales;
+
+ROLLBACK;
+`;
+
+const CLI_GUIDE_SQL = `# ==============================================================================
+# GUIA OFICIAL: SUPABASE CLI & HISTÓRICO DE MIGRATIONS
+# ==============================================================================
+# 1. Login no Supabase CLI:
+supabase login
+
+# 2. Vincular o projeto local ao projeto Supabase remoto:
+supabase link --project-ref seu-project-id
+
+# 3. Caso o SQL já tenha sido executado via SQL Editor (Web Console):
+supabase migration repair 20261030000000 --status applied
+
+# 4. Caso queira aplicar as migrations pelo terminal:
+supabase db push
+
+# 5. Listar status das migrations aplicadas e pendentes:
+supabase migration list
+`;
+
+const SEED_SQL = `-- ============================================================================
+-- PODWAVE — PRODUCTION-SAFE MINIMAL SEED
+-- Arquivo: supabase/seed.sql
+-- Não insere produtos fictícios, marcas, cupons ou estoque demonstrativo.
+-- Usa ON CONFLICT (id) DO NOTHING para jamais sobrescrever dados reais.
+-- ============================================================================
+
+INSERT INTO public.store_settings (
+  id,
+  store_name,
+  support_email,
+  support_phone,
+  whatsapp_number,
+  legal_notice,
+  updated_at
+)
+VALUES (
+  'main',
+  'PodWave',
+  'contato@podwave.com.br',
+  '(98) 98436-0626',
+  '5598984360626',
+  'VENDA PROIBIDA PARA MENORES DE 18 ANOS.',
+  NOW()
+)
+ON CONFLICT (id) DO NOTHING;
+`;
+
+const RLS_ROLES_SQL = `-- ============================================================================
+-- PODWAVE — MIGRATION 03: ROLE-BASED ACCESS CONTROL (RBAC) & VIP SYSTEM
+-- Arquivo: 20261025000002_role_based_access_control_and_vips.sql
+-- ============================================================================
+
+CREATE SCHEMA IF NOT EXISTS app_security;
+REVOKE ALL ON SCHEMA app_security FROM PUBLIC;
+GRANT USAGE ON SCHEMA app_security TO authenticated, service_role;
+
+CREATE OR REPLACE FUNCTION app_security.is_admin()
+RETURNS BOOLEAN
+LANGUAGE plpgsql
+SECURITY DEFINER
+SET search_path = public, auth, pg_temp
+AS $$
+DECLARE
+  v_uid UUID;
+  v_role TEXT;
+BEGIN
+  v_uid := auth.uid();
+  IF v_uid IS NULL THEN
+    RETURN FALSE;
+  END IF;
+
+  SELECT cp.role INTO v_role
+  FROM public.customer_profiles cp
+  WHERE cp.id = v_uid::text
+  LIMIT 1;
+
+  RETURN COALESCE(v_role IN ('admin', 'owner'), FALSE);
+END;
+$$;
+
+REVOKE ALL ON FUNCTION app_security.is_admin() FROM PUBLIC, anon;
+GRANT EXECUTE ON FUNCTION app_security.is_admin() TO authenticated, service_role;
+`;
 
 export const SupabaseTab: React.FC = () => {
   const {
@@ -455,6 +579,9 @@ export const SupabaseTab: React.FC = () => {
     setIsAutoSyncEnabled,
     isAutoSyncing,
     lastSyncedAt,
+    pendingSyncCount,
+    isSyncingPending,
+    syncPendingFinancialData,
   } = useCatalog();
 
   const [urlInput, setUrlInput] = useState(supabaseUrl);
@@ -463,7 +590,9 @@ export const SupabaseTab: React.FC = () => {
   const [isSyncing, setIsSyncing] = useState(false);
   const [isLoadingFromCloud, setIsLoadingFromCloud] = useState(false);
   const [copiedSql, setCopiedSql] = useState(false);
-  const [activeSqlView, setActiveSqlView] = useState<'schema' | 'seed' | 'rls_roles'>('schema');
+  const [activeSqlView, setActiveSqlView] = useState<
+    'schema' | 'seed' | 'rls_roles' | 'business_management' | 'rls_tests' | 'cli_guide'
+  >('business_management');
   const [actionNotice, setActionNotice] = useState<string | null>(null);
 
   const notify = (msg: string) => {
@@ -526,26 +655,38 @@ export const SupabaseTab: React.FC = () => {
   };
 
   const currentSql =
-    activeSqlView === 'schema'
+    activeSqlView === 'business_management'
+      ? BUSINESS_MANAGEMENT_SQL
+      : activeSqlView === 'schema'
       ? SCHEMA_SQL
       : activeSqlView === 'seed'
       ? SEED_SQL
-      : RLS_ROLES_SQL;
+      : activeSqlView === 'rls_roles'
+      ? RLS_ROLES_SQL
+      : activeSqlView === 'rls_tests'
+      ? RLS_TESTS_SQL
+      : CLI_GUIDE_SQL;
 
   const handleCopySql = () => {
     navigator.clipboard.writeText(currentSql);
     setCopiedSql(true);
-    notify('Código SQL copiado para a Área de Transferência!');
+    notify('Código copiado para a Área de Transferência!');
     setTimeout(() => setCopiedSql(false), 2500);
   };
 
   const handleDownloadSql = () => {
     const filename =
-      activeSqlView === 'schema'
+      activeSqlView === 'business_management'
+        ? '20261029000000_consolidated_financial_management_production.sql'
+        : activeSqlView === 'schema'
         ? '20261025000000_initial_schema.sql'
         : activeSqlView === 'seed'
         ? 'seed.sql'
-        : '20261025000002_role_based_access_control_and_vips.sql';
+        : activeSqlView === 'rls_roles'
+        ? '20261025000002_role_based_access_control_and_vips.sql'
+        : activeSqlView === 'rls_tests'
+        ? 'rls_security_audit_tests.sql'
+        : 'supabase_cli_guide.sh';
     const blob = new Blob([currentSql], { type: 'text/plain;charset=utf-8' });
     const url = URL.createObjectURL(blob);
     const link = document.createElement('a');
@@ -854,6 +995,69 @@ export const SupabaseTab: React.FC = () => {
         </div>
       </div>
 
+      {/* PAINEL DE RESILIÊNCIA & SINCRONIZAÇÃO LOCAL (MEU NEGÓCIO) */}
+      <div className="p-6 rounded-3xl bg-gradient-to-r from-[#10142b] to-[#151a3d] border border-cyan-500/30 shadow-xl space-y-4">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-white/10 pb-4">
+          <div className="flex items-center gap-3">
+            <div className="w-10 h-10 rounded-xl bg-cyan-500/20 border border-cyan-500/40 flex items-center justify-center text-cyan-400">
+              <ShieldCheck className="w-5 h-5 text-cyan-400" />
+            </div>
+            <div>
+              <h3 className="font-heading text-base font-black text-white flex items-center gap-2">
+                <span>Resiliência & Sincronização Local (Meu Negócio)</span>
+                {pendingSyncCount === 0 ? (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-500/20 text-emerald-400 border border-emerald-500/40">
+                    100% Sincronizado
+                  </span>
+                ) : (
+                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-amber-500/20 text-amber-300 border border-amber-500/40 animate-pulse">
+                    {pendingSyncCount} Pendente(s)
+                  </span>
+                )}
+              </h3>
+              <p className="text-xs text-[#A5A5B8] mt-0.5">
+                Rastreamento estrito de status (<code className="text-emerald-400">synced</code>, <code className="text-amber-400">pending_sync</code>, <code className="text-rose-400">sync_error</code>) com prevenção contra perdas e deduplicação automática.
+              </p>
+            </div>
+          </div>
+
+          <button
+            type="button"
+            onClick={syncPendingFinancialData}
+            disabled={isSyncingPending || !isSupabaseConfigured}
+            className="inline-flex items-center gap-2 px-5 py-2.5 rounded-xl bg-gradient-to-r from-cyan-400 to-blue-600 hover:brightness-110 text-[#080811] text-xs font-black shadow-lg shadow-cyan-500/20 cursor-pointer active:scale-95 transition disabled:opacity-50 shrink-0"
+          >
+            {isSyncingPending ? (
+              <RefreshCw className="w-4 h-4 animate-spin text-[#080811]" />
+            ) : (
+              <UploadCloud className="w-4 h-4 text-[#080811]" />
+            )}
+            <span>{isSyncingPending ? 'Sincronizando...' : 'Sincronizar Pendentes Agora'}</span>
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 text-xs">
+          <div className="p-3 rounded-2xl bg-[#080811]/60 border border-white/5 space-y-1">
+            <span className="text-[10px] text-gray-400 block font-bold uppercase tracking-wider">Identificadores Únicos</span>
+            <p className="text-[11px] text-gray-300">
+              Cada venda, gasto, compra, movimentação e compromisso possui UUID próprio e imutável para evitar duplicidades no upsert.
+            </p>
+          </div>
+          <div className="p-3 rounded-2xl bg-[#080811]/60 border border-white/5 space-y-1">
+            <span className="text-[10px] text-gray-400 block font-bold uppercase tracking-wider">Nenhum Registro Assumido</span>
+            <p className="text-[11px] text-gray-300">
+              Registros gravados offline permanecem como pendentes até receberem confirmação 200 OK do Supabase remoto.
+            </p>
+          </div>
+          <div className="p-3 rounded-2xl bg-[#080811]/60 border border-white/5 space-y-1">
+            <span className="text-[10px] text-gray-400 block font-bold uppercase tracking-wider">Isolamento Administrativo</span>
+            <p className="text-[11px] text-gray-300">
+              Acesso e sincronização estritamente condicionados ao papel <code className="text-cyan-300">admin</code> ou <code className="text-cyan-300">owner</code> via RLS no schema privado.
+            </p>
+          </div>
+        </div>
+      </div>
+
       {/* MIGRATIONS & SQL SECTION */}
       <div className="p-6 rounded-3xl bg-[#0D1022] border border-[#8423DA]/30 shadow-2xl space-y-6">
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 border-b border-[#8423DA]/20 pb-4">
@@ -935,6 +1139,17 @@ export const SupabaseTab: React.FC = () => {
         {/* Tab switch for SQL files */}
         <div className="flex items-center gap-2 border-b border-[#8423DA]/20 pb-2 overflow-x-auto">
           <button
+            onClick={() => setActiveSqlView('business_management')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeSqlView === 'business_management'
+                ? 'bg-gradient-to-r from-emerald-500 to-[#00DFFF] text-[#080811] shadow-lg font-black'
+                : 'bg-[#141838] text-emerald-400 hover:text-white border border-emerald-500/30'
+            }`}
+          >
+            ⭐ 4. Meu Negócio: Gestão Financeira Consolidada (Produção)
+          </button>
+
+          <button
             onClick={() => setActiveSqlView('schema')}
             className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
               activeSqlView === 'schema'
@@ -942,7 +1157,7 @@ export const SupabaseTab: React.FC = () => {
                 : 'bg-[#141838] text-gray-400 hover:text-white'
             }`}
           >
-            1. Migration: initial_schema.sql (Estrutura)
+            1. Migration: initial_schema.sql (Catálogo Base)
           </button>
 
           <button
@@ -964,7 +1179,29 @@ export const SupabaseTab: React.FC = () => {
                 : 'bg-[#141838] text-gray-400 hover:text-[#00DFFF]'
             }`}
           >
-            3. Migration: RLS & Cargos (is_admin, is_vip & Permissões)
+            3. Migration: RLS & Cargos (is_admin, is_vip)
+          </button>
+
+          <button
+            onClick={() => setActiveSqlView('rls_tests')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeSqlView === 'rls_tests'
+                ? 'bg-gradient-to-r from-amber-400 to-rose-500 text-[#080811] shadow-md font-black'
+                : 'bg-[#141838] text-amber-300 hover:text-white border border-amber-500/30'
+            }`}
+          >
+            🧪 5. Bateria de Testes RLS (Auditoria)
+          </button>
+
+          <button
+            onClick={() => setActiveSqlView('cli_guide')}
+            className={`px-4 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer whitespace-nowrap ${
+              activeSqlView === 'cli_guide'
+                ? 'bg-gradient-to-r from-[#00DFFF] to-blue-600 text-white shadow-md font-black'
+                : 'bg-[#141838] text-cyan-300 hover:text-white border border-cyan-500/30'
+            }`}
+          >
+            💻 6. Comandos Supabase CLI
           </button>
         </div>
 
@@ -974,11 +1211,17 @@ export const SupabaseTab: React.FC = () => {
             <div className="flex items-center gap-2 text-gray-300 font-mono text-[11px]">
               <Database className="w-3.5 h-3.5 text-[#00DFFF]" />
               <span>
-                {activeSqlView === 'schema'
+                {activeSqlView === 'business_management'
+                  ? 'supabase/migrations/20261029000000_consolidated_financial_management_production.sql'
+                  : activeSqlView === 'schema'
                   ? 'supabase/migrations/20261025000000_initial_schema.sql'
                   : activeSqlView === 'seed'
                   ? 'supabase/seed.sql'
-                  : 'supabase/migrations/20261025000002_role_based_access_control_and_vips.sql'}
+                  : activeSqlView === 'rls_roles'
+                  ? 'supabase/migrations/20261025000002_role_based_access_control_and_vips.sql'
+                  : activeSqlView === 'rls_tests'
+                  ? 'scripts/test_rls_security_audit.sql'
+                  : 'supabase/cli_workflow_commands.sh'}
               </span>
             </div>
             <button

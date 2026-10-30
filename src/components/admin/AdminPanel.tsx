@@ -47,6 +47,7 @@ import {
   Database,
   ChevronLeft,
   ChevronRight,
+  Briefcase,
 } from 'lucide-react';
 import { ProductModel, Brand, FlavorVariant, Coupon, VariantHistoryEntry } from '../../types/catalog';
 import { AdminLogin } from './AdminLogin';
@@ -55,9 +56,10 @@ import { SupabaseTab } from './SupabaseTab';
 import { UserManagementTab } from './UserManagementTab';
 import { ActivityLogsSection } from './ActivityLogsSection';
 import { ImageEditorStudioModal } from './ImageEditorStudioModal';
+import { MyBusinessModule } from './MyBusinessModule';
 import { calculateVariantAvailability, calculateVariantsSummary, isNeedsAttention, DEFAULT_LOW_QUANTITY_THRESHOLD } from '../../utils/availability';
 
-type AdminTab = 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'usuarios' | 'configuracoes' | 'supabase';
+type AdminTab = 'meu_negocio' | 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'usuarios' | 'configuracoes' | 'supabase';
 
 export const AdminPanel: React.FC = () => {
   const {
@@ -991,6 +993,25 @@ export const AdminPanel: React.FC = () => {
               onScroll={checkTabsScroll}
               className="flex items-center gap-2 overflow-x-auto pb-1.5 scroll-smooth [scrollbar-width:thin] [scrollbar-color:#8423DA_#0D1022] pr-10"
             >
+              {/* TAB: MEU NEGÓCIO (CONTROLE GERENCIAL & FINANCEIRO MANUAL) */}
+              <button
+                onClick={() => {
+                  setActiveTab('meu_negocio');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 relative ${
+                  activeTab === 'meu_negocio'
+                    ? 'bg-gradient-to-r from-[#00DFFF] via-[#007BFF] to-[#8423DA] text-black font-black border-[#00DFFF] shadow-[0_0_15px_rgba(0,223,255,0.4)]'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#00DFFF]/50'
+                }`}
+              >
+                <Briefcase className="w-3.5 h-3.5" />
+                <span>Meu Negócio</span>
+                <span className="px-1.5 py-0.2 rounded-full bg-[#00DFFF]/20 text-[#00DFFF] text-[10px] font-black">
+                  Novo
+                </span>
+              </button>
+
               <button
                 onClick={() => {
                   setActiveTab('dashboard');
@@ -1153,6 +1174,9 @@ export const AdminPanel: React.FC = () => {
 
       {/* Main Tab Content Container */}
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 pt-8">
+        {/* ===================== TAB: MEU NEGÓCIO (CONTROLE GERENCIAL & FINANCEIRO MANUAL) ===================== */}
+        {activeTab === 'meu_negocio' && <MyBusinessModule />}
+
         {/* ===================== TAB 1: DASHBOARD ===================== */}
         {activeTab === 'dashboard' && (
           <div className="space-y-8 animate-in fade-in duration-200">

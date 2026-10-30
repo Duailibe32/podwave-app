@@ -11,6 +11,12 @@ import {
   CustomerOrderHistoryItem,
   CustomerAddress,
   ActivityLogEntry,
+  ManualSaleEntry,
+  ManualExpenseEntry,
+  MerchandisePurchaseEntry,
+  CashMovementEntry,
+  InitialChannelBalanceRecord,
+  ManualCommitmentEntry,
 } from '../types/catalog';
 
 // Storage keys for runtime Supabase credentials if configured via UI
@@ -219,8 +225,12 @@ export async function fetchCatalogFromSupabase(): Promise<SupabaseCatalogResult 
       throw couponsError;
     }
 
-    // 6. Configurações
-    const { data: settingsData } = await client.from('store_settings').select('*').limit(1).maybeSingle();
+    // 6. Configurações (consulta apenas colunas públicas permitidas pelo GRANT de coluna)
+    const { data: settingsData } = await client
+      .from('store_settings')
+      .select('id, store_name, support_email, support_phone, whatsapp_number, legal_notice, updated_at')
+      .limit(1)
+      .maybeSingle();
 
     // Montar estrutura de modelos com os sabores aninhados
     const mappedBrands: Brand[] = (brandsData || []).map((b) => ({
@@ -1052,41 +1062,27 @@ export async function supabaseSignInWithPassword(
     // Busca o perfil na tabela customer_profiles
     let profile = await fetchCustomerProfileFromSupabase(cleanEmail);
 
-    const isOwnerByEmail = [
-      'duailibe32@gmail.com',
-      'proprietario@podwave.com',
-      'admin@podwave.com',
-      'admin',
-    ].includes(cleanEmail);
-
-    // Se o perfil ainda não existir na tabela (ex: primeiro login após signup), cria o registro
+    // Se o perfil ainda não existir na tabela (ex: primeiro login após signup no Supabase Auth), cria o registro como customer
     if (!profile) {
-      const isOwnerFromMeta =
-        data.user.user_metadata?.role === 'owner' ||
-        data.user.app_metadata?.role === 'owner';
-
       profile = {
         id: data.user.id,
         email: cleanEmail,
         fullName: data.user.user_metadata?.full_name || cleanEmail.split('@')[0],
         phoneWhatsapp: data.user.user_metadata?.phone || '',
-        role: (isOwnerFromMeta || isOwnerByEmail) ? 'owner' : 'customer',
+        role: 'customer',
         createdAt: data.user.created_at,
       };
 
       await upsertCustomerProfileToSupabase(profile);
-    } else if (isOwnerByEmail && profile.role !== 'owner') {
-      // Garante privilégio de proprietário imediatamente
-      profile.role = 'owner';
-      await upsertCustomerProfileToSupabase(profile);
     }
 
-    const isOwner = profile.role === 'owner' || isOwnerByEmail;
+    const isOwner = profile.role === 'owner';
+    const isAdmin = profile.role === 'admin' || isOwner;
 
     return {
       success: true,
-      message: isOwner
-        ? 'Login realizado com sucesso! Bem-vindo de volta ao Painel do Proprietário.'
+      message: isAdmin
+        ? 'Login realizado com sucesso! Bem-vindo de volta ao Painel Administrativo.'
         : `Olá, ${profile.fullName}! Login realizado com sucesso.`,
       user: profile,
       isOwner,
@@ -1263,33 +1259,604 @@ export async function supabaseGetCurrentAuthUser(): Promise<UserProfile | null> 
     const email = session.user.email?.toLowerCase().trim();
     if (!email) return null;
 
-    const isOwnerByEmail = [
-      'duailibe32@gmail.com',
-      'proprietario@podwave.com',
-      'admin@podwave.com',
-      'admin',
-    ].includes(email);
-
     let profile = await fetchCustomerProfileFromSupabase(email);
     if (!profile) {
-      const isOwnerFromMeta =
-        session.user.user_metadata?.role === 'owner' ||
-        session.user.app_metadata?.role === 'owner';
-
       profile = {
         id: session.user.id,
         email,
         fullName: session.user.user_metadata?.full_name || email.split('@')[0],
         phoneWhatsapp: session.user.user_metadata?.phone || '',
-        role: (isOwnerFromMeta || isOwnerByEmail) ? 'owner' : 'customer',
+        role: 'customer',
         createdAt: session.user.created_at,
       };
-    } else if (isOwnerByEmail && profile.role !== 'owner') {
-      profile.role = 'owner';
     }
     return profile;
   } catch {
     return null;
   }
 }
+
+// -------------------------------------------------------------
+// MEU NEGÓCIO: VENDAS MANUAIS
+// -------------------------------------------------------------
+
+export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('manual_sales')
+      .select('*')
+      .order('sale_date', { ascending: false });
+
+    if (error) {
+      if (isMissingTableError(error)) return [];
+      console.warn('[Supabase] Falha ao carregar vendas manuais:', error.message);
+      return [];
+    }
+
+    if (!data || !Array.isArray(data)) return [];
+
+    return data.map((row) => ({
+      id: row.id,
+      saleDate: row.sale_date,
+      customerName: row.customer_name || undefined,
+      customerPhone: row.customer_phone || undefined,
+      deliveryType: row.delivery_type || 'Entrega Própria',
+      deliveryFee: Number(row.delivery_fee) || 0,
+      discount: Number(row.discount) || 0,
+      grossTotal: Number(row.gross_total) || 0,
+      netTotal: Number(row.net_total) || 0,
+      amountReceived: Number(row.amount_received) || 0,
+      amountPending: Number(row.amount_pending) || 0,
+      paymentStatus: (row.payment_status as 'pago' | 'parcial' | 'pendente') || 'pago',
+      paymentMethod: row.payment_method || 'Pix',
+      orderStatus: (row.order_status as 'pendente' | 'confirmado' | 'entregue' | 'cancelado') || 'confirmado',
+      receivedDate: row.received_date || undefined,
+      dueDate: row.due_date || undefined,
+      items: Array.isArray(row.items) ? row.items : [],
+      receipts: Array.isArray(row.receipts) ? row.receipts : [],
+      installments: Array.isArray(row.installments) ? row.installments : [],
+      notes: row.notes || undefined,
+      createdAt: row.created_at,
+    }));
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    return [];
+  }
+}
+
+export async function saveManualSaleToSupabase(sale: ManualSaleEntry): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const payload = {
+      id: sale.id,
+      sale_date: sale.saleDate || new Date().toISOString(),
+      customer_name: sale.customerName || null,
+      customer_phone: sale.customerPhone || null,
+      delivery_type: sale.deliveryType,
+      delivery_fee: sale.deliveryFee,
+      discount: sale.discount,
+      gross_total: sale.grossTotal,
+      net_total: sale.netTotal,
+      amount_received: sale.amountReceived,
+      amount_pending: sale.amountPending,
+      payment_status: sale.paymentStatus,
+      payment_method: sale.paymentMethod,
+      order_status: sale.orderStatus || 'confirmado',
+      received_date: sale.receivedDate || null,
+      due_date: sale.dueDate || null,
+      items: sale.items || [],
+      receipts: sale.receipts || [],
+      installments: sale.installments || [],
+      notes: sale.notes || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await client.from('manual_sales').upsert(payload);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao salvar venda manual:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    if (isMissingTableError(err)) return false;
+    return false;
+  }
+}
+
+export async function deleteManualSaleFromSupabase(saleId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client.from('manual_sales').delete().eq('id', saleId);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao deletar venda manual:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// MEU NEGÓCIO: MEUS GASTOS (DESPESAS OPERACIONAIS)
+// -------------------------------------------------------------
+
+export async function fetchManualExpensesFromSupabase(): Promise<ManualExpenseEntry[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('manual_expenses')
+      .select('*')
+      .order('expense_date', { ascending: false });
+
+    if (error) {
+      if (isMissingTableError(error)) return [];
+      console.warn('[Supabase] Falha ao carregar despesas:', error.message);
+      return [];
+    }
+
+    if (!data || !Array.isArray(data)) return [];
+
+    return data.map((row) => ({
+      id: row.id,
+      expenseDate: row.expense_date,
+      category: row.category,
+      description: row.description,
+      amount: Number(row.amount) || 0,
+      amountPaid: Number(row.amount_paid) || 0,
+      amountPending: Number(row.amount_pending) || 0,
+      paymentStatus: (row.payment_status as 'pago' | 'parcial' | 'a_pagar') || 'pago',
+      paymentMethod: row.payment_method || 'Pix',
+      dueDate: row.due_date || undefined,
+      payments: Array.isArray(row.payments) ? row.payments : [],
+      installments: Array.isArray(row.installments) ? row.installments : [],
+      notes: row.notes || undefined,
+      createdAt: row.created_at,
+    }));
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    return [];
+  }
+}
+
+export async function saveManualExpenseToSupabase(expense: ManualExpenseEntry): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const payload = {
+      id: expense.id,
+      expense_date: expense.expenseDate || new Date().toISOString().split('T')[0],
+      category: expense.category,
+      description: expense.description,
+      amount: expense.amount,
+      amount_paid: expense.amountPaid,
+      amount_pending: expense.amountPending,
+      payment_status: expense.paymentStatus,
+      payment_method: expense.paymentMethod,
+      due_date: expense.dueDate || null,
+      payments: expense.payments || [],
+      installments: expense.installments || [],
+      notes: expense.notes || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await client.from('manual_expenses').upsert(payload);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao salvar despesa:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    if (isMissingTableError(err)) return false;
+    return false;
+  }
+}
+
+export async function deleteManualExpenseFromSupabase(expenseId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client.from('manual_expenses').delete().eq('id', expenseId);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao deletar despesa:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// MEU NEGÓCIO: COMPRAS DE MERCADORIAS (ESTOQUE REVENDIDO)
+// -------------------------------------------------------------
+
+export async function fetchMerchandisePurchasesFromSupabase(): Promise<MerchandisePurchaseEntry[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('merchandise_purchases')
+      .select('*')
+      .order('purchase_date', { ascending: false });
+
+    if (error) {
+      if (isMissingTableError(error)) return [];
+      console.warn('[Supabase] Falha ao carregar compras de mercadorias:', error.message);
+      return [];
+    }
+
+    if (!data || !Array.isArray(data)) return [];
+
+    return data.map((row) => ({
+      id: row.id,
+      purchaseDate: row.purchase_date,
+      supplierName: row.supplier_name,
+      supplierContact: row.supplier_contact || undefined,
+      invoiceOrRef: row.invoice_or_ref || undefined,
+      itemsSubtotal: Number(row.items_subtotal) || Number(row.total_cost) || 0,
+      shippingCost: Number(row.shipping_cost) || 0,
+      otherCosts: Number(row.other_costs) || 0,
+      discount: Number(row.discount) || 0,
+      totalCost: Number(row.total_cost) || 0,
+      amountPaid: Number(row.amount_paid) || 0,
+      amountPending: Number(row.amount_pending) || 0,
+      paymentStatus: (row.payment_status as 'pago' | 'parcial' | 'pendente') || 'pago',
+      paymentMethod: row.payment_method || 'Boleto',
+      receivingStatus: (row.receiving_status as 'aguardando' | 'parcialmente_recebido' | 'recebido') || 'recebido',
+      dueDate: row.due_date || undefined,
+      items: Array.isArray(row.items) ? row.items : [],
+      payments: Array.isArray(row.payments) ? row.payments : [],
+      installments: Array.isArray(row.installments) ? row.installments : [],
+      notes: row.notes || undefined,
+      createdAt: row.created_at,
+    }));
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    return [];
+  }
+}
+
+export async function saveMerchandisePurchaseToSupabase(purchase: MerchandisePurchaseEntry): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const payload = {
+      id: purchase.id,
+      purchase_date: purchase.purchaseDate || new Date().toISOString().split('T')[0],
+      supplier_name: purchase.supplierName,
+      supplier_contact: purchase.supplierContact || null,
+      invoice_or_ref: purchase.invoiceOrRef || null,
+      items_subtotal: purchase.itemsSubtotal,
+      shipping_cost: purchase.shippingCost,
+      other_costs: purchase.otherCosts,
+      discount: purchase.discount,
+      total_cost: purchase.totalCost,
+      amount_paid: purchase.amountPaid,
+      amount_pending: purchase.amountPending,
+      payment_status: purchase.paymentStatus,
+      payment_method: purchase.paymentMethod,
+      receiving_status: purchase.receivingStatus,
+      due_date: purchase.dueDate || null,
+      items: purchase.items || [],
+      payments: purchase.payments || [],
+      installments: purchase.installments || [],
+      notes: purchase.notes || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await client.from('merchandise_purchases').upsert(payload);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao salvar compra de mercadoria:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    if (isMissingTableError(err)) return false;
+    return false;
+  }
+}
+
+export async function deleteMerchandisePurchaseFromSupabase(purchaseId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client.from('merchandise_purchases').delete().eq('id', purchaseId);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao deletar compra de mercadoria:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// MEU NEGÓCIO: FLUXO DE CAIXA (MOVIMENTAÇÕES REAIS)
+// -------------------------------------------------------------
+
+export async function fetchCashMovementsFromSupabase(): Promise<CashMovementEntry[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('cash_movements')
+      .select('*')
+      .order('movement_date', { ascending: false });
+
+    if (error) {
+      if (isMissingTableError(error)) return [];
+      console.warn('[Supabase] Falha ao carregar fluxo de caixa:', error.message);
+      return [];
+    }
+
+    if (!data || !Array.isArray(data)) return [];
+
+    return data.map((row) => ({
+      id: row.id,
+      movementDate: row.movement_date,
+      type: row.type as 'entrada' | 'saida',
+      originType: row.origin_type,
+      referenceId: row.reference_id || undefined,
+      category: row.category || undefined,
+      accountChannel: row.account_channel || 'pix_banco',
+      destinationAccountChannel: row.destination_account_channel || undefined,
+      amount: Number(row.amount) || 0,
+      description: row.description,
+      notes: row.notes || undefined,
+      createdAt: row.created_at,
+    }));
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    return [];
+  }
+}
+
+export async function saveCashMovementToSupabase(movement: CashMovementEntry): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const payload = {
+      id: movement.id,
+      movement_date: movement.movementDate || new Date().toISOString(),
+      type: movement.type,
+      origin_type: movement.originType,
+      reference_id: movement.referenceId || null,
+      category: movement.category || null,
+      account_channel: movement.accountChannel,
+      destination_account_channel: movement.destinationAccountChannel || null,
+      amount: movement.amount,
+      description: movement.description,
+      notes: movement.notes || null,
+    };
+
+    const { error } = await client.from('cash_movements').upsert(payload);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao salvar movimentação de caixa:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    if (isMissingTableError(err)) return false;
+    return false;
+  }
+}
+
+export async function deleteCashMovementFromSupabase(movementId: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client.from('cash_movements').delete().eq('id', movementId);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao deletar movimentação de caixa:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// MEU NEGÓCIO: SALDOS INICIAIS POR CANAL FINANCEIRO
+// -------------------------------------------------------------
+
+export async function fetchInitialCashBalancesFromSupabase(): Promise<InitialChannelBalanceRecord[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('initial_cash_balances')
+      .select('*')
+      .order('account_channel', { ascending: true });
+
+    if (error) {
+      if (isMissingTableError(error)) return [];
+      console.warn('[Supabase] Falha ao carregar saldos iniciais:', error.message);
+      return [];
+    }
+
+    if (!data || !Array.isArray(data)) return [];
+
+    return data.map((row) => ({
+      id: row.id,
+      accountChannel: row.account_channel,
+      amount: Number(row.amount) || 0,
+      referenceDate: row.reference_date,
+      notes: row.notes || undefined,
+      updatedAt: row.updated_at,
+    }));
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    return [];
+  }
+}
+
+export async function saveInitialCashBalancesToSupabase(
+  balances: InitialChannelBalanceRecord[]
+): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const payloads = balances.map((b) => ({
+      id: b.id || `init_${b.accountChannel}`,
+      account_channel: b.accountChannel,
+      amount: b.amount,
+      reference_date: b.referenceDate,
+      notes: b.notes || null,
+      updated_at: new Date().toISOString(),
+    }));
+
+    const { error } = await client
+      .from('initial_cash_balances')
+      .upsert(payloads, { onConflict: 'account_channel' });
+
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao salvar saldos iniciais no Supabase:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    if (isMissingTableError(err)) return false;
+    return false;
+  }
+}
+
+// -------------------------------------------------------------
+// MEU NEGÓCIO: CONTAS PENDENTES / COMPROMISSOS AVULSOS
+// -------------------------------------------------------------
+
+export async function fetchManualCommitmentsFromSupabase(): Promise<ManualCommitmentEntry[]> {
+  const client = getSupabaseClient();
+  if (!client) return [];
+
+  try {
+    const { data, error } = await client
+      .from('manual_commitments')
+      .select('*')
+      .order('due_date', { ascending: true, nullsFirst: false });
+
+    if (error) {
+      if (isMissingTableError(error)) return [];
+      console.warn('[Supabase] Falha ao carregar compromissos avulsos:', error.message);
+      return [];
+    }
+
+    if (!data || !Array.isArray(data)) return [];
+
+    return data.map((row) => ({
+      id: row.id,
+      type: row.type as 'a_pagar' | 'a_receber',
+      description: row.description,
+      counterpartyName: row.counterparty_name,
+      counterpartyContact: row.counterparty_contact || undefined,
+      category: row.category || 'Outros',
+      totalAmount: Number(row.total_amount) || 0,
+      amountPaid: Number(row.amount_paid) || 0,
+      amountPending: Number(row.amount_pending) || 0,
+      issueDate: row.issue_date || new Date().toISOString().slice(0, 10),
+      dueDate: row.due_date || undefined,
+      paymentMethod: row.payment_method || 'Pix',
+      accountChannel: row.account_channel || 'pix_banco',
+      paymentStatus: (row.payment_status as 'pendente' | 'parcial' | 'pago' | 'cancelado') || 'pendente',
+      installments: Array.isArray(row.installments) ? row.installments : [],
+      payments: Array.isArray(row.payments) ? row.payments : [],
+      notes: row.notes || undefined,
+      createdAt: row.created_at,
+      updatedAt: row.updated_at,
+    }));
+  } catch (err) {
+    if (isMissingTableError(err)) return [];
+    return [];
+  }
+}
+
+export async function saveManualCommitmentToSupabase(commitment: ManualCommitmentEntry): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const payload = {
+      id: commitment.id,
+      type: commitment.type,
+      description: commitment.description,
+      counterparty_name: commitment.counterpartyName,
+      counterparty_contact: commitment.counterpartyContact || null,
+      category: commitment.category || 'Outros',
+      total_amount: commitment.totalAmount,
+      amount_paid: commitment.amountPaid,
+      amount_pending: commitment.amountPending,
+      issue_date: commitment.issueDate || new Date().toISOString().slice(0, 10),
+      due_date: commitment.dueDate || null,
+      payment_method: commitment.paymentMethod || 'Pix',
+      account_channel: commitment.accountChannel || 'pix_banco',
+      payment_status: commitment.paymentStatus,
+      installments: commitment.installments || [],
+      payments: commitment.payments || [],
+      notes: commitment.notes || null,
+      updated_at: new Date().toISOString(),
+    };
+
+    const { error } = await client.from('manual_commitments').upsert(payload);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao salvar compromisso avulso:', error.message);
+      return false;
+    }
+    return true;
+  } catch (err) {
+    if (isMissingTableError(err)) return false;
+    return false;
+  }
+}
+
+export async function deleteManualCommitmentFromSupabase(id: string): Promise<boolean> {
+  const client = getSupabaseClient();
+  if (!client) return false;
+
+  try {
+    const { error } = await client.from('manual_commitments').delete().eq('id', id);
+    if (error) {
+      if (isMissingTableError(error)) return false;
+      console.warn('[Supabase] Falha ao excluir compromisso avulso:', error.message);
+      return false;
+    }
+    return true;
+  } catch {
+    return false;
+  }
+}
+
+
+
+
 
