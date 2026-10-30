@@ -483,7 +483,7 @@ export function buildManualSaleFromCatalogOrder(
     items: saleItems,
     receipts,
     installments: [],
-    stockManaged: Boolean(options?.stockManaged),
+    stockManaged: options?.stockManaged ?? true,
     notes: `Origem: Catálogo PodWave [Ref:${order.referenceId}] [PedidoId:${order.id}]${
       order.customerNotes ? ` | Obs: ${order.customerNotes}` : ''
     }`,

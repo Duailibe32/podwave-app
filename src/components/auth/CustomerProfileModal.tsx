@@ -146,6 +146,28 @@ export const CustomerProfileModal: React.FC = () => {
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [isProfileModalOpen, isSaving, closeProfileModal]);
 
+  const orders = React.useMemo(() => {
+    if (!currentUser) return [];
+    const base = currentUser.orderHistory || [];
+    const map = new Map<string, (typeof base)[number]>();
+    for (const o of remoteOrders) {
+      if (!o.customerId || o.customerId === currentUser.id) {
+        map.set(o.id, o);
+      }
+    }
+    for (const o of base) {
+      if (!o.customerId || o.customerId === currentUser.id) {
+        const existing = map.get(o.id);
+        if (!existing || (o.version || 1) >= (existing.version || 1)) {
+          map.set(o.id, o);
+        }
+      }
+    }
+    return Array.from(map.values()).sort(
+      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+    );
+  }, [currentUser, remoteOrders]);
+
   if (!isProfileModalOpen || !currentUser) return null;
 
   const handleFormatPhone = (val: string) => {
@@ -209,26 +231,6 @@ export const CustomerProfileModal: React.FC = () => {
     }
   };
 
-  const orders = React.useMemo(() => {
-    const base = currentUser.orderHistory || [];
-    const map = new Map<string, (typeof base)[number]>();
-    for (const o of remoteOrders) {
-      if (!o.customerId || o.customerId === currentUser.id) {
-        map.set(o.id, o);
-      }
-    }
-    for (const o of base) {
-      if (!o.customerId || o.customerId === currentUser.id) {
-        const existing = map.get(o.id);
-        if (!existing || (o.version || 1) >= (existing.version || 1)) {
-          map.set(o.id, o);
-        }
-      }
-    }
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
-  }, [currentUser.id, currentUser.orderHistory, remoteOrders]);
   const loyaltyCard = getUserLoyaltyCard(
     currentUser,
     settings.loyaltyGoalStamps || 10,
