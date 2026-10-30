@@ -500,9 +500,9 @@ export const MyPurchasesSection: React.FC = () => {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs tabular-nums">
                 {/* CABEÇALHO */}
-                <thead className="bg-[#121633] text-gray-300 font-extrabold uppercase tracking-wider text-[10px] border-b border-[#8423DA]/25 select-none">
+                <thead className="bg-[#121633] text-[#C4C6D8] font-extrabold uppercase tracking-wider text-[10px] border-b border-[#8423DA]/25 select-none">
                   <tr>
                     <th className="py-3.5 px-4">Data</th>
                     <th className="py-3.5 px-4">Fornecedor</th>
@@ -530,26 +530,26 @@ export const MyPurchasesSection: React.FC = () => {
                     return (
                       <tr key={purchase.id} className="hover:bg-[#141838]/60 transition-colors">
                         {/* Data */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
+                        <td className="py-3.5 px-4 whitespace-nowrap align-middle tabular-nums">
                           <div className="font-semibold text-white">
                             {formatDateBR(purchase.purchaseDate)}
                           </div>
-                          <div className="text-[10px] text-gray-500 font-mono">
+                          <div className="text-[10px] text-[#A5A5B8] font-mono">
                             ID: {purchase.id.slice(0, 14)}...
                           </div>
                         </td>
 
                         {/* Fornecedor */}
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 align-middle">
                           <div className="font-bold text-white flex items-center gap-1.5">
                             <span>{purchase.supplierName}</span>
                           </div>
-                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-gray-400">
+                          <div className="flex items-center gap-2 mt-0.5 text-[11px] text-[#C4C6D8]">
                             {purchase.supplierContact && (
                               <span className="font-mono">{purchase.supplierContact}</span>
                             )}
                             {purchase.invoiceOrRef && (
-                              <span className="text-[10px] text-[#00DFFF] px-1.5 py-0.2 rounded bg-[#181C3D]">
+                              <span className="text-[10px] text-[#00DFFF] px-1.5 py-0.5 rounded bg-[#181C3D]">
                                 {purchase.invoiceOrRef}
                               </span>
                             )}
@@ -557,52 +557,52 @@ export const MyPurchasesSection: React.FC = () => {
                         </td>
 
                         {/* Resumo Produtos */}
-                        <td className="py-3.5 px-4 max-w-xs">
-                          <div className="truncate text-gray-300 font-medium" title={itemsSummary}>
+                        <td className="py-3.5 px-4 max-w-xs align-middle">
+                          <div className="truncate text-gray-200 font-medium" title={itemsSummary}>
                             {itemsSummary || '1 produto'}
                           </div>
-                          <div className="text-[10px] text-gray-400 mt-0.5">
+                          <div className="text-[10px] text-[#A5A5B8] mt-0.5">
                             {purchase.items?.length || 1} {purchase.items?.length === 1 ? 'item diferente' : 'itens diferentes'}
                             {purchase.shippingCost > 0 && ` • Frete: R$ ${purchase.shippingCost.toFixed(2)}`}
                           </div>
                         </td>
 
                         {/* Unidades Totais */}
-                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap align-middle tabular-nums">
                           <span className="inline-block px-2.5 py-1 rounded-lg bg-[#181C3D] border border-[#8423DA]/25 font-black text-white text-xs">
                             {totalUnits} un
                           </span>
                         </td>
 
                         {/* Valor Total */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           <div className="font-heading font-black text-[#00DFFF] text-sm">
                             {formatBRL(purchase.totalCost)}
                           </div>
                         </td>
 
                         {/* Valor Pago */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           <div className="font-heading font-black text-emerald-400 text-sm">
                             {formatBRL(purchase.amountPaid)}
                           </div>
                         </td>
 
                         {/* Valor Pendente */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           {hasPending ? (
                             <div>
                               <span className="inline-block px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold font-mono">
                                 {formatBRL(purchase.amountPending)}
                               </span>
                               {purchase.dueDate && (
-                                <div className="text-[9px] text-gray-400 mt-0.5">
+                                <div className="text-[9px] text-[#C4C6D8] mt-0.5">
                                   Vence: {formatDateBR(purchase.dueDate)}
                                 </div>
                               )}
                             </div>
                           ) : (
-                            <span className="text-gray-500 font-mono">--</span>
+                            <span className="text-gray-400 font-mono">--</span>
                           )}
                         </td>
 

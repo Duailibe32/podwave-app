@@ -1014,26 +1014,26 @@ export const BusinessReportsSection: React.FC = () => {
             </div>
 
             <div className="overflow-x-auto">
-              <table className="w-full text-left border-collapse text-xs">
+              <table className="w-full text-left border-collapse text-xs tabular-nums">
                 <thead>
-                  <tr className="bg-[#080811] text-gray-400 text-[11px] uppercase tracking-wider border-b border-white/5">
-                    <th className="py-3 px-4">Indicador Gerencial</th>
-                    <th className="py-3 px-4 text-right">Mês Selecionado</th>
-                    <th className="py-3 px-4 text-right">Mês Anterior</th>
-                    <th className="py-3 px-4 text-right">Variação (R$)</th>
-                    <th className="py-3 px-4 text-center">Regime</th>
+                  <tr className="bg-[#121633] text-[#C4C6D8] font-extrabold text-[10px] uppercase tracking-wider border-b border-[#8423DA]/25 select-none">
+                    <th className="py-3.5 px-4">Indicador Gerencial</th>
+                    <th className="py-3.5 px-4 text-right">Mês Selecionado</th>
+                    <th className="py-3.5 px-4 text-right">Mês Anterior</th>
+                    <th className="py-3.5 px-4 text-right">Variação (R$)</th>
+                    <th className="py-3.5 px-4 text-center">Regime</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-white/5 text-gray-300">
+                <tbody className="divide-y divide-[#8423DA]/15 text-gray-200">
                   {/* Vendas */}
-                  <tr className="hover:bg-white/[0.02]">
-                    <td className="py-3 px-4 font-bold text-white">Faturamento Líquido de Vendas</td>
-                    <td className="py-3 px-4 text-right font-black text-white">{formatBRL(monthMetrics.totalNetSales)}</td>
-                    <td className="py-3 px-4 text-right text-gray-400">{formatBRL(prevMonthMetrics.totalNetSales)}</td>
-                    <td className="py-3 px-4 text-right font-bold text-cyan-300">
+                  <tr className="hover:bg-[#141838]/50 transition-colors">
+                    <td className="py-3.5 px-4 font-bold text-white">Faturamento Líquido de Vendas</td>
+                    <td className="py-3.5 px-4 text-right font-black text-white">{formatBRL(monthMetrics.totalNetSales)}</td>
+                    <td className="py-3.5 px-4 text-right text-[#C4C6D8]">{formatBRL(prevMonthMetrics.totalNetSales)}</td>
+                    <td className="py-3.5 px-4 text-right font-bold text-cyan-300">
                       {formatBRL(monthMetrics.totalNetSales - prevMonthMetrics.totalNetSales)}
                     </td>
-                    <td className="py-3 px-4 text-center text-[10px] text-cyan-400">Competência</td>
+                    <td className="py-3.5 px-4 text-center text-[10px] font-bold text-cyan-400">Competência</td>
                   </tr>
 
                   {/* CMV */}
@@ -1212,40 +1212,40 @@ export const BusinessReportsSection: React.FC = () => {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full text-left border-collapse text-xs tabular-nums">
                   <thead>
-                    <tr className="bg-[#080811] text-gray-400 text-[11px] uppercase tracking-wider border-b border-white/5">
-                      <th className="py-3 px-4">Código / Data</th>
-                      <th className="py-3 px-4">Cliente</th>
-                      <th className="py-3 px-4">Itens</th>
-                      <th className="py-3 px-4 text-right">Líquido</th>
-                      <th className="py-3 px-4 text-right">Recebido</th>
-                      <th className="py-3 px-4 text-right">Pendente</th>
-                      <th className="py-3 px-4 text-center">Status</th>
+                    <tr className="bg-[#121633] text-[#C4C6D8] font-extrabold text-[10px] uppercase tracking-wider border-b border-[#8423DA]/25 select-none">
+                      <th className="py-3.5 px-4">Código / Data</th>
+                      <th className="py-3.5 px-4">Cliente</th>
+                      <th className="py-3.5 px-4">Itens</th>
+                      <th className="py-3.5 px-4 text-right">Líquido</th>
+                      <th className="py-3.5 px-4 text-right">Recebido</th>
+                      <th className="py-3.5 px-4 text-right">Pendente</th>
+                      <th className="py-3.5 px-4 text-center">Status</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5 text-gray-300">
+                  <tbody className="divide-y divide-[#8423DA]/15 text-gray-200">
                     {filteredSales.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((s) => (
-                      <tr key={s.id} className="hover:bg-white/[0.02]">
-                        <td className="py-3 px-4">
+                      <tr key={s.id} className="hover:bg-[#141838]/50 transition-colors">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <span className="font-mono text-cyan-400 font-bold">#{s.id.slice(0, 6)}</span>
-                          <div className="text-[10px] text-gray-500">{formatDateBR(s.saleDate)}</div>
+                          <div className="text-[10px] text-[#A5A5B8]">{formatDateBR(s.saleDate)}</div>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-white">{s.customerName || 'Cliente Balcão'}</td>
-                        <td className="py-3 px-4 text-gray-300 max-w-xs truncate">
+                        <td className="py-3.5 px-4 font-semibold text-white">{s.customerName || 'Cliente Balcão'}</td>
+                        <td className="py-3.5 px-4 text-gray-200 max-w-xs truncate">
                           {s.items?.map((i) => `${i.quantity}x ${i.productName}`).join(', ')}
                         </td>
-                        <td className="py-3 px-4 text-right font-bold text-white">{formatBRL(s.netTotal || s.grossTotal)}</td>
-                        <td className="py-3 px-4 text-right text-emerald-400 font-bold">{formatBRL(s.amountReceived || 0)}</td>
-                        <td className="py-3 px-4 text-right text-rose-400 font-bold">{formatBRL(s.amountPending || 0)}</td>
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-3.5 px-4 text-right font-bold text-white whitespace-nowrap">{formatBRL(s.netTotal || s.grossTotal)}</td>
+                        <td className="py-3.5 px-4 text-right text-emerald-400 font-bold whitespace-nowrap">{formatBRL(s.amountReceived || 0)}</td>
+                        <td className="py-3.5 px-4 text-right text-rose-400 font-bold whitespace-nowrap">{formatBRL(s.amountPending || 0)}</td>
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold uppercase ${
                               s.paymentStatus === 'pago'
-                                ? 'bg-emerald-500/10 text-emerald-400'
+                                ? 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'
                                 : s.paymentStatus === 'parcial'
-                                ? 'bg-amber-500/10 text-amber-400'
-                                : 'bg-rose-500/10 text-rose-400'
+                                ? 'bg-amber-500/15 text-amber-300 border border-amber-500/30'
+                                : 'bg-rose-500/15 text-rose-300 border border-rose-500/30'
                             }`}
                           >
                             {s.paymentStatus}
@@ -1266,38 +1266,38 @@ export const BusinessReportsSection: React.FC = () => {
                 <span className="font-bold text-white">
                   {filteredExpenses.length} {filteredExpenses.length === 1 ? 'despesa encontrada' : 'despesas encontradas'}
                 </span>
-                <span className="text-gray-400">
+                <span className="text-gray-300 tabular-nums">
                   Total Contratado: <strong className="text-white">{formatBRL(activeMetrics.operationalExpensesTotalContracted)}</strong> | Pago:{' '}
                   <strong className="text-rose-400">{formatBRL(activeMetrics.operationalExpensesPaidTotal)}</strong>
                 </span>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full text-left border-collapse text-xs tabular-nums">
                   <thead>
-                    <tr className="bg-[#080811] text-gray-400 text-[11px] uppercase tracking-wider border-b border-white/5">
-                      <th className="py-3 px-4">Código / Data</th>
-                      <th className="py-3 px-4">Descrição</th>
-                      <th className="py-3 px-4">Categoria</th>
-                      <th className="py-3 px-4 text-right">Valor</th>
-                      <th className="py-3 px-4 text-right">Valor Pago</th>
-                      <th className="py-3 px-4 text-right">Pendente</th>
-                      <th className="py-3 px-4 text-center">Vencimento</th>
+                    <tr className="bg-[#121633] text-[#C4C6D8] font-extrabold text-[10px] uppercase tracking-wider border-b border-[#8423DA]/25 select-none">
+                      <th className="py-3.5 px-4">Código / Data</th>
+                      <th className="py-3.5 px-4">Descrição</th>
+                      <th className="py-3.5 px-4">Categoria</th>
+                      <th className="py-3.5 px-4 text-right">Valor</th>
+                      <th className="py-3.5 px-4 text-right">Valor Pago</th>
+                      <th className="py-3.5 px-4 text-right">Pendente</th>
+                      <th className="py-3.5 px-4 text-center">Vencimento</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5 text-gray-300">
+                  <tbody className="divide-y divide-[#8423DA]/15 text-gray-200">
                     {filteredExpenses.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((e) => (
-                      <tr key={e.id} className="hover:bg-white/[0.02]">
-                        <td className="py-3 px-4">
+                      <tr key={e.id} className="hover:bg-[#141838]/50 transition-colors">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <span className="font-mono text-rose-400 font-bold">#{e.id.slice(0, 6)}</span>
-                          <div className="text-[10px] text-gray-500">{formatDateBR(e.expenseDate)}</div>
+                          <div className="text-[10px] text-[#A5A5B8]">{formatDateBR(e.expenseDate)}</div>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-white">{e.description}</td>
-                        <td className="py-3 px-4 text-gray-400">{e.category}</td>
-                        <td className="py-3 px-4 text-right font-bold text-white">{formatBRL(e.amount)}</td>
-                        <td className="py-3 px-4 text-right text-emerald-400 font-bold">{formatBRL(e.amountPaid || 0)}</td>
-                        <td className="py-3 px-4 text-right text-rose-400 font-bold">{formatBRL(e.amountPending || 0)}</td>
-                        <td className="py-3 px-4 text-center text-gray-400">
+                        <td className="py-3.5 px-4 font-semibold text-white">{e.description}</td>
+                        <td className="py-3.5 px-4 text-[#C4C6D8]">{e.category}</td>
+                        <td className="py-3.5 px-4 text-right font-bold text-white whitespace-nowrap">{formatBRL(e.amount)}</td>
+                        <td className="py-3.5 px-4 text-right text-emerald-400 font-bold whitespace-nowrap">{formatBRL(e.amountPaid || 0)}</td>
+                        <td className="py-3.5 px-4 text-right text-rose-400 font-bold whitespace-nowrap">{formatBRL(e.amountPending || 0)}</td>
+                        <td className="py-3.5 px-4 text-center text-[#C4C6D8] whitespace-nowrap">
                           {e.dueDate ? formatDateBR(e.dueDate) : '—'}
                         </td>
                       </tr>
@@ -1315,41 +1315,41 @@ export const BusinessReportsSection: React.FC = () => {
                 <span className="font-bold text-white">
                   {filteredPurchases.length} {filteredPurchases.length === 1 ? 'compra encontrada' : 'compras encontradas'}
                 </span>
-                <span className="text-gray-400">
+                <span className="text-gray-300 tabular-nums">
                   Total Adquirido: <strong className="text-white">{formatBRL(activeMetrics.purchasesTotalCost)}</strong> | Pago aos Fornecedores:{' '}
                   <strong className="text-purple-300">{formatBRL(activeMetrics.purchasesPaidToSuppliers)}</strong>
                 </span>
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full text-left border-collapse text-xs tabular-nums">
                   <thead>
-                    <tr className="bg-[#080811] text-gray-400 text-[11px] uppercase tracking-wider border-b border-white/5">
-                      <th className="py-3 px-4">Código / Data</th>
-                      <th className="py-3 px-4">Fornecedor</th>
-                      <th className="py-3 px-4">Itens</th>
-                      <th className="py-3 px-4 text-right">Custo Total</th>
-                      <th className="py-3 px-4 text-right">Pago</th>
-                      <th className="py-3 px-4 text-right">Pendente</th>
-                      <th className="py-3 px-4 text-center">Recebimento</th>
+                    <tr className="bg-[#121633] text-[#C4C6D8] font-extrabold text-[10px] uppercase tracking-wider border-b border-[#8423DA]/25 select-none">
+                      <th className="py-3.5 px-4">Código / Data</th>
+                      <th className="py-3.5 px-4">Fornecedor</th>
+                      <th className="py-3.5 px-4">Itens</th>
+                      <th className="py-3.5 px-4 text-right">Custo Total</th>
+                      <th className="py-3.5 px-4 text-right">Pago</th>
+                      <th className="py-3.5 px-4 text-right">Pendente</th>
+                      <th className="py-3.5 px-4 text-center">Recebimento</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5 text-gray-300">
+                  <tbody className="divide-y divide-[#8423DA]/15 text-gray-200">
                     {filteredPurchases.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((p) => (
-                      <tr key={p.id} className="hover:bg-white/[0.02]">
-                        <td className="py-3 px-4">
+                      <tr key={p.id} className="hover:bg-[#141838]/50 transition-colors">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <span className="font-mono text-purple-400 font-bold">#{p.id.slice(0, 6)}</span>
-                          <div className="text-[10px] text-gray-500">{formatDateBR(p.purchaseDate)}</div>
+                          <div className="text-[10px] text-[#A5A5B8]">{formatDateBR(p.purchaseDate)}</div>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-white">{p.supplierName}</td>
-                        <td className="py-3 px-4 text-gray-300 max-w-xs truncate">
+                        <td className="py-3.5 px-4 font-semibold text-white">{p.supplierName}</td>
+                        <td className="py-3.5 px-4 text-gray-200 max-w-xs truncate">
                           {p.items?.map((i) => `${i.quantity}x ${i.name}`).join(', ')}
                         </td>
-                        <td className="py-3 px-4 text-right font-bold text-white">{formatBRL(p.totalCost)}</td>
-                        <td className="py-3 px-4 text-right text-emerald-400 font-bold">{formatBRL(p.amountPaid || 0)}</td>
-                        <td className="py-3 px-4 text-right text-rose-400 font-bold">{formatBRL(p.amountPending || 0)}</td>
-                        <td className="py-3 px-4 text-center">
-                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-purple-500/10 text-purple-300">
+                        <td className="py-3.5 px-4 text-right font-bold text-white whitespace-nowrap">{formatBRL(p.totalCost)}</td>
+                        <td className="py-3.5 px-4 text-right text-emerald-400 font-bold whitespace-nowrap">{formatBRL(p.amountPaid || 0)}</td>
+                        <td className="py-3.5 px-4 text-right text-rose-400 font-bold whitespace-nowrap">{formatBRL(p.amountPending || 0)}</td>
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
+                          <span className="px-2 py-0.5 rounded-full text-[10px] font-bold uppercase bg-purple-500/15 border border-purple-500/30 text-purple-300">
                             {p.receivingStatus}
                           </span>
                         </td>
@@ -1364,11 +1364,11 @@ export const BusinessReportsSection: React.FC = () => {
           {/* TABELA DO RELATÓRIO DE FLUXO DE CAIXA */}
           {activeCategory === 'fluxo_caixa' && (
             <div className="rounded-3xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl overflow-hidden">
-              <div className="p-4 bg-[#141838]/80 border-b border-[#8423DA]/20 flex items-center justify-between text-xs">
+              <div className="p-4 bg-[#141838]/80 border-b border-[#8423DA]/20 flex items-center justify-between text-xs tabular-nums">
                 <span className="font-bold text-white">
                   Saldo de Abertura: <strong className="text-white">{formatBRL(activeMetrics.cashOpeningBalance)}</strong>
                 </span>
-                <span className="text-gray-400">
+                <span className="text-gray-300">
                   Entradas: <strong className="text-emerald-400">+{formatBRL(activeMetrics.cashPeriodInflows)}</strong> | Saídas:{' '}
                   <strong className="text-rose-400">-{formatBRL(activeMetrics.cashPeriodOutflows)}</strong> | Saldo Final:{' '}
                   <strong className="text-[#00DFFF]">{formatBRL(activeMetrics.cashClosingBalance)}</strong>
@@ -1376,33 +1376,35 @@ export const BusinessReportsSection: React.FC = () => {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full text-left border-collapse text-xs tabular-nums">
                   <thead>
-                    <tr className="bg-[#080811] text-gray-400 text-[11px] uppercase tracking-wider border-b border-white/5">
-                      <th className="py-3 px-4">Data Efetiva</th>
-                      <th className="py-3 px-4">Tipo</th>
-                      <th className="py-3 px-4">Origem</th>
-                      <th className="py-3 px-4">Descrição</th>
-                      <th className="py-3 px-4 text-right">Valor Movimentado</th>
+                    <tr className="bg-[#121633] text-[#C4C6D8] font-extrabold text-[10px] uppercase tracking-wider border-b border-[#8423DA]/25 select-none">
+                      <th className="py-3.5 px-4">Data Efetiva</th>
+                      <th className="py-3.5 px-4">Tipo</th>
+                      <th className="py-3.5 px-4">Origem</th>
+                      <th className="py-3.5 px-4">Descrição</th>
+                      <th className="py-3.5 px-4 text-right">Valor Movimentado</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5 text-gray-300">
+                  <tbody className="divide-y divide-[#8423DA]/15 text-gray-200">
                     {filteredCashFlowEvents.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((m) => (
-                      <tr key={m.id} className="hover:bg-white/[0.02]">
-                        <td className="py-3 px-4 text-gray-400 font-mono">{formatDateBR(m.date)}</td>
-                        <td className="py-3 px-4">
+                      <tr key={m.id} className="hover:bg-[#141838]/50 transition-colors">
+                        <td className="py-3.5 px-4 text-gray-200 font-mono whitespace-nowrap">{formatDateBR(m.date)}</td>
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              m.type === 'entrada' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              m.type === 'entrada'
+                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
                             }`}
                           >
                             {m.type === 'entrada' ? 'Entrada (+)' : 'Saída (-)'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 text-gray-400">{m.origin}</td>
-                        <td className="py-3 px-4 font-semibold text-white">{m.description}</td>
+                        <td className="py-3.5 px-4 text-[#C4C6D8]">{m.origin}</td>
+                        <td className="py-3.5 px-4 font-semibold text-white">{m.description}</td>
                         <td
-                          className={`py-3 px-4 text-right font-black ${
+                          className={`py-3.5 px-4 text-right font-black whitespace-nowrap ${
                             m.type === 'entrada' ? 'text-emerald-400' : 'text-rose-400'
                           }`}
                         >
@@ -1420,7 +1422,7 @@ export const BusinessReportsSection: React.FC = () => {
           {/* TABELA DO RELATÓRIO DE CONTAS PENDENTES */}
           {activeCategory === 'pendentes' && (
             <div className="rounded-3xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl overflow-hidden">
-              <div className="p-4 bg-[#141838]/80 border-b border-[#8423DA]/20 flex items-center justify-between text-xs">
+              <div className="p-4 bg-[#141838]/80 border-b border-[#8423DA]/20 flex items-center justify-between text-xs tabular-nums">
                 <span className="font-bold text-white">
                   Posição Global: <strong className="text-emerald-400">+{formatBRL(activeMetrics.globalReceivablesTotal)}</strong> a receber vs{' '}
                   <strong className="text-rose-400">-{formatBRL(activeMetrics.globalPayablesTotal)}</strong> a pagar
@@ -1431,50 +1433,52 @@ export const BusinessReportsSection: React.FC = () => {
               </div>
 
               <div className="overflow-x-auto">
-                <table className="w-full text-left border-collapse text-xs">
+                <table className="w-full text-left border-collapse text-xs tabular-nums">
                   <thead>
-                    <tr className="bg-[#080811] text-gray-400 text-[11px] uppercase tracking-wider border-b border-white/5">
-                      <th className="py-3 px-4">Tipo</th>
-                      <th className="py-3 px-4">Descrição</th>
-                      <th className="py-3 px-4">Cliente / Fornecedor</th>
-                      <th className="py-3 px-4">Vencimento</th>
-                      <th className="py-3 px-4 text-right">Total</th>
-                      <th className="py-3 px-4 text-right">Saldo Pendente</th>
-                      <th className="py-3 px-4 text-center">Situação</th>
+                    <tr className="bg-[#121633] text-[#C4C6D8] font-extrabold text-[10px] uppercase tracking-wider border-b border-[#8423DA]/25 select-none">
+                      <th className="py-3.5 px-4">Tipo</th>
+                      <th className="py-3.5 px-4">Descrição</th>
+                      <th className="py-3.5 px-4">Cliente / Fornecedor</th>
+                      <th className="py-3.5 px-4">Vencimento</th>
+                      <th className="py-3.5 px-4 text-right">Total</th>
+                      <th className="py-3.5 px-4 text-right">Saldo Pendente</th>
+                      <th className="py-3.5 px-4 text-center">Situação</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-white/5 text-gray-300">
+                  <tbody className="divide-y divide-[#8423DA]/15 text-gray-200">
                     {filteredPendingAccounts.slice((currentPage - 1) * itemsPerPage, currentPage * itemsPerPage).map((p) => (
-                      <tr key={p.id} className="hover:bg-white/[0.02]">
-                        <td className="py-3 px-4">
+                      <tr key={p.id} className="hover:bg-[#141838]/50 transition-colors">
+                        <td className="py-3.5 px-4 whitespace-nowrap">
                           <span
-                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
-                              p.type === 'a_receber' ? 'bg-emerald-500/10 text-emerald-400' : 'bg-rose-500/10 text-rose-400'
+                            className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                              p.type === 'a_receber'
+                                ? 'bg-emerald-500/15 border-emerald-500/30 text-emerald-300'
+                                : 'bg-rose-500/15 border-rose-500/30 text-rose-300'
                             }`}
                           >
                             {p.type === 'a_receber' ? 'A Receber' : 'A Pagar'}
                           </span>
                         </td>
-                        <td className="py-3 px-4 font-semibold text-white">{p.description}</td>
-                        <td className="py-3 px-4 text-gray-300">{p.counterparty}</td>
-                        <td className="py-3 px-4 text-gray-400 font-mono">
+                        <td className="py-3.5 px-4 font-semibold text-white">{p.description}</td>
+                        <td className="py-3.5 px-4 text-gray-200">{p.counterparty}</td>
+                        <td className="py-3.5 px-4 text-[#C4C6D8] font-mono whitespace-nowrap">
                           {p.dueDate ? formatDateBR(p.dueDate) : 'Sem data'}
                         </td>
-                        <td className="py-3 px-4 text-right text-gray-400">{formatBRL(p.totalAmount)}</td>
+                        <td className="py-3.5 px-4 text-right text-gray-200 whitespace-nowrap">{formatBRL(p.totalAmount)}</td>
                         <td
-                          className={`py-3 px-4 text-right font-black ${
+                          className={`py-3.5 px-4 text-right font-black whitespace-nowrap ${
                             p.type === 'a_receber' ? 'text-emerald-400' : 'text-rose-400'
                           }`}
                         >
                           {formatBRL(p.amountPending)}
                         </td>
-                        <td className="py-3 px-4 text-center">
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           {p.diasAtraso > 0 ? (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 text-rose-300">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-black bg-rose-500/20 border border-rose-500/30 text-rose-300">
                               Atraso {p.diasAtraso}d
                             </span>
                           ) : (
-                            <span className="px-2 py-0.5 rounded-full text-[10px] font-medium bg-blue-500/10 text-blue-300">
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-blue-500/15 border border-blue-500/30 text-blue-300">
                               Em dia
                             </span>
                           )}

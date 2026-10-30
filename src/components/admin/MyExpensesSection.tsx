@@ -485,9 +485,9 @@ export const MyExpensesSection: React.FC = () => {
         ) : (
           <>
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs tabular-nums">
                 {/* CABEÇALHO DA TABELA */}
-                <thead className="bg-[#121633] text-gray-300 font-extrabold uppercase tracking-wider text-[10px] border-b border-[#8423DA]/25 select-none">
+                <thead className="bg-[#121633] text-[#C4C6D8] font-extrabold uppercase tracking-wider text-[10px] border-b border-[#8423DA]/25 select-none">
                   <tr>
                     <th className="py-3.5 px-4">Data</th>
                     <th className="py-3.5 px-4">Categoria</th>
@@ -513,17 +513,17 @@ export const MyExpensesSection: React.FC = () => {
                         className="hover:bg-[#141838]/60 transition-colors"
                       >
                         {/* Data */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
+                        <td className="py-3.5 px-4 whitespace-nowrap align-middle tabular-nums">
                           <div className="font-semibold text-white">
                             {formatDateBR(expense.expenseDate)}
                           </div>
-                          <div className="text-[10px] text-gray-500 font-mono">
+                          <div className="text-[10px] text-[#A5A5B8] font-mono">
                             ID: {expense.id.slice(0, 14)}...
                           </div>
                         </td>
 
                         {/* Categoria */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
+                        <td className="py-3.5 px-4 whitespace-nowrap align-middle">
                           <span
                             className={`inline-block px-2.5 py-1 rounded-lg text-[10px] font-bold border ${catStyle.bg} ${catStyle.text} ${catStyle.border}`}
                           >
@@ -532,33 +532,33 @@ export const MyExpensesSection: React.FC = () => {
                         </td>
 
                         {/* Descrição */}
-                        <td className="py-3.5 px-4 max-w-xs">
-                          <div className="font-medium text-white truncate" title={expense.description}>
+                        <td className="py-3.5 px-4 max-w-xs align-middle">
+                          <div className="font-semibold text-white truncate" title={expense.description}>
                             {expense.description}
                           </div>
                           {expense.notes && (
-                            <div className="text-[10px] text-gray-400 truncate mt-0.5" title={expense.notes}>
+                            <div className="text-[10px] text-[#C4C6D8] truncate mt-0.5" title={expense.notes}>
                               Nota: {expense.notes}
                             </div>
                           )}
                         </td>
 
                         {/* Valor Total */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           <div className="font-heading font-black text-rose-300 text-sm">
                             {formatBRL(expense.amount)}
                           </div>
                         </td>
 
                         {/* Valor Pago */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           <div className="font-heading font-black text-emerald-400 text-sm">
                             {formatBRL(expense.amountPaid)}
                           </div>
                         </td>
 
                         {/* A Pagar / Pendente */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           {hasPending ? (
                             <div>
                               <span className="inline-block px-2 py-0.5 rounded-md bg-rose-500/15 border border-rose-500/30 text-rose-300 font-bold font-mono">
@@ -571,7 +571,7 @@ export const MyExpensesSection: React.FC = () => {
                               )}
                             </div>
                           ) : (
-                            <span className="text-gray-500 font-mono">--</span>
+                            <span className="text-gray-400 font-mono">--</span>
                           )}
                         </td>
 

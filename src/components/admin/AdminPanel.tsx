@@ -1361,33 +1361,35 @@ export const AdminPanel: React.FC = () => {
                 </div>
 
                 <div className="overflow-x-auto">
-                  <table className="w-full text-left text-xs">
+                  <table className="w-full text-left text-xs tabular-nums">
                     <thead>
-                      <tr className="border-b border-[#8423DA]/20 text-[#A5A5B8]">
-                        <th className="pb-3 font-semibold">Produto</th>
-                        <th className="pb-3 font-semibold">Marca</th>
-                        <th className="pb-3 font-semibold">Puffs ⚡</th>
-                        <th className="pb-3 font-semibold">Sabores</th>
-                        <th className="pb-3 font-semibold">Preço Ref.</th>
-                        <th className="pb-3 font-semibold text-right">Status</th>
+                      <tr className="border-b border-[#8423DA]/25 text-[#C4C6D8] light:text-slate-600 text-[10px] font-extrabold uppercase tracking-wider select-none">
+                        <th className="pb-3 pr-3">Produto</th>
+                        <th className="pb-3 px-3">Marca</th>
+                        <th className="pb-3 px-3">Puffs ⚡</th>
+                        <th className="pb-3 px-3 text-center">Sabores</th>
+                        <th className="pb-3 px-3 text-right">Preço Ref.</th>
+                        <th className="pb-3 pl-3 text-right">Status</th>
                       </tr>
                     </thead>
-                    <tbody className="divide-y divide-[#8423DA]/10">
+                    <tbody className="divide-y divide-[#8423DA]/15">
                       {models.slice(0, 6).map((m) => (
-                        <tr key={m.id} className="hover:bg-[#141838]/50">
-                          <td className="py-3 font-bold text-white light:text-slate-900 flex items-center gap-2">
-                            <img src={m.imageUrl || '/assets/images/logo.png'} alt="" className="w-7 h-7 rounded bg-white p-0.5 object-contain" />
-                            <span>{m.modelName}</span>
+                        <tr key={m.id} className="hover:bg-[#141838]/50 transition-colors">
+                          <td className="py-3 pr-3 font-bold text-white light:text-slate-900">
+                            <div className="flex items-center gap-2.5">
+                              <img src={m.imageUrl || '/assets/images/logo.png'} alt="" className="w-7 h-7 rounded bg-white p-0.5 object-contain shrink-0" />
+                              <span>{m.modelName}</span>
+                            </div>
                           </td>
-                          <td className="py-3 text-[#00DFFF] font-semibold">{m.brandName}</td>
-                          <td className="py-3 font-mono font-bold text-gray-300 light:text-slate-700">
+                          <td className="py-3 px-3 text-[#00DFFF] font-semibold">{m.brandName}</td>
+                          <td className="py-3 px-3 font-mono font-bold text-gray-200 light:text-slate-700">
                             {m.puffsLabel}
                           </td>
-                          <td className="py-3 text-[#A5A5B8]">{m.flavors.length} opções</td>
-                          <td className="py-3 font-bold text-white light:text-slate-900">
+                          <td className="py-3 px-3 text-center text-[#C4C6D8]">{m.flavors.length} opções</td>
+                          <td className="py-3 px-3 text-right font-bold text-white light:text-slate-900 whitespace-nowrap">
                             R$ {m.startingPrice.toFixed(2).replace('.', ',')}
                           </td>
-                          <td className="py-3 text-right">
+                          <td className="py-3 pl-3 text-right whitespace-nowrap">
                             <span
                               className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
                                 m.active
@@ -1496,22 +1498,22 @@ export const AdminPanel: React.FC = () => {
             {/* Models Table */}
             <div className="rounded-2xl bg-[#0D1022] light:bg-white border border-[#8423DA]/25 overflow-hidden shadow-xl">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
-                  <thead className="bg-[#121633] light:bg-slate-100 border-b border-[#8423DA]/20 text-[#A5A5B8]">
+                <table className="w-full text-left text-xs tabular-nums">
+                  <thead className="bg-[#121633] light:bg-slate-100 border-b border-[#8423DA]/25 text-[#C4C6D8] light:text-slate-600 text-[10px] font-extrabold uppercase tracking-wider select-none">
                     <tr>
-                      <th className="p-4 font-semibold">Foto</th>
-                      <th className="p-4 font-semibold">Marca & Modelo</th>
-                      <th className="p-4 font-semibold">Puffs ⚡</th>
-                      <th className="p-4 font-semibold">Etiqueta</th>
-                      <th className="p-4 font-semibold">Sabores</th>
-                      <th className="p-4 font-semibold">Preço Ref.</th>
-                      <th className="p-4 font-semibold">Visibilidade</th>
-                      <th className="p-4 font-semibold text-right">Ações</th>
+                      <th className="py-3.5 px-4">Foto</th>
+                      <th className="py-3.5 px-4">Marca & Modelo</th>
+                      <th className="py-3.5 px-4">Puffs ⚡</th>
+                      <th className="py-3.5 px-4">Etiqueta</th>
+                      <th className="py-3.5 px-4">Sabores</th>
+                      <th className="py-3.5 px-4 text-right">Preço Ref.</th>
+                      <th className="py-3.5 px-4 text-center">Visibilidade</th>
+                      <th className="py-3.5 px-4 text-right">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#8423DA]/10">
+                  <tbody className="divide-y divide-[#8423DA]/15">
                     {models.map((model) => (
-                      <tr key={model.id} className="hover:bg-[#141838]/40">
+                      <tr key={model.id} className="hover:bg-[#141838]/50 transition-colors">
                         <td className="p-4">
                           <div className="w-12 h-12 rounded-xl bg-white p-1 border border-slate-200 flex items-center justify-center">
                             <img src={model.imageUrl || '/assets/images/logo.png'} alt="" className="w-full h-full object-contain" />
@@ -1527,24 +1529,24 @@ export const AdminPanel: React.FC = () => {
                           </span>
                         </td>
 
-                        <td className="p-4">
+                        <td className="p-4 whitespace-nowrap">
                           <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-[#181C38] text-[#00DFFF] font-bold text-xs border border-[#00DFFF]/30">
                             <Zap className="w-3 h-3 fill-[#00DFFF]" />
                             {model.puffsLabel}
                           </span>
                         </td>
 
-                        <td className="p-4">
+                        <td className="p-4 whitespace-nowrap">
                           {model.badge ? (
                             <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-[#00DFFF] to-[#8423DA] text-white font-black text-[10px]">
                               {model.badge}
                             </span>
                           ) : (
-                            <span className="text-gray-500">—</span>
+                            <span className="text-gray-400">—</span>
                           )}
                         </td>
 
-                        <td className="p-4">
+                        <td className="p-4 whitespace-nowrap">
                           <button
                             onClick={() => {
                               setVariantModelFilter(model.id);
@@ -1559,17 +1561,17 @@ export const AdminPanel: React.FC = () => {
                           </button>
                         </td>
 
-                        <td className="p-4 font-bold text-white light:text-slate-900">
+                        <td className="p-4 text-right font-bold text-white light:text-slate-900 whitespace-nowrap tabular-nums">
                           R$ {model.startingPrice.toFixed(2).replace('.', ',')}
                         </td>
 
-                        <td className="p-4">
+                        <td className="p-4 text-center whitespace-nowrap">
                           <button
                             onClick={() => toggleModelActive(model.id)}
-                            className={`flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
+                            className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-all ${
                               model.active
                                 ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30'
-                                : 'bg-gray-500/20 text-gray-400 border border-gray-500/30'
+                                : 'bg-gray-500/20 text-gray-300 border border-gray-500/30'
                             }`}
                             title="Clique para alternar visibilidade no catálogo"
                           >
@@ -2006,20 +2008,20 @@ export const AdminPanel: React.FC = () => {
             {/* VARIANTS TABLE / CARD LIST */}
             <div className="rounded-3xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl overflow-hidden">
               <div className="overflow-x-auto">
-                <table className="w-full text-left text-xs">
+                <table className="w-full text-left text-xs tabular-nums">
                   <thead>
-                    <tr className="border-b border-[#8423DA]/20 text-[#A5A5B8] bg-[#11152A]/80 font-bold uppercase tracking-wider text-[10px]">
-                      <th className="p-3.5 w-10 text-center">#</th>
-                      <th className="p-3.5">Modelo & Marca</th>
-                      <th className="p-3.5">Sabor / Variante</th>
-                      <th className="p-3.5">Quantidade Demonstrativa</th>
-                      <th className="p-3.5">Limite Alerta</th>
-                      <th className="p-3.5">Status Calculado</th>
-                      <th className="p-3.5">Última Atualização</th>
-                      <th className="p-3.5 text-right">Ações</th>
+                    <tr className="border-b border-[#8423DA]/25 text-[#C4C6D8] bg-[#121633] font-extrabold uppercase tracking-wider text-[10px] select-none">
+                      <th className="py-3.5 px-3.5 w-10 text-center">#</th>
+                      <th className="py-3.5 px-3.5">Modelo & Marca</th>
+                      <th className="py-3.5 px-3.5">Sabor / Variante</th>
+                      <th className="py-3.5 px-3.5">Quantidade Demonstrativa</th>
+                      <th className="py-3.5 px-3.5 text-center">Limite Alerta</th>
+                      <th className="py-3.5 px-3.5">Status Calculado</th>
+                      <th className="py-3.5 px-3.5">Última Atualização</th>
+                      <th className="py-3.5 px-3.5 text-right">Ações</th>
                     </tr>
                   </thead>
-                  <tbody className="divide-y divide-[#8423DA]/10">
+                  <tbody className="divide-y divide-[#8423DA]/15">
                     {filteredVariants.length === 0 ? (
                       <tr>
                         <td colSpan={8} className="p-12 text-center text-gray-400 space-y-3">
@@ -2157,14 +2159,14 @@ export const AdminPanel: React.FC = () => {
                             </td>
 
                             {/* Limite de Alerta */}
-                            <td className="p-3.5">
-                              <span className="px-2 py-1 rounded-lg bg-[#141838] border border-[#8423DA]/20 text-gray-300 font-mono text-[11px]">
+                            <td className="p-3.5 text-center whitespace-nowrap">
+                              <span className="px-2 py-1 rounded-lg bg-[#141838] border border-[#8423DA]/25 text-gray-200 font-mono text-[11px]">
                                 {item.threshold} un.
                               </span>
                             </td>
 
                             {/* Status Calculado */}
-                            <td className="p-3.5">
+                            <td className="p-3.5 whitespace-nowrap">
                               <span
                                 className={`inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full text-[11px] font-black border ${item.avail.badgeBg} ${item.avail.badgeBorder} ${item.avail.badgeText}`}
                               >
@@ -2177,7 +2179,7 @@ export const AdminPanel: React.FC = () => {
                             </td>
 
                             {/* Última Atualização */}
-                            <td className="p-3.5 text-gray-400 text-[11px]">
+                            <td className="p-3.5 text-[#C4C6D8] text-[11px] whitespace-nowrap tabular-nums">
                               {item.flavor.updatedAt ? (
                                 <span title={item.flavor.updatedAt}>
                                   {new Date(item.flavor.updatedAt).toLocaleDateString('pt-BR', {
@@ -2188,7 +2190,7 @@ export const AdminPanel: React.FC = () => {
                                   })}
                                 </span>
                               ) : (
-                                <span className="text-gray-500">Padrão Inicial</span>
+                                <span className="text-gray-400">Padrão Inicial</span>
                               )}
                             </td>
 

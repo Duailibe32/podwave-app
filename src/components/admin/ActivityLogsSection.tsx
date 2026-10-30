@@ -368,18 +368,18 @@ export const ActivityLogsSection: React.FC = () => {
           {/* Table Container */}
           <div className="rounded-3xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs tabular-nums">
                 <thead>
-                  <tr className="border-b border-[#8423DA]/20 text-[#A5A5B8] bg-[#11152A]/80 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="p-3.5">Data & Horário</th>
-                    <th className="p-3.5">Tipo de Ação</th>
-                    <th className="p-3.5">Produto / Item</th>
-                    <th className="p-3.5">Detalhes da Alteração</th>
-                    <th className="p-3.5">Responsável</th>
-                    <th className="p-3.5">Status</th>
+                  <tr className="border-b border-[#8423DA]/25 text-[#C4C6D8] bg-[#121633] font-extrabold uppercase tracking-wider text-[10px] select-none">
+                    <th className="py-3.5 px-4">Data & Horário</th>
+                    <th className="py-3.5 px-4">Tipo de Ação</th>
+                    <th className="py-3.5 px-4">Produto / Item</th>
+                    <th className="py-3.5 px-4">Detalhes da Alteração</th>
+                    <th className="py-3.5 px-4">Responsável</th>
+                    <th className="py-3.5 px-4 text-center">Status</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#8423DA]/10">
+                <tbody className="divide-y divide-[#8423DA]/15">
                   {filteredLogs.length === 0 ? (
                     <tr>
                       <td colSpan={6} className="p-12 text-center text-gray-400">
@@ -510,19 +510,19 @@ export const ActivityLogsSection: React.FC = () => {
 
           <div className="rounded-3xl bg-[#0D1022] border border-[#8423DA]/25 shadow-xl overflow-hidden">
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs tabular-nums">
                 <thead>
-                  <tr className="border-b border-[#8423DA]/20 text-[#A5A5B8] bg-[#11152A]/80 font-bold uppercase tracking-wider text-[10px]">
-                    <th className="p-3.5">Data & Horário</th>
-                    <th className="p-3.5">Modelo / Produto</th>
-                    <th className="p-3.5">Variante / Sabor</th>
-                    <th className="p-3.5">Qtd Anterior</th>
-                    <th className="p-3.5">Nova Quantidade</th>
-                    <th className="p-3.5">Tipo de Ação</th>
-                    <th className="p-3.5">Responsável</th>
+                  <tr className="border-b border-[#8423DA]/25 text-[#C4C6D8] bg-[#121633] font-extrabold uppercase tracking-wider text-[10px] select-none">
+                    <th className="py-3.5 px-4">Data & Horário</th>
+                    <th className="py-3.5 px-4">Modelo / Produto</th>
+                    <th className="py-3.5 px-4">Variante / Sabor</th>
+                    <th className="py-3.5 px-4 text-right">Qtd Anterior</th>
+                    <th className="py-3.5 px-4 text-right">Nova Quantidade</th>
+                    <th className="py-3.5 px-4 text-center">Tipo de Ação</th>
+                    <th className="py-3.5 px-4">Responsável</th>
                   </tr>
                 </thead>
-                <tbody className="divide-y divide-[#8423DA]/10">
+                <tbody className="divide-y divide-[#8423DA]/15">
                   {variantHistory.length === 0 ? (
                     <tr>
                       <td colSpan={7} className="p-12 text-center text-gray-400">
@@ -538,7 +538,7 @@ export const ActivityLogsSection: React.FC = () => {
                   ) : (
                     variantHistory.map((h) => (
                       <tr key={h.id} className="hover:bg-[#141838]/60 transition-colors">
-                        <td className="p-3.5 text-gray-300 font-mono text-[11px]">
+                        <td className="py-3.5 px-4 text-gray-200 font-mono text-[11px] whitespace-nowrap">
                           {new Date(h.timestamp).toLocaleDateString('pt-BR', {
                             day: '2-digit',
                             month: '2-digit',
@@ -547,25 +547,25 @@ export const ActivityLogsSection: React.FC = () => {
                             minute: '2-digit',
                           })}
                         </td>
-                        <td className="p-3.5 font-bold text-white text-xs">{h.modelName}</td>
-                        <td className="p-3.5">
+                        <td className="py-3.5 px-4 font-bold text-white text-xs">{h.modelName}</td>
+                        <td className="py-3.5 px-4">
                           <span className="flex items-center gap-1.5 font-semibold text-gray-200">
                             <span>{h.flavorEmoji}</span>
                             <span>{h.flavorName}</span>
                           </span>
                         </td>
-                        <td className="p-3.5 font-mono text-gray-400">
+                        <td className="py-3.5 px-4 text-right font-mono text-[#C4C6D8] whitespace-nowrap">
                           {h.previousQuantity === null || h.previousQuantity === undefined ? 'Não informado' : `${h.previousQuantity} un`}
                         </td>
-                        <td className="p-3.5 font-mono font-bold text-[#00DFFF]">
+                        <td className="py-3.5 px-4 text-right font-mono font-bold text-[#00DFFF] whitespace-nowrap">
                           {h.newQuantity === null || h.newQuantity === undefined ? 'Não informado' : `${h.newQuantity} un`}
                         </td>
-                        <td className="p-3.5">
+                        <td className="py-3.5 px-4 text-center whitespace-nowrap">
                           <span className="px-2 py-0.5 rounded-md bg-[#8423DA]/30 border border-[#8423DA]/50 text-[#00DFFF] text-[10px] font-bold">
                             {h.changeType === 'quick_edit' ? 'Edição Rápida' : h.changeType === 'bulk_edit' ? 'Edição em Lote' : 'Ajuste'}
                           </span>
                         </td>
-                        <td className="p-3.5 text-gray-300 text-[11px]">{h.updatedBy}</td>
+                        <td className="py-3.5 px-4 text-gray-200 text-[11px]">{h.updatedBy}</td>
                       </tr>
                     ))
                   )}

@@ -482,9 +482,9 @@ export const MySalesSection: React.FC = () => {
           <>
             {/* Tabela com scroll horizontal suave */}
             <div className="overflow-x-auto">
-              <table className="w-full text-left text-xs">
+              <table className="w-full text-left text-xs tabular-nums">
                 {/* CABEÇALHO DA TABELA */}
-                <thead className="bg-[#121633] text-gray-300 font-extrabold uppercase tracking-wider text-[10px] border-b border-[#8423DA]/25 select-none">
+                <thead className="bg-[#121633] text-[#C4C6D8] font-extrabold uppercase tracking-wider text-[10px] border-b border-[#8423DA]/25 select-none">
                   <tr>
                     <th className="py-3.5 px-4">Data / Hora</th>
                     <th className="py-3.5 px-4">Cliente</th>
@@ -518,23 +518,23 @@ export const MySalesSection: React.FC = () => {
                         }`}
                       >
                         {/* Data / Hora */}
-                        <td className="py-3.5 px-4 whitespace-nowrap">
+                        <td className="py-3.5 px-4 whitespace-nowrap align-middle tabular-nums">
                           <div className="font-semibold text-white">
                             {formatDateBR(sale.saleDate)}
                           </div>
-                          <div className="text-[10px] text-gray-500 font-mono">
+                          <div className="text-[10px] text-[#A5A5B8] font-mono">
                             ID: {sale.id.slice(0, 14)}...
                           </div>
                         </td>
 
                         {/* Cliente */}
-                        <td className="py-3.5 px-4">
+                        <td className="py-3.5 px-4 align-middle">
                           <div className="font-bold text-white flex items-center gap-1.5">
                             <span>{sale.customerName || 'Cliente Balcão'}</span>
                           </div>
                           {sale.customerPhone ? (
                             <div className="flex items-center gap-1.5 mt-0.5">
-                              <span className="text-[11px] text-gray-400 font-mono">
+                              <span className="text-[11px] text-gray-300 font-mono">
                                 {sale.customerPhone}
                               </span>
                               {whatsappUrl && (
@@ -550,13 +550,13 @@ export const MySalesSection: React.FC = () => {
                               )}
                             </div>
                           ) : (
-                            <span className="text-[10px] text-gray-500 italic">Sem WhatsApp</span>
+                            <span className="text-[10px] text-[#A5A5B8] italic">Sem WhatsApp</span>
                           )}
                         </td>
 
                         {/* Produtos */}
-                        <td className="py-3.5 px-4 max-w-xs">
-                          <div className="truncate text-gray-300 font-medium" title={itemsSummary}>
+                        <td className="py-3.5 px-4 max-w-xs align-middle">
+                          <div className="truncate text-gray-200 font-medium" title={itemsSummary}>
                             {itemsSummary || '1 item'}
                           </div>
                           <div className="text-[10px] text-[#00DFFF] mt-0.5 font-semibold">
@@ -566,37 +566,37 @@ export const MySalesSection: React.FC = () => {
                         </td>
 
                         {/* Valor Total */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           <div className="font-heading font-black text-white text-sm">
                             {formatBRL(sale.netTotal)}
                           </div>
                           {sale.discount > 0 && (
-                            <div className="text-[10px] text-rose-400">
+                            <div className="text-[10px] text-rose-400 font-semibold">
                               Desc: -{formatBRL(sale.discount)}
                             </div>
                           )}
                         </td>
 
                         {/* Valor Recebido */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           <div className="font-heading font-black text-emerald-400 text-sm">
                             {formatBRL(sale.amountReceived)}
                           </div>
                           {sale.receivedDate && (
-                            <div className="text-[9px] text-gray-400 font-mono">
+                            <div className="text-[9px] text-[#A5A5B8] font-mono">
                               {new Date(sale.receivedDate).toLocaleDateString('pt-BR')}
                             </div>
                           )}
                         </td>
 
                         {/* Valor Pendente */}
-                        <td className="py-3.5 px-4 text-right whitespace-nowrap">
+                        <td className="py-3.5 px-4 text-right whitespace-nowrap align-middle tabular-nums">
                           {hasPending ? (
                             <span className="inline-block px-2 py-0.5 rounded-md bg-amber-500/15 border border-amber-500/30 text-amber-300 font-bold font-mono">
                               {formatBRL(sale.amountPending)}
                             </span>
                           ) : (
-                            <span className="text-gray-500 font-mono">--</span>
+                            <span className="text-gray-400 font-mono">--</span>
                           )}
                         </td>
 
