@@ -227,10 +227,10 @@ export const CheckoutDrawer: React.FC = () => {
         aria-hidden="true"
       />
 
-      <div className="fixed inset-y-0 right-0 max-w-full flex pl-10">
-        <div className="w-screen max-w-lg bg-[#0D1022] light:bg-white text-white light:text-slate-900 border-l border-[#8423DA]/30 shadow-2xl flex flex-col justify-between animate-in slide-in-from-right duration-300">
+      <div className="fixed inset-y-0 right-0 flex h-dvh w-full max-w-lg">
+        <div className="min-w-0 w-full max-w-full bg-[#0D1022] light:bg-white text-white light:text-slate-900 border-l border-[#8423DA]/30 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
           {/* HEADER */}
-          <div className="p-5 border-b border-[#8423DA]/25 light:border-slate-200 flex items-center justify-between">
+          <div className="p-4 sm:p-5 border-b border-[#8423DA]/25 light:border-slate-200 flex shrink-0 items-center justify-between gap-2">
             <div className="flex items-center gap-2">
               <span className="text-xl">📝</span>
               <h2 className="font-heading text-lg font-extrabold tracking-tight">
@@ -240,7 +240,7 @@ export const CheckoutDrawer: React.FC = () => {
 
             <button
               onClick={() => setIsCheckoutOpen(false)}
-              className="p-1.5 rounded-xl bg-[#181C38] light:bg-slate-100 hover:bg-[#8423DA] text-gray-300 hover:text-white transition-all cursor-pointer"
+              className="min-h-11 min-w-11 shrink-0 flex items-center justify-center p-1.5 rounded-xl bg-[#181C38] light:bg-slate-100 hover:bg-[#8423DA] text-gray-300 hover:text-white transition-all cursor-pointer"
               title="Fechar"
             >
               <X className="w-5 h-5" />
@@ -248,7 +248,7 @@ export const CheckoutDrawer: React.FC = () => {
           </div>
 
           {/* FORM CONTENT */}
-          <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto p-5 sm:p-6 space-y-5">
+          <form onSubmit={handleSubmit} className="mobile-checkout-form min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {errorMessage && (
               <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
@@ -277,9 +277,9 @@ export const CheckoutDrawer: React.FC = () => {
                 </div>
               </div>
             ) : (
-              <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 flex items-center justify-between text-xs">
-                <div className="flex items-center gap-2.5">
-                  <div className="w-8 h-8 rounded-xl bg-[#8423DA]/20 border border-[#8423DA]/40 flex items-center justify-center text-[#00DFFF]">
+              <div className="p-3.5 rounded-2xl bg-[#141838] border border-[#8423DA]/30 flex flex-wrap items-center justify-between gap-3 text-xs">
+                <div className="flex min-w-0 flex-1 items-center gap-2.5">
+                  <div className="w-8 h-8 shrink-0 rounded-xl bg-[#8423DA]/20 border border-[#8423DA]/40 flex items-center justify-center text-[#00DFFF]">
                     <LogIn className="w-4 h-4" />
                   </div>
                   <div>
@@ -360,7 +360,7 @@ export const CheckoutDrawer: React.FC = () => {
                     />
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] text-gray-300 font-semibold mb-1">
                         Número e Complemento
@@ -388,7 +388,7 @@ export const CheckoutDrawer: React.FC = () => {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-2.5">
+                  <div className="grid grid-cols-1 min-[380px]:grid-cols-2 gap-2.5">
                     <div>
                       <label className="block text-[11px] text-gray-300 font-semibold mb-1">
                         Cidade
@@ -770,3 +770,4 @@ export const CheckoutDrawer: React.FC = () => {
     </div>
   );
 };
+

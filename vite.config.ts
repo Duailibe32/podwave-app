@@ -46,8 +46,28 @@ export default defineConfig(() => {
         workbox: {
           importScripts: ['/order-notifications-sw.js'],
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
-          globPatterns: ['**/*.{js,css,html,ico,png,svg,woff,woff2,jpg,jpeg}'],
+          globPatterns: ['**/*.{js,css,html,ico,svg,woff,woff2}'],
+          // Load the admin bundle and product images only when they are used.
+          globIgnores: ['**/AdminPanel-*.js'],
           runtimeCaching: [
+            {
+              urlPattern: /\/assets\/AdminPanel-[^/]+\.js$/,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'admin-code-cache',
+                expiration: { maxEntries: 3, maxAgeSeconds: 60 * 60 * 24 * 30 },
+                cacheableResponse: { statuses: [200] },
+              },
+            },
+            {
+              urlPattern: ({ request, url }) => request.destination === 'image' && url.origin === self.location.origin,
+              handler: 'CacheFirst',
+              options: {
+                cacheName: 'catalog-images-cache',
+                expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 },
+                cacheableResponse: { statuses: [200] },
+              },
+            },
             {
               urlPattern: /^https:\/\/fonts\.googleapis\.com\/.*/i,
               handler: 'CacheFirst',
@@ -98,4 +118,5 @@ export default defineConfig(() => {
     },
   };
 });
+
 

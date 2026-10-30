@@ -1,4 +1,4 @@
-import React from 'react';
+import React, { lazy, Suspense } from 'react';
 import { CatalogProvider, useCatalog } from './context/CatalogContext';
 import { ToastProvider } from './context/ToastContext';
 import { ToastContainer } from './components/ui/ToastContainer';
@@ -13,11 +13,12 @@ import { ProductDetailModal } from './components/ProductDetailModal';
 import { CartDrawer } from './components/CartDrawer';
 import { CheckoutDrawer } from './components/CheckoutDrawer';
 import { FloatingActions } from './components/FloatingActions';
-import { AdminPanel } from './components/admin/AdminPanel';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthModal } from './components/auth/AuthModal';
 import { CustomerProfileModal } from './components/auth/CustomerProfileModal';
 import { OrderNotificationsProvider } from './context/OrderNotificationsContext';
+
+const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then((module) => ({ default: module.AdminPanel })));
 
 const AppContent: React.FC = () => {
   const { currentView } = useCatalog();
@@ -38,7 +39,9 @@ const AppContent: React.FC = () => {
             <InfoSection />
           </>
         ) : (
-          <AdminPanel />
+          <Suspense fallback={<div role="status" className="p-8 text-center text-sm text-gray-300">Carregando painel...</div>}>
+            <AdminPanel />
+          </Suspense>
         )}
       </main>
 
@@ -64,3 +67,4 @@ export default function App() {
     </ToastProvider>
   );
 }
+

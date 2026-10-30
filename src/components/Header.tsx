@@ -57,8 +57,8 @@ export const Header: React.FC = () => {
       <TopCarouselBar />
 
       <header className="border-b transition-colors duration-200 bg-[#080811] border-[#8423DA]/25">
-        <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
-          <div className="flex items-center justify-between h-20 gap-4">
+        <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
+          <div className="flex items-center justify-between h-20 gap-2 sm:gap-4">
           {/* Zone 1: Official Logo & Brand */}
           <div className="flex items-center gap-3">
             <button
@@ -143,19 +143,19 @@ export const Header: React.FC = () => {
           )}
 
           {/* Zone 3: Actions (Search, Cart, Admin switch — No light/dark toggle) */}
-          <div className="flex items-center gap-2.5 sm:gap-3.5">
+          <div className="flex min-w-0 items-center gap-1.5 sm:gap-3.5">
             {/* Quick search input or toggle on catalog */}
             {currentView === 'catalog' && (
-              <div className="relative flex items-center">
+              <div className="static sm:relative flex items-center">
                 {showSearchInput ? (
-                  <div className="relative flex items-center animate-in fade-in duration-200">
+                  <div className="absolute inset-x-4 top-full z-40 flex items-center animate-in fade-in duration-200 sm:static">
                     <input
                       type="text"
                       placeholder="Buscar produtos, marcas ou sabores..."
                       value={searchQuery}
                       onChange={(e) => setSearchQuery(e.target.value)}
                       autoFocus
-                      className="w-48 sm:w-64 pl-8 pr-8 py-1.5 text-xs rounded-full bg-[#11152A] border border-[#8423DA]/40 focus:border-[#00DFFF] text-white focus:outline-none transition-all placeholder:text-gray-500 shadow-inner"
+                      className="min-w-0 w-full sm:w-64 min-h-11 sm:min-h-0 pl-8 pr-8 py-1.5 text-base sm:text-xs rounded-full bg-[#11152A] border border-[#8423DA]/40 focus:border-[#00DFFF] text-white focus:outline-none transition-all placeholder:text-gray-500 shadow-inner"
                     />
                     <Search className="w-3.5 h-3.5 absolute left-2.5 text-gray-400 pointer-events-none" />
                     <button
@@ -407,3 +407,4 @@ export const Header: React.FC = () => {
   </div>
 );
 };
+
