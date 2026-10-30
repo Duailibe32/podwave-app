@@ -2,6 +2,9 @@
 -- No backfill: existing sales remain unmanaged and existing quantities are untouched.
 BEGIN;
 DO $$ BEGIN
+  IF to_regprocedure('app_security.is_admin()') IS NULL THEN
+    RAISE EXCEPTION 'Instalação não iniciada: a função de autorização app_security.is_admin() não existe. Confira as funções e políticas reais antes de instalar; não execute migrations antigas para suprir esta dependência.';
+  END IF;
   IF NOT EXISTS (SELECT 1 FROM information_schema.columns WHERE table_schema='public' AND table_name='flavor_variants' AND column_name='demo_quantity') THEN
     RAISE EXCEPTION 'Estrutura de estoque não confirmada: flavor_variants.demo_quantity ausente. Nenhuma alteração aplicada.';
   END IF;

@@ -3,6 +3,14 @@ const fs = require('node:fs');
 const { PGlite } = require('@electric-sql/pglite');
 
 (async () => {
+  // A missing live authorization dependency must abort before any schema changes.
+  const missingDependencyDb = new PGlite();
+  const migrationText = fs.readFileSync('supabase/migrations/20261030010000_atomic_sale_stock_and_audit.sql','utf8');
+  await missingDependencyDb.exec('CREATE SCHEMA app_security');
+  await assert.rejects(missingDependencyDb.exec(migrationText),/função de autorização.*não existe/);
+  await missingDependencyDb.exec('ROLLBACK');
+  assert.equal((await missingDependencyDb.query("SELECT to_regclass('public.business_audit_events') AS name")).rows[0].name,null);
+  await missingDependencyDb.close();
   const db = new PGlite();
   await db.exec(`CREATE ROLE anon; CREATE ROLE authenticated;
     CREATE SCHEMA auth; CREATE SCHEMA app_security;
