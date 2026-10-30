@@ -15,7 +15,12 @@ const { PGlite } = require('@electric-sql/pglite');
     await db.exec(statement);
   }
   let denied = false;
-  const client = { from(table) {
+  const client = { async rpc(name,args) {
+    assert.equal(name,'save_sale_with_stock');
+    const {order_status,stock_managed,...row} = args.p_sale;
+    const result = await client.from('manual_sales').upsert(row);
+    return {error:result.error,data:result.error ? null : {sale:{...row,stock_managed,stock_revision:1}}};
+  }, from(table) {
     assert.ok(tables.includes(table));
     return {
       select() { return { async order(column, options) {
@@ -42,7 +47,7 @@ const { PGlite } = require('@electric-sql/pglite');
   source = source.replace(/export function getSupabaseClient\(\): SupabaseClient \| null \{[\s\S]*?\n\}/, 'export function getSupabaseClient() { return globalThis.__testClient; }');
   const code = transformSync(source, { loader: 'ts', format: 'cjs', define: { 'import.meta.env': '{}' } }).code;
   const module = { exports: {} };
-  vm.runInNewContext(code, { module, exports: module.exports, require, console, __testClient: client });
+  vm.runInNewContext(code, { module, exports: module.exports, require, console, crypto:require('node:crypto').webcrypto, __testClient: client });
   const api = module.exports;
   const date = '2026-10-30';
   const note = 'Observação original\nacentuação e {JSON}';

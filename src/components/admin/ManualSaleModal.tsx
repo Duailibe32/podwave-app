@@ -1,4 +1,4 @@
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
 import { ManualSaleEntry, ManualSaleItem } from '../../types/catalog';
 import {
@@ -87,6 +87,7 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
     Array<{
       id: string;
       productId?: string;
+      flavorId?: string;
       productName: string;
       flavorName?: string;
       quantity: number;
@@ -100,10 +101,14 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
   const [selectedCatalogFlavorName, setSelectedCatalogFlavorName] = useState<string>('');
   const [isSaving, setIsSaving] = useState<boolean>(false);
   const [formError, setFormError] = useState<string | null>(null);
+  const newSaleId = useRef('');
+  const mutation = useRef({ fingerprint:'', id:'' });
 
   // Initialize or reset form when modal opens or saleToEdit changes
   useEffect(() => {
     if (!isOpen) return;
+    newSaleId.current = crypto.randomUUID();
+    mutation.current = {fingerprint:'',id:''};
 
     if (saleToEdit) {
       setSaleDate(toDateTimeLocal(saleToEdit.saleDate));
@@ -123,6 +128,7 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
           saleToEdit.items.map((it, idx) => ({
             id: it.id || `item-${Date.now()}-${idx}`,
             productId: it.productId,
+            flavorId: it.flavorId,
             productName: it.productName || '',
             flavorName: it.flavorName,
             quantity: Number(it.quantity) || 1,
@@ -218,12 +224,17 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
     if (!selectedCatalogModelId) return;
     const model = models.find((m) => m.id === selectedCatalogModelId);
     if (!model) return;
+    const flavor = model.flavors.find((f) => f.id === selectedCatalogFlavorName);
+    if (!model.active || !flavor?.inStock || !Number.isInteger(flavor.demoQuantity) || (flavor.demoQuantity ?? 0)<1) {
+      setFormError('Escolha um produto e sabor com quantidade disponível no estoque.'); return;
+    }
 
     const newItem = {
       id: `item-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       productId: model.id,
+      flavorId: flavor.id,
       productName: model.modelName,
-      flavorName: selectedCatalogFlavorName || undefined,
+      flavorName: flavor.name,
       quantity: 1,
       unitPrice: Number(model.startingPrice) || 0,
       unitCost: '' as const, // Unknown unit cost by default, never zero
@@ -258,6 +269,7 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
   // Form submission with safety (never loss of data on error)
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    if (isSaving) return;
     setFormError(null);
 
     // Validation
@@ -285,6 +297,7 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
     const payloadItems: ManualSaleItem[] = items.map((it) => ({
       id: it.id,
       productId: it.productId,
+      flavorId: it.flavorId,
       productName: it.productName.trim(),
       flavorName: it.flavorName?.trim() || undefined,
       quantity: Number(it.quantity) || 1,
@@ -298,7 +311,10 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
     }));
 
     const saleEntry: ManualSaleEntry = {
-      id: saleToEdit?.id || `sale-${Date.now()}-${Math.random().toString(36).substring(2, 7)}`,
+      ...saleToEdit,
+      id: saleToEdit?.id || newSaleId.current,
+      stockManaged: saleToEdit ? saleToEdit.stockManaged === true : true,
+      stockRevision: saleToEdit?.stockRevision ?? 0,
       saleDate: new Date(saleDate).toISOString(),
       customerName: customerName.trim() || undefined,
       customerPhone: customerPhone.trim() || undefined,
@@ -313,7 +329,7 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
       paymentMethod,
       orderStatus,
       receivedDate: amountReceived > 0 && receivedDate ? new Date(receivedDate).toISOString() : undefined,
-      items: payloadItems,
+      items: saleToEdit && !saleToEdit.stockManaged ? saleToEdit.items : payloadItems,
       receipts:
         saleToEdit?.receipts && saleToEdit.receipts.length > 0
           ? saleToEdit.receipts
@@ -334,6 +350,9 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
     };
 
     setIsSaving(true);
+    const fingerprint = JSON.stringify({items,paymentMethod,orderStatus,saleDate,customerName,customerPhone,deliveryType,receivedDate,notes,deliveryFee,discount,amountReceived});
+    if (mutation.current.fingerprint !== fingerprint) mutation.current = {fingerprint,id:crypto.randomUUID()};
+    saleEntry.stockRequestId = mutation.current.id;
     const result = await saveManualSale(saleEntry);
     setIsSaving(false);
 
@@ -472,7 +491,8 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
           </div>
 
           {/* SEÇÃO 2: ITENS DA VENDA (MÚLTIPLOS PRODUTOS) */}
-          <div className="p-4 sm:p-5 rounded-2xl bg-[#0D1022] border border-[#8423DA]/20 space-y-4">
+          {saleToEdit && !saleToEdit.stockManaged && <p className="text-sm text-amber-300">Venda histórica: os itens são preservados e não haverá baixa retroativa no estoque. Você pode atualizar os demais dados.</p>}
+          <div inert={Boolean(saleToEdit && !saleToEdit.stockManaged)} className="p-4 sm:p-5 rounded-2xl bg-[#0D1022] border border-[#8423DA]/20 space-y-4">
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
               <div className="flex items-center gap-2 text-xs font-bold text-[#00DFFF] uppercase tracking-wider">
                 <Package className="w-4 h-4" />
@@ -525,12 +545,12 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
                 >
                   <option value="" className="bg-[#090C19]">
                     {selectedModelObj && selectedModelObj.flavors.length > 0
-                      ? '-- Selecione o Sabor (Opcional) --'
+                      ? '-- Selecione o Sabor --'
                       : 'Sem variação de sabor'}
                   </option>
                   {selectedModelObj?.flavors.map((f) => (
-                    <option key={f.id} value={f.name} className="bg-[#090C19]">
-                      {f.name}
+                    <option key={f.id} value={f.id} disabled={!f.inStock || !Number.isInteger(f.demoQuantity) || (f.demoQuantity ?? 0)<1} className="bg-[#090C19]">
+                      {f.name} — {f.demoQuantity ?? 'não informado'} em estoque
                     </option>
                   ))}
                 </select>
@@ -539,7 +559,7 @@ export const ManualSaleModal: React.FC<ManualSaleModalProps> = ({
               <button
                 type="button"
                 onClick={handleAddFromCatalog}
-                disabled={!selectedCatalogModelId}
+                disabled={!selectedCatalogModelId || !selectedCatalogFlavorName}
                 className="px-4 py-2 rounded-xl bg-gradient-to-r from-[#00DFFF] to-[#8423DA] text-black font-extrabold text-xs shadow-md shadow-[#00DFFF]/20 hover:brightness-110 transition-all cursor-pointer disabled:opacity-40 disabled:cursor-not-allowed shrink-0"
               >
                 + Inserir na Venda

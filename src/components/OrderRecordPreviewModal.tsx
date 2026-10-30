@@ -63,10 +63,9 @@ export const OrderRecordPreviewModal: React.FC<OrderRecordPreviewModalProps> = (
     }
   };
 
-  const handleSendWhatsapp = () => {
+  const handleSendWhatsapp = async () => {
     // Send the exact same validated Unicode string previewed by the user
-    submitOrderViaWhatsapp(form, recordText);
-    onClose();
+    if (await submitOrderViaWhatsapp(form, recordText)) onClose();
   };
 
   return (
