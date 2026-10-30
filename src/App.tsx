@@ -16,6 +16,7 @@ import { AdminPanel } from './components/admin/AdminPanel';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { AuthModal } from './components/auth/AuthModal';
 import { CustomerProfileModal } from './components/auth/CustomerProfileModal';
+import { OrderNotificationsProvider } from './context/OrderNotificationsContext';
 
 const AppContent: React.FC = () => {
   const { currentView } = useCatalog();
@@ -56,7 +57,7 @@ export default function App() {
   return (
     <ToastProvider>
       <CatalogProvider>
-        <AppContent />
+        <OrderNotificationsProvider><AppContent /></OrderNotificationsProvider>
       </CatalogProvider>
     </ToastProvider>
   );

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
 import { CustomerAddress } from '../../types/catalog';
+import { OrderNotificationSettings } from '../../context/OrderNotificationsContext';
 import {
   X,
   User,
@@ -34,6 +35,11 @@ export const CustomerProfileModal: React.FC = () => {
   } = useCatalog();
 
   const [activeTab, setActiveTab] = useState<'profile' | 'orders'>('profile');
+  React.useEffect(() => {
+    const openOrders = () => setActiveTab('orders');
+    window.addEventListener('podwave:open-orders',openOrders);
+    return () => window.removeEventListener('podwave:open-orders',openOrders);
+  },[]);
   const [fullName, setFullName] = useState(currentUser?.fullName || '');
   const [phoneWhatsapp, setPhoneWhatsapp] = useState(currentUser?.phoneWhatsapp || '');
   const [cpf, setCpf] = useState(currentUser?.cpf || '');
@@ -457,6 +463,7 @@ export const CustomerProfileModal: React.FC = () => {
           )}
         </div>
 
+        <div className="px-4 pb-3"><OrderNotificationSettings /></div>
         {/* Footer */}
         <div className="p-4 bg-[#080811] border-t border-[#8423DA]/20 flex items-center justify-between shrink-0">
           <button
