@@ -2,6 +2,8 @@
 
 Local: Painel Administrativo → Meu Negócio → Clientes, somente para proprietário. Tela de consulta, sem cadastro, edição, exclusão, quitação automática ou alteração de estoque. Não exige SQL.
 
+Evolução: a ficha mantém os registros financeiros somente para leitura e agora pode incluir uma área separada de atendimentos internos. Essa área grava apenas observações em uma tabela própria e exige a instalação descrita em SERVICE_HISTORY_AND_ACCESSIBILITY.md. Não modifica os dados financeiros consultados pela ficha.
+
 ## Dados e identificação
 
 A ficha usa vendas manuais e compromissos avulsos a receber já carregados pelo contexto financeiro. Compromissos a pagar, despesas e compras de fornecedores não são classificados como dívidas de clientes. Não associa contas de login do site a clientes financeiros por suposição.

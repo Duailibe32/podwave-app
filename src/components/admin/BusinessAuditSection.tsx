@@ -9,12 +9,13 @@ interface AuditEvent {
   before_data: Record<string, unknown> | null; after_data: Record<string, unknown> | null;
 }
 const entities: Record<string,string> = {
+  customer_service_notes:'Atendimentos',
   manual_sales:'Vendas',manual_expenses:'Gastos',merchandise_purchases:'Compras',cash_movements:'Fluxo de caixa',
   initial_cash_balances:'Saldos iniciais',manual_commitments:'Contas pendentes',brands:'Marcas',product_models:'Produtos',
   flavor_variants:'Sabores e estoque',banners:'Banners',coupons:'Cupons',
 };
 const operations: Record<string,string> = {INSERT:'Criação',UPDATE:'Alteração',DELETE:'Exclusão'};
-const labels: Record<string,string> = {demo_quantity:'Quantidade em estoque',in_stock:'Disponível',items:'Itens',total:'Total',amount:'Valor',payment_status:'Situação do pagamento',amount_received:'Valor recebido',amount_paid:'Valor pago',amount_pending:'Valor pendente',notes:'Observações',stock_allocation:'Unidades reservadas por sabor',stock_revision:'Versão da venda',stock_deducted:'Estoque descontado',stock_managed:'Controle automático',title:'Descrição',customer_name:'Cliente',supplier:'Fornecedor',person_or_supplier:'Pessoa / fornecedor'};
+const labels: Record<string,string> = {body:"Observação interna",occurred_on:"Data do atendimento",change_reason:"Motivo",source_kind:"Tipo de origem",source_id:"Registro de origem",is_void:"Invalidado",version:"Versão do atendimento",created_by:"Autor original",updated_by:"Responsável pela alteração",demo_quantity:'Quantidade em estoque',in_stock:'Disponível',items:'Itens',total:'Total',amount:'Valor',payment_status:'Situação do pagamento',amount_received:'Valor recebido',amount_paid:'Valor pago',amount_pending:'Valor pendente',notes:'Observações',stock_allocation:'Unidades reservadas por sabor',stock_revision:'Versão da venda',stock_deducted:'Estoque descontado',stock_managed:'Controle automático',title:'Descrição',customer_name:'Cliente',supplier:'Fornecedor',person_or_supplier:'Pessoa / fornecedor'};
 function display(value: unknown): string {
   if (value === undefined || value === null) return '—';
   if (typeof value === 'string' && value.startsWith('podwave:financial-notes:v1:')) {

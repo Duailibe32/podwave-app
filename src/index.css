@@ -126,6 +126,25 @@ html.light ::-webkit-scrollbar-track {
   will-change: transform, opacity;
 }
 
+/* Keyboard navigation stays visible without relying on neon color alone. */
+button:focus-visible, a:focus-visible, input:focus-visible, select:focus-visible,
+textarea:focus-visible, summary:focus-visible {
+  outline: 2px solid #00DFFF;
+  outline-offset: 3px;
+}
+html.light :is(button, a, input, select, textarea, summary):focus-visible {
+  outline-color: #075985;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  *, *::before, *::after {
+    scroll-behavior: auto !important;
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
+
 @media (prefers-reduced-motion: reduce) {
   .animate-card-fade-slide-up {
     animation: none !important;
