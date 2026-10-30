@@ -23,6 +23,7 @@ import {
   ShieldCheck,
   Fingerprint,
 } from 'lucide-react';
+import { PasskeyBiometricLoading } from './PasskeyBiometricLoading';
 
 type AuthModalTab = 'login' | 'otp' | 'signup';
 
@@ -455,35 +456,40 @@ export const AuthModal: React.FC = () => {
         {/* ===================== TAB 1: LOGIN COM SENHA ===================== */}
         {mode === 'login' && (
           <div className="p-6 space-y-4 text-xs">
-            {/* Botão de Destaque: Entrar com Face ID, Digital ou Passkey */}
-            <button
-              type="button"
-              onClick={handlePasskeySignIn}
-              disabled={isPasskeyLoading || isLoading || isGoogleLoading}
-              className="w-full relative group rounded-2xl p-[1.5px] bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:shadow-xl hover:shadow-[#00DFFF]/25 transition-all duration-300 active:scale-[0.98] cursor-pointer disabled:opacity-50"
-            >
-              <div className="w-full h-full py-3 px-4 rounded-[14px] bg-gradient-to-r from-[#0F132B] via-[#0C0F22] to-[#121633] group-hover:from-[#141938] group-hover:to-[#171D42] flex items-center justify-between transition-all">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#8423DA]/30 to-[#00DFFF]/30 border border-[#00DFFF]/60 flex items-center justify-center text-[#00DFFF] shadow-md shadow-[#00DFFF]/20 group-hover:scale-105 group-hover:border-[#00DFFF] transition-all">
-                    {isPasskeyLoading ? (
-                      <RefreshCw className="w-5 h-5 animate-spin text-[#00DFFF]" />
-                    ) : (
+            {/* Feedback Visual: Skeleton Loading com Ícone de Biometria */}
+            {isPasskeyLoading ? (
+              <PasskeyBiometricLoading
+                onCancel={() => setIsPasskeyLoading(false)}
+                title="Aguardando autorização biométrica..."
+                description="O seu navegador está solicitando a confirmação por Face ID, digital ou chave de segurança FIDO2."
+                mode="signin"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={handlePasskeySignIn}
+                disabled={isLoading || isGoogleLoading}
+                className="w-full relative group rounded-2xl p-[1.5px] bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:shadow-xl hover:shadow-[#00DFFF]/25 transition-all duration-300 active:scale-[0.98] cursor-pointer disabled:opacity-50"
+              >
+                <div className="w-full h-full py-3 px-4 rounded-[14px] bg-gradient-to-r from-[#0F132B] via-[#0C0F22] to-[#121633] group-hover:from-[#141938] group-hover:to-[#171D42] flex items-center justify-between transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#8423DA]/30 to-[#00DFFF]/30 border border-[#00DFFF]/60 flex items-center justify-center text-[#00DFFF] shadow-md shadow-[#00DFFF]/20 group-hover:scale-105 group-hover:border-[#00DFFF] transition-all">
                       <Fingerprint className="w-5 h-5 text-[#00DFFF]" />
-                    )}
+                    </div>
+                    <div className="text-left">
+                      <span className="block font-black text-xs text-white group-hover:text-[#00DFFF] transition-colors flex items-center gap-1.5">
+                        Entrar com Face ID, Digital ou Passkey
+                        <Sparkles className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
+                      </span>
+                      <span className="block text-[10px] text-[#A5A5B8]">
+                        Acesso biométrico rápido sem precisar digitar senha
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <span className="block font-black text-xs text-white group-hover:text-[#00DFFF] transition-colors flex items-center gap-1.5">
-                      Entrar com Face ID, Digital ou Passkey
-                      <Sparkles className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
-                    </span>
-                    <span className="block text-[10px] text-[#A5A5B8]">
-                      Acesso biométrico rápido sem precisar digitar senha
-                    </span>
-                  </div>
+                  <ArrowRight className="w-4 h-4 text-[#00DFFF] group-hover:translate-x-1 transition-transform shrink-0" />
                 </div>
-                <ArrowRight className="w-4 h-4 text-[#00DFFF] group-hover:translate-x-1 transition-transform shrink-0" />
-              </div>
-            </button>
+              </button>
+            )}
 
             {/* Botão de Login com Google (1 clique) */}
             <button
@@ -645,35 +651,40 @@ export const AuthModal: React.FC = () => {
         {/* ===================== TAB 2: LOGIN SEM SENHA (OTP) ===================== */}
         {mode === 'otp' && (
           <div className="p-6 space-y-4 text-xs">
-            {/* Botão de Destaque: Entrar com Face ID, Digital ou Passkey */}
-            <button
-              type="button"
-              onClick={handlePasskeySignIn}
-              disabled={isPasskeyLoading || isOtpSending || isOtpVerifying}
-              className="w-full relative group rounded-2xl p-[1.5px] bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:shadow-xl hover:shadow-[#00DFFF]/25 transition-all duration-300 active:scale-[0.98] cursor-pointer disabled:opacity-50"
-            >
-              <div className="w-full h-full py-3 px-4 rounded-[14px] bg-gradient-to-r from-[#0F132B] via-[#0C0F22] to-[#121633] group-hover:from-[#141938] group-hover:to-[#171D42] flex items-center justify-between transition-all">
-                <div className="flex items-center gap-3">
-                  <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#8423DA]/30 to-[#00DFFF]/30 border border-[#00DFFF]/60 flex items-center justify-center text-[#00DFFF] shadow-md shadow-[#00DFFF]/20 group-hover:scale-105 group-hover:border-[#00DFFF] transition-all">
-                    {isPasskeyLoading ? (
-                      <RefreshCw className="w-5 h-5 animate-spin text-[#00DFFF]" />
-                    ) : (
+            {/* Feedback Visual: Skeleton Loading com Ícone de Biometria */}
+            {isPasskeyLoading ? (
+              <PasskeyBiometricLoading
+                onCancel={() => setIsPasskeyLoading(false)}
+                title="Aguardando autorização biométrica..."
+                description="O seu navegador está solicitando a confirmação por Face ID, digital ou chave de segurança FIDO2."
+                mode="signin"
+              />
+            ) : (
+              <button
+                type="button"
+                onClick={handlePasskeySignIn}
+                disabled={isOtpSending || isOtpVerifying}
+                className="w-full relative group rounded-2xl p-[1.5px] bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:shadow-xl hover:shadow-[#00DFFF]/25 transition-all duration-300 active:scale-[0.98] cursor-pointer disabled:opacity-50"
+              >
+                <div className="w-full h-full py-3 px-4 rounded-[14px] bg-gradient-to-r from-[#0F132B] via-[#0C0F22] to-[#121633] group-hover:from-[#141938] group-hover:to-[#171D42] flex items-center justify-between transition-all">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-gradient-to-br from-[#8423DA]/30 to-[#00DFFF]/30 border border-[#00DFFF]/60 flex items-center justify-center text-[#00DFFF] shadow-md shadow-[#00DFFF]/20 group-hover:scale-105 group-hover:border-[#00DFFF] transition-all">
                       <Fingerprint className="w-5 h-5 text-[#00DFFF]" />
-                    )}
+                    </div>
+                    <div className="text-left">
+                      <span className="block font-black text-xs text-white group-hover:text-[#00DFFF] transition-colors flex items-center gap-1.5">
+                        Entrar com Face ID, Digital ou Passkey
+                        <Sparkles className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
+                      </span>
+                      <span className="block text-[10px] text-[#A5A5B8]">
+                        Entrar instantaneamente com biometria cadastrada
+                      </span>
+                    </div>
                   </div>
-                  <div className="text-left">
-                    <span className="block font-black text-xs text-white group-hover:text-[#00DFFF] transition-colors flex items-center gap-1.5">
-                      Entrar com Face ID, Digital ou Passkey
-                      <Sparkles className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
-                    </span>
-                    <span className="block text-[10px] text-[#A5A5B8]">
-                      Entrar instantaneamente com biometria cadastrada
-                    </span>
-                  </div>
+                  <ArrowRight className="w-4 h-4 text-[#00DFFF] group-hover:translate-x-1 transition-transform shrink-0" />
                 </div>
-                <ArrowRight className="w-4 h-4 text-[#00DFFF] group-hover:translate-x-1 transition-transform shrink-0" />
-              </div>
-            </button>
+              </button>
+            )}
 
             {/* Botão de Login com Google (1 clique) */}
             <button

@@ -50,6 +50,7 @@ import {
   KeyRound,
   Check,
 } from 'lucide-react';
+import { PasskeyBiometricLoading } from './PasskeyBiometricLoading';
 
 export const CustomerProfileModal: React.FC = () => {
   const {
@@ -1373,38 +1374,40 @@ export const CustomerProfileModal: React.FC = () => {
                 </div>
               )}
 
-              {/* Action Button: Cadastrar uma Passkey neste dispositivo */}
-              <div className="p-4 rounded-2xl bg-[#090C1B] border border-[#00DFFF]/30 shadow-lg space-y-3">
-                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
-                  <div>
-                    <h5 className="font-bold text-white text-xs flex items-center gap-1.5">
-                      <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
-                      Novo Acesso Biométrico
-                    </h5>
-                    <p className="text-[11px] text-[#A5A5B8] mt-0.5">
-                      Vincule este smartphone ou computador à sua conta PodWave
-                    </p>
-                  </div>
+              {/* Feedback Visual: Skeleton Loading ao Cadastrar Passkey */}
+              {isRegisteringPasskey ? (
+                <PasskeyBiometricLoading
+                  onCancel={() => setIsRegisteringPasskey(false)}
+                  title="Cadastrando biometria no aparelho..."
+                  description="Confirme sua identidade via Face ID, digital ou PIN no seu dispositivo para concluir o registro."
+                  mode="register"
+                />
+              ) : (
+                /* Action Button: Cadastrar uma Passkey neste dispositivo */
+                <div className="p-4 rounded-2xl bg-[#090C1B] border border-[#00DFFF]/30 shadow-lg space-y-3">
+                  <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                    <div>
+                      <h5 className="font-bold text-white text-xs flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-[#00DFFF]" />
+                        Novo Acesso Biométrico
+                      </h5>
+                      <p className="text-[11px] text-[#A5A5B8] mt-0.5">
+                        Vincule este smartphone ou computador à sua conta PodWave
+                      </p>
+                    </div>
 
-                  <button
-                    type="button"
-                    onClick={handleRegisterPasskey}
-                    disabled={isRegisteringPasskey || isPasskeySupported === false}
-                    className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:brightness-110 active:scale-95 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#8423DA]/25 transition cursor-pointer disabled:opacity-50"
-                  >
-                    {isRegisteringPasskey ? (
-                      <RefreshCw className="w-4 h-4 animate-spin" />
-                    ) : (
+                    <button
+                      type="button"
+                      onClick={handleRegisterPasskey}
+                      disabled={isPasskeySupported === false}
+                      className="py-2.5 px-4 rounded-xl bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] hover:brightness-110 active:scale-95 text-white font-black text-xs flex items-center justify-center gap-2 shadow-lg shadow-[#8423DA]/25 transition cursor-pointer disabled:opacity-50"
+                    >
                       <Fingerprint className="w-4 h-4 text-[#00DFFF]" />
-                    )}
-                    <span>
-                      {isRegisteringPasskey
-                        ? 'Aguardando biometria...'
-                        : 'Cadastrar uma Passkey neste dispositivo'}
-                    </span>
-                  </button>
+                      <span>Cadastrar uma Passkey neste dispositivo</span>
+                    </button>
+                  </div>
                 </div>
-              </div>
+              )}
 
               {/* List of Registered Passkeys */}
               <div className="space-y-3">
