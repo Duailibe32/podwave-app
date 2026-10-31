@@ -1,7 +1,9 @@
 -- ============================================================================
 -- PROPOSTA DE CORREÇÃO DEFENSIVA (BASEADA NO DIAGNÓSTICO REAL DO BANCO)
 -- Projeto: Duailibe32/podwave-app (hccrgzjkbmgutpazlljb)
--- Natureza: Não destrutiva, transacional (BEGIN ... COMMIT), sem perda de dados
+-- Natureza: altera schema, grants e trigger; requer revisão e backup antes da aplicação.
+-- Para banco que já recebeu esta proposta, use o reparo restrito em proposals/20261031_profile_guard_repair.sql.
+-- Não executar esta proposta ampla novamente apenas para reparar a função.
 -- ============================================================================
 --
 -- PASSO 0 (RECOMENDADO ANTES DE APLICAR - BACKUP DE SEGURANÇA EM TABELA TEMPORÁRIA):
@@ -99,15 +101,19 @@ SECURITY DEFINER
 SET search_path = pg_catalog, public, pg_temp
 AS $function$
 DECLARE
-  v_uid text := pg_catalog.coalesce(auth.uid()::text, '');
-  v_jwt_role text := pg_catalog.coalesce(
-    pg_catalog.current_setting('request.jwt.claim.role', true),
-    (pg_catalog.nullif(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
+  v_uid text := COALESCE(auth.uid()::text, '');
+  v_jwt_role text := COALESCE(
+    NULLIF(pg_catalog.current_setting('request.jwt.claim.role', true), ''),
+    (NULLIF(pg_catalog.current_setting('request.jwt.claims', true), '')::jsonb ->> 'role'),
     ''
   );
   v_is_service boolean := (
     v_jwt_role = 'service_role'
-    OR pg_catalog.current_user IN ('postgres', 'supabase_admin', 'supabase_auth_admin')
+    OR (
+      auth.uid() IS NULL
+      AND session_user IN ('postgres', 'supabase_admin', 'supabase_auth_admin')
+      AND v_jwt_role NOT IN ('anon', 'authenticated')
+    )
   );
   v_is_owner boolean := app_security.is_podwave_finance_owner();
   v_is_admin boolean := (v_is_owner OR public.is_admin());
@@ -122,7 +128,7 @@ BEGIN
         RAISE EXCEPTION 'Operacao negada: perfil deve pertencer ao usuario autenticado.'
           USING ERRCODE = '42501';
       END IF;
-      IF pg_catalog.coalesce(NEW.role, 'customer') <> 'customer' THEN
+      IF COALESCE(NEW.role, 'customer') <> 'customer' THEN
         RAISE EXCEPTION 'Operacao negada: novos perfis nao podem definir cargo privilegiado.'
           USING ERRCODE = '42501';
       END IF;

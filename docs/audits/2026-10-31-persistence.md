@@ -1,3 +1,5 @@
+> Atualização posterior: consulte [a revisão do SQL do AI Studio](2026-10-31-ai-studio-security-review.md). Há mudanças no mapeamento de perfis e um defeito crítico na trigger proposta; os estados abaixo incluem histórico anterior.
+
 # Revisão defensiva de persistência — 31/10/2026
 
 Main consultada: `43371d34426032feaa892e65024a5a9de21e07b4`. Versão efetivamente publicada na Vercel não confirmada por SHA. Supabase: evidências enviadas pelo usuário; sem acesso direto do agente.
