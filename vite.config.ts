@@ -11,17 +11,28 @@ export default defineConfig(() => {
       tailwindcss(),
       VitePWA({
         registerType: 'autoUpdate',
-        includeAssets: ['apple-touch-icon.png', 'pwa-192x192.png', 'pwa-512x512.png', 'assets/images/logo.png'],
+        includeAssets: [
+          'apple-touch-icon.png',
+          'pwa-192x192.png',
+          'pwa-512x512.png',
+          'pwa-maskable-512x512.png',
+          'assets/images/logo.png',
+        ],
         manifest: {
           id: '/',
           name: 'PodWave — Catálogo Oficial de Pods',
           short_name: 'PodWave',
           description: 'Catálogo digital de pods premium e juices com contagem de puffs e entrega rápida em toda a região.',
+          lang: 'pt-BR',
+          dir: 'ltr',
           theme_color: '#080811',
           background_color: '#080811',
           display: 'standalone',
+          orientation: 'portrait',
           start_url: '/',
           scope: '/',
+          prefer_related_applications: false,
+          categories: ['shopping', 'lifestyle'],
           icons: [
             {
               src: '/pwa-192x192.png',
@@ -51,20 +62,63 @@ export default defineConfig(() => {
           globIgnores: ['**/AdminPanel-*.js'],
           runtimeCaching: [
             {
+              // Supabase REST API — Dados públicos do catálogo (carregamento instantâneo + atualização em 2º plano)
+              urlPattern: ({ request, url }) =>
+                request.method === 'GET' &&
+                /\.supabase\.co$/i.test(url.hostname) &&
+                /^\/rest\/v1\/(?:brands|product_models|flavor_variants|banners|coupons|store_settings)\b/i.test(
+                  url.pathname
+                ),
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'supabase-catalog-data-swr',
+                expiration: {
+                  maxEntries: 60,
+                  maxAgeSeconds: 60 * 60 * 24 * 7, // 7 dias
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              // Dados locais/API do catálogo em JSON
+              urlPattern: ({ request, url }) =>
+                request.method === 'GET' &&
+                (url.pathname.startsWith('/api/catalog') ||
+                  (url.origin === self.location.origin &&
+                    url.pathname.endsWith('.json') &&
+                    !url.pathname.includes('manifest'))),
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'catalog-json-data-swr',
+                expiration: {
+                  maxEntries: 30,
+                  maxAgeSeconds: 60 * 60 * 24 * 7, // 7 dias
+                },
+                cacheableResponse: {
+                  statuses: [0, 200],
+                },
+              },
+            },
+            {
+              // Imagens do catálogo (locais e remotas/Supabase Storage) com Stale-While-Revalidate
+              urlPattern: ({ request, url }) =>
+                request.destination === 'image' &&
+                (url.origin === self.location.origin || /\.supabase\.co$/i.test(url.hostname)),
+              handler: 'StaleWhileRevalidate',
+              options: {
+                cacheName: 'catalog-images-cache',
+                expiration: { maxEntries: 100, maxAgeSeconds: 60 * 60 * 24 * 30 },
+                cacheableResponse: { statuses: [0, 200] },
+              },
+            },
+            {
               urlPattern: /\/assets\/AdminPanel-[^/]+\.js$/,
               handler: 'CacheFirst',
               options: {
                 cacheName: 'admin-code-cache',
                 expiration: { maxEntries: 3, maxAgeSeconds: 60 * 60 * 24 * 30 },
-                cacheableResponse: { statuses: [200] },
-              },
-            },
-            {
-              urlPattern: ({ request, url }) => request.destination === 'image' && url.origin === self.location.origin,
-              handler: 'CacheFirst',
-              options: {
-                cacheName: 'catalog-images-cache',
-                expiration: { maxEntries: 60, maxAgeSeconds: 60 * 60 * 24 * 30 },
                 cacheableResponse: { statuses: [200] },
               },
             },

@@ -14,6 +14,7 @@ import { CartDrawer } from './components/CartDrawer';
 import { CheckoutDrawer } from './components/CheckoutDrawer';
 import { FloatingActions } from './components/FloatingActions';
 import { OfflineIndicator } from './components/OfflineIndicator';
+import { PWAInstallButton } from './components/PWAInstallButton';
 import { AuthModal } from './components/auth/AuthModal';
 import { CustomerProfileModal } from './components/auth/CustomerProfileModal';
 import { OrderNotificationsProvider } from './context/OrderNotificationsContext';
@@ -49,6 +50,7 @@ const AppContent: React.FC = () => {
       <ProductDetailModal />
       <CartDrawer />
       <CheckoutDrawer />
+      <PWAInstallButton variant="smart-banner" />
       <FloatingActions />
       <OfflineIndicator />
       <AuthModal />
