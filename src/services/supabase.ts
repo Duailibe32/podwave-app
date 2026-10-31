@@ -867,8 +867,10 @@ export async function upsertCustomerProfileToSupabase(profile: UserProfile): Pro
   const cleanFullName = (profile.fullName || cleanEmail.split('@')[0] || 'Cliente').trim();
   const nowIso = new Date().toISOString();
 
+  // New profiles default to the verified flat schema; only an existing legacy row selects JSON first.
   const usesRealFlatSchema =
-    previous != null && ('full_name' in previous || 'address_cep' in previous) && !('default_address' in previous);
+    previous == null ||
+    (('full_name' in previous || 'address_cep' in previous) && !('default_address' in previous));
 
   const realFlatPayload = {
     id: profile.id,
@@ -908,8 +910,10 @@ export async function upsertCustomerProfileToSupabase(profile: UserProfile): Pro
   try {
     const primaryPayload: Record<string, unknown> = usesRealFlatSchema ? realFlatPayload : legacyJsonPayload;
     let { data, error } = await client.from('customer_profiles').upsert(primaryPayload).select('id');
-    if (error && !usesRealFlatSchema && isMissingColumnError(error)) {
-      const retry = await client.from('customer_profiles').upsert(realFlatPayload).select('id');
+    if (error && isMissingColumnError(error)) {
+      // One compatibility retry for an explicitly missing column, never for permission/network errors.
+      const fallbackPayload = usesRealFlatSchema ? legacyJsonPayload : realFlatPayload;
+      const retry = await client.from('customer_profiles').upsert(fallbackPayload).select('id');
       data = retry.data;
       error = retry.error;
     }

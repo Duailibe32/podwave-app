@@ -1,0 +1,400 @@
+{
+  "base": "b6a395eca6e8f5d209401bf8351263f8917b15ff",
+  "files": [
+    {
+      "path": "src/App.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/BrandScroller.tsx",
+      "nameOccurrences": 5,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/CartDrawer.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/CatalogSection.tsx",
+      "nameOccurrences": 3,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/CheckoutDrawer.tsx",
+      "nameOccurrences": 11,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/FloatingActions.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/Footer.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/GpsLocationSection.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/Header.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/HeroBanner.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/InfoSection.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/LoyaltyHomeSection.tsx",
+      "nameOccurrences": 1,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/OfflineIndicator.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/OrderRecordPreviewModal.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/OrderStatusTimeline.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/PWAInstallButton.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/ProductCard.tsx",
+      "nameOccurrences": 2,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/ProductDetailModal.tsx",
+      "nameOccurrences": 3,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/TopCarouselBar.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/ActivityLogsSection.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/AdminLogin.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/AdminPanel.tsx",
+      "nameOccurrences": 60,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/BannerVisualEditor.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/BusinessAuditSection.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/BusinessCharts.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/BusinessOverviewDashboard.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/BusinessReportsSection.tsx",
+      "nameOccurrences": 3,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/CashBalanceConfigModal.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/CashFlowCharts.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/CashMovementModal.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/CustomerFinancialSection.tsx",
+      "nameOccurrences": 4,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/CustomerServiceHistory.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/ImageEditorStudioModal.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/InstallmentConfigModal.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/ManualCommitmentModal.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/ManualExpenseModal.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/ManualSaleModal.tsx",
+      "nameOccurrences": 2,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/MerchandisePurchaseModal.tsx",
+      "nameOccurrences": 17,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/MyBusinessModule.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/MyCashFlowSection.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/MyExpensesSection.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/MyPendingAccountsSection.tsx",
+      "nameOccurrences": 1,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/MyPurchasesSection.tsx",
+      "nameOccurrences": 3,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/MySalesSection.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/OrdersCenterTab.tsx",
+      "nameOccurrences": 1,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/OwnerAdvancedSettings.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/PendingAccountsCalendar.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/PendingSettlementModal.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/SupabaseTab.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/admin/UserManagementTab.tsx",
+      "nameOccurrences": 4,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/auth/AuthModal.tsx",
+      "nameOccurrences": 10,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/auth/CustomerProfileModal.tsx",
+      "nameOccurrences": 15,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/auth/PasskeyBiometricLoading.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/ui/DigitalLoyaltyCard.tsx",
+      "nameOccurrences": 2,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/components/ui/ToastContainer.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/context/CatalogContext.tsx",
+      "nameOccurrences": 10,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/context/OrderNotificationsContext.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/context/ToastContext.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/data/initialData.ts",
+      "nameOccurrences": 69,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/hooks/useCepLookup.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/hooks/useOnlineStatus.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/hooks/usePWAInstall.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/main.tsx",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/services/cep.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/services/customerServiceNotes.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/services/orderCenterService.ts",
+      "nameOccurrences": 4,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/services/supabase.ts",
+      "nameOccurrences": 15,
+      "noteOccurrences": 10
+    },
+    {
+      "path": "src/types/catalog.ts",
+      "nameOccurrences": 4,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/types/toast.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/availability.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/businessMetrics.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/customerFinancialRecords.ts",
+      "nameOccurrences": 8,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/customerInputs.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/loyaltyCard.ts",
+      "nameOccurrences": 4,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/pricing.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/publicSupabaseConfig.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/recordFormatter.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/stock.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    },
+    {
+      "path": "src/utils/whatsappShare.ts",
+      "nameOccurrences": 0,
+      "noteOccurrences": 0
+    }
+  ]
+}
