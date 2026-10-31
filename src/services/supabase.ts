@@ -50,13 +50,29 @@ export function getSupabaseCredentials(): { url: string; anonKey: string; isConf
 }
 
 export function saveSupabaseCredentials(url: string, anonKey: string): boolean {
-  if (!isPublicSupabaseConfig(url.trim(), anonKey.trim())) return false;
-  const envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  let cleanUrl = url.trim();
+  try {
+    if (cleanUrl) {
+      cleanUrl = new URL(cleanUrl).origin;
+    }
+  } catch {
+    cleanUrl = url.trim();
+  }
+  const cleanKey = anonKey.trim();
+  if (!isPublicSupabaseConfig(cleanUrl, cleanKey)) return false;
+  let envUrl = (import.meta.env.VITE_SUPABASE_URL || '').trim();
+  try {
+    if (envUrl) {
+      envUrl = new URL(envUrl).origin;
+    }
+  } catch {
+    // keep raw envUrl
+  }
   const envKey = (import.meta.env.VITE_SUPABASE_ANON_KEY || '').trim();
-  if ((envUrl && envUrl !== url.trim()) || (envKey && envKey !== anonKey.trim())) return false;
+  if ((envUrl && envUrl !== cleanUrl) || (envKey && envKey !== cleanKey)) return false;
   if (typeof window !== 'undefined') {
-    localStorage.setItem(SUPABASE_URL_KEY, url.trim());
-    localStorage.setItem(SUPABASE_ANON_KEY, anonKey.trim());
+    localStorage.setItem(SUPABASE_URL_KEY, cleanUrl);
+    localStorage.setItem(SUPABASE_ANON_KEY, cleanKey);
     // getSupabaseClient replaces the cached client only when the effective configuration changes.
   }
   return true;
@@ -1251,6 +1267,9 @@ export function translateSupabaseAuthError(errorMsg: string): string {
   }
   if (msg.includes('rate limit') || msg.includes('too many requests') || msg.includes('over_email_send_rate_limit')) {
     return 'Muitas tentativas em pouco tempo. Por segurança, aguarde alguns instantes antes de tentar novamente.';
+  }
+  if (msg.includes('error sending magic link email') || msg.includes('error sending confirmation email') || msg.includes('error sending recovery email')) {
+    return 'O Supabase não conseguiu enviar o e-mail agora (o plano gratuito do Supabase limita a 2 a 4 e-mails por hora, ou o servidor SMTP personalizado precisa de ajuste). Use o login com E-mail e Senha ou aguarde alguns minutos.';
   }
   if (msg.includes('token has expired') || msg.includes('otp expired')) {
     return 'O código de verificação expirou. Solicite um novo código por e-mail.';

@@ -350,17 +350,17 @@ export const CustomerProfileModal: React.FC = () => {
       aria-modal="true"
       aria-labelledby="customer-profile-modal-title"
     >
-      <div className="relative w-full max-w-xl rounded-2xl sm:rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden my-auto flex flex-col max-h-[92dvh] sm:max-h-[88vh]">
+      <div className="relative w-full max-w-xl rounded-2xl sm:rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden my-auto flex flex-col max-h-[94dvh] sm:max-h-[88vh]">
         {/* User Hero Banner */}
-        <div className="p-4 sm:p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-b border-[#8423DA]/30 flex items-center justify-between gap-2">
-          <div className="flex items-center gap-3 min-w-0">
-            <div className="relative w-13 h-13 rounded-2xl bg-gradient-to-br from-[#8423DA] to-[#007BFF] p-0.5 shadow-lg shadow-[#8423DA]/30 shrink-0">
-              <div className="w-full h-full rounded-[14px] bg-[#0D1022] flex items-center justify-center font-heading font-black text-white text-lg">
+        <div className="p-3.5 sm:p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-b border-[#8423DA]/30 flex items-start sm:items-center justify-between gap-2 shrink-0">
+          <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
+            <div className="relative w-11 h-11 sm:w-13 sm:h-13 rounded-2xl bg-gradient-to-br from-[#8423DA] to-[#007BFF] p-0.5 shadow-lg shadow-[#8423DA]/30 shrink-0">
+              <div className="w-full h-full rounded-[14px] bg-[#0D1022] flex items-center justify-center font-heading font-black text-white text-base sm:text-lg">
                 {currentUser.fullName ? currentUser.fullName.charAt(0).toUpperCase() : 'U'}
               </div>
               {featuredBadge && (
                 <span
-                  className="absolute -bottom-1.5 -right-1.5 w-6 h-6 rounded-full bg-[#121633] border border-[#00DFFF]/60 flex items-center justify-center text-xs shadow-md"
+                  className="absolute -bottom-1.5 -right-1.5 w-5 h-5 sm:w-6 sm:h-6 rounded-full bg-[#121633] border border-[#00DFFF]/60 flex items-center justify-center text-[11px] sm:text-xs shadow-md"
                   title={`Insígnia em destaque: ${featuredBadge.title}`}
                 >
                   {featuredBadge.iconEmoji}
@@ -368,34 +368,34 @@ export const CustomerProfileModal: React.FC = () => {
               )}
             </div>
 
-            <div>
+            <div className="min-w-0">
               <div className="flex items-center gap-1.5 flex-wrap">
-                <h3 id="customer-profile-modal-title" className="font-heading text-base font-black text-white mr-0.5">
+                <h3 id="customer-profile-modal-title" className="font-heading text-sm sm:text-base font-black text-white mr-0.5 truncate max-w-[180px] sm:max-w-none">
                   {currentUser.fullName || 'Minha Conta'}
                 </h3>
                 {isOwner ? (
-                  <span className="px-2.5 py-0.5 rounded-full bg-gradient-to-r from-amber-400/20 to-orange-400/20 border border-amber-400/50 text-amber-300 text-[10px] font-black flex items-center gap-1 shadow-sm">
+                  <span className="px-2 py-0.5 rounded-full bg-gradient-to-r from-amber-400/20 to-orange-400/20 border border-amber-400/50 text-amber-300 text-[10px] font-black flex items-center gap-1 shadow-sm">
                     <Crown className="w-3 h-3 text-amber-400" />
                     Proprietário
                   </span>
                 ) : currentUser.role === 'admin' ? (
-                  <span className="px-2.5 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/50 text-purple-300 text-[10px] font-black flex items-center gap-1 shadow-sm">
+                  <span className="px-2 py-0.5 rounded-full bg-purple-500/20 border border-purple-500/50 text-purple-300 text-[10px] font-black flex items-center gap-1 shadow-sm">
                     <ShieldCheck className="w-3 h-3 text-purple-400" />
                     Administrador
                   </span>
                 ) : isVip ? (
-                  <span className="px-2.5 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[10px] font-bold flex items-center gap-1">
+                  <span className="px-2 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[10px] font-bold flex items-center gap-1">
                     <Sparkles className="w-3 h-3 text-[#00DFFF]" />
                     Cliente VIP ({currentUser.vipDiscountCustom || settings.vipDiscountPercent || 10}% OFF)
                   </span>
                 ) : (
-                  <span className="px-2.5 py-0.5 rounded-full bg-white/10 border border-white/20 text-[#A5A5B8] text-[10px] font-bold">
+                  <span className="px-2 py-0.5 rounded-full bg-white/10 border border-white/20 text-[#A5A5B8] text-[10px] font-bold">
                     Cliente PodWave
                   </span>
                 )}
 
                 <span
-                  className={`px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${tierProgress.currentTier.badgeClass}`}
+                  className={`px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider flex items-center gap-1 ${tierProgress.currentTier.badgeClass}`}
                   title={`${tierProgress.currentTier.name} • ${tierProgress.totalStamps} selos acumulados`}
                 >
                   <Award className="w-3 h-3" />
@@ -404,7 +404,7 @@ export const CustomerProfileModal: React.FC = () => {
 
                 {featuredBadge && (
                   <span
-                    className={`px-2.5 py-0.5 rounded-full border text-[10px] font-black flex items-center gap-1 ${featuredBadge.rarityBadgeClass}`}
+                    className={`hidden sm:flex px-2.5 py-0.5 rounded-full border text-[10px] font-black items-center gap-1 ${featuredBadge.rarityBadgeClass}`}
                     title={`Insígnia Conquistada: ${featuredBadge.title} — ${featuredBadge.description}`}
                   >
                     <span>{featuredBadge.iconEmoji}</span>
@@ -412,16 +412,16 @@ export const CustomerProfileModal: React.FC = () => {
                   </span>
                 )}
               </div>
-              <div className="flex items-center gap-3 flex-wrap mt-1">
-                <p className="text-xs text-[#A5A5B8] flex items-center gap-1">
-                  <Mail className="w-3 h-3 text-gray-400" />
-                  <span>{currentUser.email}</span>
+              <div className="flex items-center gap-2 sm:gap-3 flex-wrap mt-1">
+                <p className="text-[11px] sm:text-xs text-[#A5A5B8] flex items-center gap-1 min-w-0">
+                  <Mail className="w-3 h-3 text-gray-400 shrink-0" />
+                  <span className="truncate max-w-[190px] sm:max-w-none">{currentUser.email}</span>
                 </p>
                 <span className="text-[10px] font-bold text-[#00DFFF] flex items-center gap-1">
-                  <Trophy className="w-3 h-3 text-amber-400" />
+                  <Trophy className="w-3 h-3 text-amber-400 shrink-0" />
                   <span>
                     {unlockedBadges.length}/{userBadges.length} insígnias • {redeemedRewards.length}{' '}
-                    {redeemedRewards.length === 1 ? 'prêmio resgatado' : 'prêmios resgatados'}
+                    {redeemedRewards.length === 1 ? 'prêmio' : 'prêmios'}
                   </span>
                 </span>
               </div>
@@ -432,7 +432,7 @@ export const CustomerProfileModal: React.FC = () => {
             type="button"
             onClick={closeProfileModal}
             aria-label="Fechar perfil"
-            className="min-w-[44px] min-h-[44px] p-2 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 text-gray-300 hover:text-white transition cursor-pointer flex items-center justify-center focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00DFFF]"
+            className="min-w-[40px] min-h-[40px] sm:min-w-[44px] sm:min-h-[44px] p-2 rounded-xl bg-[#141838] hover:bg-[#8423DA]/30 text-gray-300 hover:text-white transition cursor-pointer flex items-center justify-center shrink-0 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#00DFFF]"
           >
             <X className="w-5 h-5" />
           </button>
@@ -440,10 +440,10 @@ export const CustomerProfileModal: React.FC = () => {
 
         {/* Admin Quick Access Shortcut */}
         {isAdmin && (
-          <div className="px-6 py-2.5 bg-gradient-to-r from-amber-500/10 via-[#8423DA]/10 to-[#00DFFF]/10 border-b border-[#8423DA]/25 flex items-center justify-between text-xs">
+          <div className="px-3.5 sm:px-6 py-2 bg-gradient-to-r from-amber-500/10 via-[#8423DA]/10 to-[#00DFFF]/10 border-b border-[#8423DA]/25 flex items-center justify-between gap-2 flex-wrap text-xs shrink-0">
             <span className="text-amber-200 text-[11px] font-semibold flex items-center gap-1.5">
-              <ShieldCheck className="w-4 h-4 text-amber-400" />
-              {isOwner ? 'Você tem permissão de Dono da loja' : 'Você tem permissão de Administrador'}
+              <ShieldCheck className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+              <span>{isOwner ? 'Permissão de Dono da loja' : 'Permissão de Administrador'}</span>
             </span>
             <button
               type="button"
@@ -452,22 +452,22 @@ export const CustomerProfileModal: React.FC = () => {
                 setCurrentView('admin');
                 window.history.pushState({}, '', '/admin');
               }}
-              className="px-3 py-1 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-[#080811] text-[11px] font-black hover:brightness-110 cursor-pointer transition shadow-md"
+              className="px-3 py-1 rounded-xl bg-gradient-to-r from-amber-400 to-amber-500 text-[#080811] text-[11px] font-black hover:brightness-110 cursor-pointer transition shadow-md shrink-0"
             >
               Abrir Painel Admin &rarr;
             </button>
           </div>
         )}
 
-        {/* Tab Switcher */}
-        <div className="flex border-b border-[#8423DA]/20 bg-[#080811]/60 p-1.5 gap-1.5 shrink-0">
+        {/* Tab Switcher - Grade 2x2 no Celular (todas as 4 abas sempre visíveis) e 4 colunas no Desktop */}
+        <div className="grid grid-cols-2 sm:grid-cols-4 border-b border-[#8423DA]/20 bg-[#080811]/75 p-1.5 sm:p-2 gap-1.5 shrink-0">
           <button
             type="button"
             onClick={() => setActiveTab('profile')}
-            className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 min-h-[42px] py-2 px-2.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'profile'
                 ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white shadow-md'
-                : 'text-gray-400 hover:text-white'
+                : 'bg-[#141838]/50 sm:bg-transparent text-gray-300 hover:text-white'
             }`}
           >
             <MapPin className="w-3.5 h-3.5 shrink-0" />
@@ -477,10 +477,10 @@ export const CustomerProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('loyalty')}
-            className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 min-h-[42px] py-2 px-2.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'loyalty'
                 ? 'bg-gradient-to-r from-[#8423DA] via-[#E53CF3] to-[#00DFFF] text-white shadow-md'
-                : 'text-gray-400 hover:text-white'
+                : 'bg-[#141838]/50 sm:bg-transparent text-gray-300 hover:text-white'
             }`}
           >
             <Gift className="w-3.5 h-3.5 shrink-0 text-[#00DFFF]" />
@@ -492,10 +492,10 @@ export const CustomerProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('orders')}
-            className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 min-h-[42px] py-2 px-2.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'orders'
                 ? 'bg-gradient-to-r from-[#8423DA] to-[#007BFF] text-white shadow-md'
-                : 'text-gray-400 hover:text-white'
+                : 'bg-[#141838]/50 sm:bg-transparent text-gray-300 hover:text-white'
             }`}
           >
             <ShoppingBag className="w-3.5 h-3.5 shrink-0" />
@@ -505,14 +505,14 @@ export const CustomerProfileModal: React.FC = () => {
           <button
             type="button"
             onClick={() => setActiveTab('security')}
-            className={`flex-1 py-2 px-2 rounded-xl text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
+            className={`min-w-0 min-h-[42px] py-2 px-2.5 rounded-xl text-[11px] sm:text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1.5 ${
               activeTab === 'security'
                 ? 'bg-gradient-to-r from-[#8423DA] via-[#007BFF] to-[#00DFFF] text-white shadow-md'
-                : 'text-gray-400 hover:text-white'
+                : 'bg-[#141838]/60 sm:bg-transparent text-[#00DFFF] sm:text-gray-300 hover:text-white border border-[#00DFFF]/25 sm:border-transparent'
             }`}
           >
             <Fingerprint className="w-3.5 h-3.5 shrink-0 text-[#00DFFF]" />
-            <span className="truncate">Segurança</span>
+            <span className="truncate">Segurança & Face ID</span>
           </button>
         </div>
 
@@ -985,6 +985,33 @@ export const CustomerProfileModal: React.FC = () => {
           {/* ===================== TAB 1: PROFILE & DELIVERY ADDRESS ===================== */}
           {activeTab === 'profile' && (
             <form onSubmit={handleSaveProfile} className="customer-address-form space-y-4 text-xs">
+              {/* Atalho Rápido para Configurar Face ID / Biometria */}
+              <div className="p-3 rounded-2xl bg-gradient-to-r from-[#141838] via-[#10142D] to-[#161B3A] border border-[#00DFFF]/35 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
+                <div className="flex items-center gap-2.5 min-w-0">
+                  <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#8423DA]/30 to-[#00DFFF]/30 border border-[#00DFFF]/50 flex items-center justify-center text-[#00DFFF] shrink-0">
+                    <Fingerprint className="w-4 h-4" />
+                  </div>
+                  <div className="min-w-0">
+                    <span className="font-heading font-black text-white text-xs block">
+                      Login Rápido com Face ID / Digital
+                    </span>
+                    <span className="text-[11px] text-[#A5A5B8] block">
+                      {passkeys.length > 0
+                        ? `${passkeys.length} ${passkeys.length === 1 ? 'dispositivo biométrico ativo' : 'dispositivos biométricos ativos'}`
+                        : 'Cadastre a biometria deste celular ou PC para entrar sem senha'}
+                    </span>
+                  </div>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setActiveTab('security')}
+                  className="py-2 px-3.5 rounded-xl bg-gradient-to-r from-[#8423DA] to-[#00DFFF] text-white font-black text-[11px] hover:brightness-110 transition cursor-pointer flex items-center justify-center gap-1.5 shrink-0 shadow-md"
+                >
+                  <Fingerprint className="w-3.5 h-3.5" />
+                  <span>{passkeys.length > 0 ? 'Gerenciar Passkeys' : 'Ativar Face ID / Digital'}</span>
+                </button>
+              </div>
+
               <div className="space-y-1">
                 <h4 className="font-heading text-sm font-bold text-white flex items-center gap-1.5">
                   <User className="w-4 h-4 text-[#00DFFF]" />
