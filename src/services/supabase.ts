@@ -915,16 +915,17 @@ export async function deleteCustomerProfileFromSupabase(userId: string): Promise
   if (!client) return false;
 
   try {
-    const { error } = await client
+    const { data, error } = await client
       .from('customer_profiles')
       .delete()
-      .eq('id', userId);
+      .eq('id', userId)
+      .select('id');
 
     if (error) {
       console.warn('[Supabase] Erro ao excluir perfil:', error.message);
       return false;
     }
-    return true;
+    return Array.isArray(data) && data.some(row => row.id === userId);
   } catch (err) {
     console.warn('[Supabase] Falha ao excluir perfil:', err);
     return false;

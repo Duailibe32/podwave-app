@@ -1511,24 +1511,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         financialRecordedAt: linkedFinancialRecordedAt,
       };
 
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        let confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-        if (!confirmed) {
-          // Resincroniza a versão atual do pedido no banco caso tenha mudado e tenta novamente
-          const remoteCheck = await fetchAllCustomerOrdersFromSupabase();
-          const remoteOrd = remoteCheck.orders.find((o) => o.id === orderId);
-          if (remoteOrd) {
-            updatedOrder = {
-              ...updatedOrder,
-              customerId: remoteOrd.customerId || ownerCustomerId,
-              version: (remoteOrd.version || 1) + 1,
-            };
-            confirmed = await saveCustomerOrderToSupabase(
-              updatedOrder,
-              remoteOrd.customerId || ownerCustomerId
-            );
-          }
-        }
+      if (!supabaseCreds.isConfigured && !activeSupabaseClient) {
+        return { success: false, error: 'Não há conexão configurada com o banco. A atualização não foi confirmada.' };
+      }
+      const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+      if (!confirmed) {
+        // Do not rebase a stale mutation onto a newer server revision or report local success.
+        return {
+          success: false,
+          error: 'A atualização não foi confirmada pelo banco. Recarregue os dados para conferir o estado atual antes de tentar novamente.',
+        };
       }
 
       setAllCatalogOrders((prev) => {
@@ -1685,23 +1677,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
 
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        let confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-        if (!confirmed) {
-          const remoteCheck = await fetchAllCustomerOrdersFromSupabase();
-          const remoteOrd = remoteCheck.orders.find((o) => o.id === orderId);
-          if (remoteOrd) {
-            updatedOrder = {
-              ...updatedOrder,
-              customerId: remoteOrd.customerId || ownerCustomerId,
-              version: (remoteOrd.version || 1) + 1,
-            };
-            confirmed = await saveCustomerOrderToSupabase(
-              updatedOrder,
-              remoteOrd.customerId || ownerCustomerId
-            );
-          }
-        }
+      if (!supabaseCreds.isConfigured && !activeSupabaseClient) {
+        return { success: false, error: 'Não há conexão configurada com o banco. A atualização não foi confirmada.' };
+      }
+      const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+      if (!confirmed) {
+        // Do not rebase a stale mutation onto a newer server revision or report local success.
+        return {
+          success: false,
+          error: 'A atualização não foi confirmada pelo banco. Recarregue os dados para conferir o estado atual antes de tentar novamente.',
+        };
       }
 
       setAllCatalogOrders((prev) => {
@@ -2053,23 +2038,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         version: (order.version || 1) + 1,
       };
 
-      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
-        let confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-        if (!confirmed) {
-          const remoteCheck = await fetchAllCustomerOrdersFromSupabase();
-          const remoteOrd = remoteCheck.orders.find((o) => o.id === order.id);
-          if (remoteOrd) {
-            updatedOrder = {
-              ...updatedOrder,
-              customerId: remoteOrd.customerId || ownerCustomerId,
-              version: (remoteOrd.version || 1) + 1,
-            };
-            confirmed = await saveCustomerOrderToSupabase(
-              updatedOrder,
-              remoteOrd.customerId || ownerCustomerId
-            );
-          }
-        }
+      if (!supabaseCreds.isConfigured && !activeSupabaseClient) {
+        return { success: false, error: 'Não há conexão configurada com o banco. A atualização não foi confirmada.' };
+      }
+      const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+      if (!confirmed) {
+        // Do not rebase a stale mutation onto a newer server revision or report local success.
+        return {
+          success: false,
+          error: 'A atualização não foi confirmada pelo banco. Recarregue os dados para conferir o estado atual antes de tentar novamente.',
+        };
       }
 
       setAllCatalogOrders((prev) => {
