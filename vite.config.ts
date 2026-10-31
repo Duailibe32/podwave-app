@@ -62,11 +62,11 @@ export default defineConfig(() => {
           globIgnores: ['**/AdminPanel-*.js'],
           runtimeCaching: [
             {
-              // Supabase REST API — Dados públicos do catálogo (carregamento instantâneo + atualização em 2º plano)
+              // Supabase REST API — Apenas tabelas públicas de vitrine (sem store_settings ou coupons)
               urlPattern: ({ request, url }) =>
                 request.method === 'GET' &&
                 /\.supabase\.co$/i.test(url.hostname) &&
-                /^\/rest\/v1\/(?:brands|product_models|flavor_variants|banners|coupons|store_settings)\b/i.test(
+                /^\/rest\/v1\/(?:brands|product_models|flavor_variants|banners)\b/i.test(
                   url.pathname
                 ),
               handler: 'StaleWhileRevalidate',
@@ -77,7 +77,7 @@ export default defineConfig(() => {
                   maxAgeSeconds: 60 * 60 * 24 * 7, // 7 dias
                 },
                 cacheableResponse: {
-                  statuses: [0, 200],
+                  statuses: [200],
                 },
               },
             },

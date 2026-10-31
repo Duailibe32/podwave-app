@@ -1197,27 +1197,35 @@ export async function deleteCustomerProfileFromSupabase(userId: string): Promise
       .select('id');
 
     if (error) {
-      recordProfileDiagnostic(
-        classifyPostgrestError('delete_profile', error, 'Erro ao excluir perfil.')
-      );
+      if (typeof recordProfileDiagnostic === 'function' && typeof classifyPostgrestError === 'function') {
+        recordProfileDiagnostic(
+          classifyPostgrestError('delete_profile', error, 'Erro ao excluir perfil.')
+        );
+      }
       console.warn('[Supabase] Erro ao excluir perfil:', error.message);
       return false;
     }
     const deleted = Array.isArray(data) && data.some((row) => row.id === userId);
     if (!deleted) {
-      recordProfileDiagnostic({
-        operation: 'delete_profile',
-        category: 'not_found',
-        message: 'Nenhum perfil foi excluído no banco (registro inexistente ou sem permissão RLS).',
-      });
+      if (typeof recordProfileDiagnostic === 'function') {
+        recordProfileDiagnostic({
+          operation: 'delete_profile',
+          category: 'not_found',
+          message: 'Nenhum perfil foi excluído no banco (registro inexistente ou sem permissão RLS).',
+        });
+      }
       return false;
     }
-    recordProfileDiagnostic({ operation: 'delete_profile', category: 'ok', message: 'OK' });
+    if (typeof recordProfileDiagnostic === 'function') {
+      recordProfileDiagnostic({ operation: 'delete_profile', category: 'ok', message: 'OK' });
+    }
     return true;
   } catch (err) {
-    recordProfileDiagnostic(
-      classifyPostgrestError('delete_profile', err, 'Falha de rede ao excluir perfil.')
-    );
+    if (typeof recordProfileDiagnostic === 'function' && typeof classifyPostgrestError === 'function') {
+      recordProfileDiagnostic(
+        classifyPostgrestError('delete_profile', err, 'Falha de rede ao excluir perfil.')
+      );
+    }
     console.warn('[Supabase] Falha ao excluir perfil:', err);
     return false;
   }
@@ -1291,9 +1299,9 @@ export function mapSupabaseRowToCustomerOrder(row: Record<string, any>): Custome
     id: String(row.id),
     referenceId: String(row.order_code || row.reference_id || row.id),
     customerId: row.customer_id ? String(row.customer_id) : info.customerId ? String(info.customerId) : undefined,
-    customerName: info.customerName ? String(info.customerName) : undefined,
-    customerPhone: info.customerPhone ? String(info.customerPhone) : undefined,
-    customerEmail: info.customerEmail ? String(info.customerEmail) : undefined,
+    customerName: info.customerName ? String(info.customerName) : row.customer_name ? String(row.customer_name) : undefined,
+    customerPhone: info.customerPhone ? String(info.customerPhone) : row.customer_phone ? String(row.customer_phone) : undefined,
+    customerEmail: info.customerEmail ? String(info.customerEmail) : row.customer_email ? String(row.customer_email) : undefined,
     createdAt: String(row.created_at || new Date().toISOString()),
     updatedAt: info.updatedAt ? String(info.updatedAt) : row.updated_at ? String(row.updated_at) : undefined,
     updatedBy: info.updatedBy ? String(info.updatedBy) : undefined,
@@ -1307,28 +1315,39 @@ export function mapSupabaseRowToCustomerOrder(row: Record<string, any>): Custome
     amountPaid:
       typeof info.amountPaid === 'number'
         ? info.amountPaid
+        : typeof row.amount_paid === 'number'
+        ? row.amount_paid
         : safePaymentStatus === 'pago'
         ? Number(row.total) || 0
         : 0,
     deliveryType: (info.deliveryType || row.delivery_type) === 'pickup' ? 'pickup' : 'delivery',
     addressSummary: info.addressSummary || row.address_summary || undefined,
-    customerNotes: info.customerNotes || undefined,
+    customerNotes: info.customerNotes || row.customer_notes || undefined,
     status: safeStatus,
-    cancelReason: info.cancelReason || undefined,
-    statusHistory: Array.isArray(info.statusHistory) ? info.statusHistory : [],
+    cancelReason: info.cancelReason || row.cancel_reason || undefined,
+    statusHistory: Array.isArray(info.statusHistory)
+      ? info.statusHistory
+      : Array.isArray(row.status_history)
+      ? row.status_history
+      : [],
     couponCode: row.coupon_code || info.couponCode || undefined,
     vipDiscountApplied: Boolean(row.vip_discount_applied ?? info.vipDiscountApplied),
     vipDiscountAmount: Number(row.vip_discount_amount ?? info.vipDiscountAmount) || 0,
     loyaltyEligible: info.loyaltyEligible !== false,
-    loyaltyStampGranted: info.loyaltyStampGranted === true,
-    loyaltyStampGrantedAt: info.loyaltyStampGrantedAt || undefined,
+    loyaltyStampGranted: Boolean(row.loyalty_stamp_granted ?? info.loyaltyStampGranted === true),
+    loyaltyStampGrantedAt: info.loyaltyStampGrantedAt || row.loyalty_stamp_granted_at || undefined,
     loyaltyStampGrantedBy: info.loyaltyStampGrantedBy || undefined,
     loyaltyGrantIdempotencyKey: info.loyaltyGrantIdempotencyKey || undefined,
-    financialSaleId: info.financialSaleId || undefined,
+    financialSaleId: info.financialSaleId || row.financial_sale_id || undefined,
     financialRecordedAt: info.financialRecordedAt || undefined,
-    stockDeducted: info.stockDeducted === true,
+    stockDeducted: Boolean(row.stock_deducted ?? info.stockDeducted === true),
     stockDeductedAt: info.stockDeductedAt || undefined,
-    version: typeof info.version === 'number' && info.version > 0 ? info.version : 1,
+    version:
+      typeof info.version === 'number' && info.version > 0
+        ? info.version
+        : typeof row.version === 'number' && row.version > 0
+        ? row.version
+        : 1,
   };
 }
 
@@ -1394,46 +1413,159 @@ export async function getCustomerOrdersSupportedColumns(): Promise<Set<string>> 
   }
 }
 
+export interface SupabaseOrderDiagnostic {
+  code?: string;
+  category: 'ok' | 'unconfigured' | 'missing_column' | 'foreign_key' | 'permission_denied' | 'conflict' | 'error';
+  message: string;
+}
+
+let lastSupabaseOrderDiagnostic: SupabaseOrderDiagnostic | null = null;
+
+export function getLastSupabaseOrderDiagnostic(): SupabaseOrderDiagnostic | null {
+  return lastSupabaseOrderDiagnostic;
+}
+
 /**
  * Salva pedido realizado pelo cliente ou atualizado pelo administrador no Supabase
  */
 export async function saveCustomerOrderToSupabase(order: CustomerOrderHistoryItem, customerId: string): Promise<boolean> {
   const client = getSupabaseClient();
   const ownerId = (customerId || order.customerId || '').trim();
-  if (!client || !ownerId || !order.id) return false;
-  try {
-    const cols = await getCustomerOrdersSupportedColumns();
-    const payload: Record<string, unknown> = {
-      id: order.id, order_code: order.referenceId || order.id, customer_id: ownerId,
-      created_at: order.createdAt || new Date().toISOString(), status: order.status || 'recebido',
-      items: order.items || [], subtotal: Number(order.subtotal) || 0, discount: Number(order.discount) || 0,
-      total: Number(order.total) || 0, payment_method: order.paymentMethod || 'Pix',
-      delivery_info: buildOrderDeliveryInfoPayload(order, ownerId),
+  if (!client || !ownerId || !order.id) {
+    lastSupabaseOrderDiagnostic = {
+      category: 'unconfigured',
+      message: 'Cliente Supabase não configurado ou pedido sem identificador de cliente.',
     };
+    return false;
+  }
+  try {
+    const { data: existing, error: readError } = await client
+      .from('customer_orders')
+      .select('*')
+      .eq('id', order.id)
+      .maybeSingle();
+    if (readError) {
+      lastSupabaseOrderDiagnostic = {
+        code: String((readError as any).code || ''),
+        category: isMissingColumnError(readError) ? 'missing_column' : 'error',
+        message: readError.message || 'Falha ao consultar estado atual do pedido em customer_orders.',
+      };
+      return false;
+    }
+
+    const cols = existing
+      ? new Set(Object.keys(existing))
+      : await getCustomerOrdersSupportedColumns();
+    const hasDeliveryInfoCol = cols.has('delivery_info');
+    const hasOrderCodeCol = cols.has('order_code');
+
+    const payload: Record<string, unknown> = {
+      id: order.id,
+      customer_id: ownerId,
+      created_at: order.createdAt || new Date().toISOString(),
+      status: order.status || 'recebido',
+      items: order.items || [],
+      subtotal: Number(order.subtotal) || 0,
+      discount: Number(order.discount) || 0,
+      total: Number(order.total) || 0,
+      payment_method: order.paymentMethod || 'Pix',
+    };
+    if (hasOrderCodeCol) {
+      payload.order_code = order.referenceId || order.id;
+    } else if (cols.has('reference_id')) {
+      payload.reference_id = order.referenceId || order.id;
+    }
+    if (hasDeliveryInfoCol) {
+      payload.delivery_info = buildOrderDeliveryInfoPayload(order, ownerId);
+    }
     if (cols.has('coupon_code')) payload.coupon_code = order.couponCode || null;
     if (cols.has('vip_discount_applied')) payload.vip_discount_applied = !!order.vipDiscountApplied;
     if (cols.has('vip_discount_amount')) payload.vip_discount_amount = Number(order.vipDiscountAmount) || 0;
-    const { data: existing, error: readError } = await client.from('customer_orders').select('id, customer_id, delivery_info').eq('id', order.id).maybeSingle();
-    if (readError) return false;
+
     if (!existing) {
       const { data, error } = await client.from('customer_orders').insert(payload).select('id');
-      return !error && Array.isArray(data) && data.some(row => row.id === order.id);
+      if (error) {
+        const code = String((error as any).code || '');
+        lastSupabaseOrderDiagnostic = {
+          code,
+          category:
+            code === '23503'
+              ? 'foreign_key'
+              : isMissingColumnError(error)
+              ? 'missing_column'
+              : code === '42501'
+              ? 'permission_denied'
+              : 'error',
+          message: error.message || 'O banco recusou a criação do pedido.',
+        };
+        return false;
+      }
+      const ok = Array.isArray(data) && data.some((row) => row.id === order.id);
+      lastSupabaseOrderDiagnostic = ok
+        ? { category: 'ok', message: 'OK' }
+        : { category: 'permission_denied', message: 'Nenhuma linha confirmada ao inserir pedido.' };
+      return ok;
     }
+
     const version = order.version || 1;
-    if (!Number.isSafeInteger(version) || version < 2) return false;
+    if (!Number.isSafeInteger(version) || version < 2) {
+      lastSupabaseOrderDiagnostic = {
+        category: 'conflict',
+        message: 'Versão inválida para atualização de pedido existente.',
+      };
+      return false;
+    }
     const expected = version - 1;
-    const current = Number(existing.delivery_info?.version || 1);
-    if (current !== expected) return false;
+    const current = hasDeliveryInfoCol
+      ? Number(existing.delivery_info?.version || 1)
+      : Number(existing.version || 1);
+    if (hasDeliveryInfoCol && current !== expected) {
+      lastSupabaseOrderDiagnostic = {
+        category: 'conflict',
+        message: 'O pedido foi modificado em outra sessão (conflito de versão).',
+      };
+      return false;
+    }
     const targetOwnerId = existing.customer_id || ownerId;
-    const { id, customer_id, created_at, order_code, ...update } = payload;
-    let query = client.from('customer_orders').update(update).eq('id', order.id).eq('customer_id', targetOwnerId);
-    query = existing.delivery_info?.version == null
-      ? query.is('delivery_info->>version', null)
-      : query.eq('delivery_info->>version', String(expected));
+    const { id, customer_id, created_at, order_code, reference_id, ...update } = payload;
+    let query = client
+      .from('customer_orders')
+      .update(update)
+      .eq('id', order.id)
+      .eq('customer_id', targetOwnerId);
+    if (hasDeliveryInfoCol) {
+      query =
+        existing.delivery_info?.version == null
+          ? query.is('delivery_info->>version', null)
+          : query.eq('delivery_info->>version', String(expected));
+    }
     const { data, error } = await query.select('id');
+    if (error) {
+      const code = String((error as any).code || '');
+      lastSupabaseOrderDiagnostic = {
+        code,
+        category: isMissingColumnError(error)
+          ? 'missing_column'
+          : code === '42501'
+          ? 'permission_denied'
+          : 'error',
+        message: error.message || 'O banco recusou a atualização do pedido.',
+      };
+      return false;
+    }
     // A rejected/conflicting update is not retried as an INSERT/upsert.
-    return !error && Array.isArray(data) && data.some(row => row.id === order.id);
-  } catch { return false; }
+    const confirmed = Array.isArray(data) && data.some((row) => row.id === order.id);
+    lastSupabaseOrderDiagnostic = confirmed
+      ? { category: 'ok', message: 'OK' }
+      : { category: 'conflict', message: 'Nenhuma linha atualizada para o pedido no servidor.' };
+    return confirmed;
+  } catch (err: any) {
+    lastSupabaseOrderDiagnostic = {
+      category: 'error',
+      message: err?.message || 'Erro de conexão ao salvar pedido.',
+    };
+    return false;
+  }
 }
 
 /**
