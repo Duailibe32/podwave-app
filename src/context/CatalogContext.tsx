@@ -80,6 +80,7 @@ import {
   updateCustomerRoleInSupabase,
   updateCustomerLoyaltyInSupabase,
   deleteCustomerProfileFromSupabase,
+  formatSupabaseProfileErrorMessage,
   createAdminOrVipUserInSupabase,
   fetchManualSalesFromSupabase,
   saveManualSaleToSupabase,
@@ -604,7 +605,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateUserRole = async (userId: string, newRole: UserRole, customDiscount?: number): Promise<boolean> => {
     const ok = await updateCustomerRoleInSupabase(userId, newRole, customDiscount);
-    if (!ok) return false;
+    if (!ok) {
+      toast.error(
+        'Cargo não confirmado no banco',
+        formatSupabaseProfileErrorMessage('Não foi possível confirmar a alteração de cargo/VIP no servidor.')
+      );
+      return false;
+    }
     setAllUsers((prev) =>
       prev.map((u) =>
         u.id === userId
@@ -680,7 +687,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!remoteOk) {
         toast.error(
           'Alteração não confirmada no banco',
-          'Verifique se sua conta possui cargo de Proprietário/Admin em customer_profiles e se as migrations SQL do Supabase foram executadas.'
+          formatSupabaseProfileErrorMessage(
+            'O servidor não confirmou a gravação do cartão fidelidade.'
+          )
         );
         return false;
       }
@@ -733,6 +742,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const ok = await deleteCustomerProfileFromSupabase(userId);
     if (ok) {
       setAllUsers((prev) => prev.filter((u) => u.id !== userId));
+    } else {
+      toast.error(
+        'Exclusão não confirmada',
+        formatSupabaseProfileErrorMessage('O servidor não confirmou a remoção do perfil em customer_profiles.')
+      );
     }
     return ok;
   };
@@ -1064,14 +1078,20 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     try {
       const saved = await upsertCustomerProfileToSupabase(updated);
       if (!saved) {
-        toast.error('Perfil não confirmado', 'O servidor não confirmou a alteração. Dados antigos de benefícios podem exigir revisão pelo proprietário.');
+        toast.error(
+          'Perfil não confirmado',
+          formatSupabaseProfileErrorMessage('O servidor não confirmou a atualização cadastral.')
+        );
         return false;
       }
       setCurrentUser(updated);
       toast.success('Perfil salvo com sucesso!', 'Dados confirmados no servidor.');
       return true;
     } catch {
-      toast.error('Perfil não confirmado', 'Não foi possível confirmar a gravação no servidor.');
+      toast.error(
+        'Perfil não confirmado',
+        formatSupabaseProfileErrorMessage('Não foi possível confirmar a gravação no servidor.')
+      );
       return false;
     }
   };
@@ -1848,8 +1868,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         if (!cardSaved) {
           return {
             success: false,
-            error:
-              'O servidor não confirmou a gravação do selo. Verifique se sua conta possui cargo de Proprietário/Admin em customer_profiles.',
+            error: formatSupabaseProfileErrorMessage(
+              'O servidor não confirmou a gravação do selo em customer_profiles.'
+            ),
           };
         }
         let orderSaved = await saveCustomerOrderToSupabase(updatedOrder, resolvedCustomerId);

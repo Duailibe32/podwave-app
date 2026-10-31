@@ -548,8 +548,93 @@ export async function syncCatalogToSupabase(
   }
 }
 
+export interface SupabaseProfileDiagnostic {
+  operation: 'upsert_profile' | 'read_profile' | 'update_role' | 'update_loyalty' | 'delete_profile';
+  category:
+    | 'ok'
+    | 'unconfigured'
+    | 'unauthenticated'
+    | 'not_found'
+    | 'missing_column'
+    | 'permission_denied'
+    | 'conflict'
+    | 'constraint'
+    | 'network_or_unknown';
+  code?: string;
+  message: string;
+}
+
+let lastSupabaseProfileDiagnostic: SupabaseProfileDiagnostic | null = null;
+
+export function getLastSupabaseProfileDiagnostic(): SupabaseProfileDiagnostic | null {
+  return lastSupabaseProfileDiagnostic;
+}
+
+function recordProfileDiagnostic(diag: SupabaseProfileDiagnostic): void {
+  lastSupabaseProfileDiagnostic = diag;
+}
+
+export function isMissingColumnError(err: unknown): boolean {
+  if (!err || typeof err !== 'object') return false;
+  const e = err as { code?: string; message?: string };
+  const code = String(e.code || '');
+  const msg = String(e.message || '').toLowerCase();
+  return (
+    code === '42703' ||
+    code === 'PGRST204' ||
+    (msg.includes('column') && (msg.includes('does not exist') || msg.includes('schema cache')))
+  );
+}
+
+function classifyPostgrestError(
+  operation: SupabaseProfileDiagnostic['operation'],
+  err: unknown,
+  fallbackMessage: string
+): SupabaseProfileDiagnostic {
+  const e = (err && typeof err === 'object' ? err : {}) as { code?: string; message?: string };
+  const code = String(e.code || '');
+  const rawMsg = String(e.message || fallbackMessage);
+  if (isMissingColumnError(err)) {
+    return {
+      operation,
+      category: 'missing_column',
+      code: code || '42703',
+      message: `Coluna ausente no banco de dados (${rawMsg}). Isso é uma diferença de esquema no banco e não falta de cargo de Proprietário.`,
+    };
+  }
+  if (code === '42501' || rawMsg.toLowerCase().includes('permission') || rawMsg.toLowerCase().includes('somente o proprietario')) {
+    return {
+      operation,
+      category: 'permission_denied',
+      code: code || '42501',
+      message: `Operação recusada pelas regras de segurança do banco (${rawMsg}).`,
+    };
+  }
+  if (code === '23502' || code === '23505' || code === '23514') {
+    return {
+      operation,
+      category: 'constraint',
+      code,
+      message: `Restrição de integridade do banco (${code}: ${rawMsg}).`,
+    };
+  }
+  return {
+    operation,
+    category: 'network_or_unknown',
+    code: code || undefined,
+    message: rawMsg || fallbackMessage,
+  };
+}
+
+export function formatSupabaseProfileErrorMessage(defaultMessage: string): string {
+  if (!lastSupabaseProfileDiagnostic || lastSupabaseProfileDiagnostic.category === 'ok') {
+    return defaultMessage;
+  }
+  return lastSupabaseProfileDiagnostic.message || defaultMessage;
+}
+
 /**
- * Salva um registro completo de atividade no Supabase (audit_logs)
+ * Grava um novo registro de auditoria no Supabase (tabela audit_logs)
  */
 export async function saveActivityLogToSupabase(entry: ActivityLogEntry): Promise<boolean> {
   const client = getSupabaseClient();
@@ -565,7 +650,6 @@ export async function saveActivityLogToSupabase(entry: ActivityLogEntry): Promis
         details: entry.details,
         status: entry.status,
         errorMessage: entry.errorMessage || null,
-        authorEmail: entry.authorEmail || null,
       }),
       author: entry.author,
       timestamp: entry.timestamp || new Date().toISOString(),
@@ -716,7 +800,7 @@ function mapRowToCustomerProfile(d: Record<string, any>): UserProfile {
   return {
     id: String(d.id),
     email: String(d.email || ''),
-    fullName: String(d.name || d.full_name || (d.email ? String(d.email).split('@')[0] : 'Cliente')),
+    fullName: String(d.full_name || d.name || (d.email ? String(d.email).split('@')[0] : 'Cliente')),
     phoneWhatsapp: String(d.phone || defaultAddr?.phoneWhatsapp || ''),
     cpf: String(d.cpf || ''),
     role: resolvedRole,
@@ -737,41 +821,161 @@ function mapRowToCustomerProfile(d: Record<string, any>): UserProfile {
 }
 
 /**
- * Salva ou atualiza perfil de cliente no Supabase (compatível com schema oficial public.customer_profiles)
+ * Salva ou atualiza perfil de cliente no Supabase (compatível tanto com o esquema real flat full_name/address_* quanto com default_address)
  */
 export async function upsertCustomerProfileToSupabase(profile: UserProfile): Promise<boolean> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client) {
+    recordProfileDiagnostic({
+      operation: 'upsert_profile',
+      category: 'unconfigured',
+      message: 'Supabase não configurado.',
+    });
+    return false;
+  }
   const { data: authData, error: authError } = await client.auth.getUser();
-  if (authError || !authData.user) return false;
-  const { data: previous, error: previousError } = await client.from('customer_profiles').select('default_address, vip_benefit_note').eq('id', profile.id).maybeSingle();
-  if (previousError) return false;
+  if (authError || !authData.user) {
+    recordProfileDiagnostic({
+      operation: 'upsert_profile',
+      category: 'unauthenticated',
+      message: 'Sessão ausente ou expirada. Faça login novamente antes de salvar seu perfil.',
+    });
+    return false;
+  }
+  const { data: previous, error: previousError } = await client
+    .from('customer_profiles')
+    .select('*')
+    .eq('id', profile.id)
+    .maybeSingle();
+  if (previousError) {
+    recordProfileDiagnostic(
+      classifyPostgrestError('upsert_profile', previousError, 'Não foi possível consultar o perfil atual.')
+    );
+    return false;
+  }
+  if (previous?.default_address?.loyaltyCard && !previous.vip_benefit_note) {
+    recordProfileDiagnostic({
+      operation: 'upsert_profile',
+      category: 'conflict',
+      message: 'Dados antigos de benefícios no endereço exigem revisão antes de sobrescrever o perfil.',
+    });
+    return false;
+  }
   // Profile editing never carries roles, VIP benefits or loyalty, even for an admin.
   const address: Partial<CustomerAddress> = profile.address || {};
-  const payload = {
+  const cleanEmail = (profile.email || authData.user.email || '').trim().toLowerCase();
+  const cleanFullName = (profile.fullName || cleanEmail.split('@')[0] || 'Cliente').trim();
+  const nowIso = new Date().toISOString();
+
+  const usesRealFlatSchema =
+    previous != null && ('full_name' in previous || 'address_cep' in previous) && !('default_address' in previous);
+
+  const realFlatPayload = {
     id: profile.id,
-    email: (profile.email || '').trim().toLowerCase(),
-    name: (profile.fullName || '').trim(),
+    email: cleanEmail,
+    full_name: cleanFullName,
+    phone: (profile.phoneWhatsapp || '').trim() || null,
+    cpf: profile.cpf || null,
+    address_cep: address.cep || null,
+    address_street: address.street || null,
+    address_number: address.number || null,
+    address_neighborhood: address.bairro || null,
+    address_complement: address.complement || null,
+    address_city: address.city || null,
+    address_state: address.state || null,
+    updated_at: nowIso,
+  };
+
+  const legacyJsonPayload = {
+    id: profile.id,
+    email: cleanEmail,
+    name: cleanFullName,
     phone: (profile.phoneWhatsapp || '').trim(),
     cpf: profile.cpf || null,
     default_address: {
-      cep: address.cep || '', street: address.street || '', number: address.number || '',
-      bairro: address.bairro || '', complement: address.complement || '', city: address.city || '',
-      state: address.state || '', referencePoint: address.referencePoint || '',
+      cep: address.cep || '',
+      street: address.street || '',
+      number: address.number || '',
+      bairro: address.bairro || '',
+      complement: address.complement || '',
+      city: address.city || '',
+      state: address.state || '',
+      referencePoint: address.referencePoint || '',
     },
-    updated_at: new Date().toISOString(),
+    updated_at: nowIso,
   };
+
   try {
-    const { data, error } = await client.from('customer_profiles').upsert(payload).select('id');
-    return !error && Array.isArray(data) && data.some(row => row.id === profile.id);
-  } catch { return false; }
+    const primaryPayload: Record<string, unknown> = usesRealFlatSchema ? realFlatPayload : legacyJsonPayload;
+    let { data, error } = await client.from('customer_profiles').upsert(primaryPayload).select('id');
+    if (error && !usesRealFlatSchema && isMissingColumnError(error)) {
+      const retry = await client.from('customer_profiles').upsert(realFlatPayload).select('id');
+      data = retry.data;
+      error = retry.error;
+    }
+    if (error) {
+      recordProfileDiagnostic(
+        classifyPostgrestError('upsert_profile', error, 'O servidor recusou a gravação do perfil.')
+      );
+      return false;
+    }
+    const confirmed = Array.isArray(data) && data.some((row) => row.id === profile.id);
+    if (!confirmed) {
+      recordProfileDiagnostic({
+        operation: 'upsert_profile',
+        category: 'permission_denied',
+        message: 'Nenhuma linha foi confirmada pelo servidor (verifique permissões de RLS).',
+      });
+      return false;
+    }
+    recordProfileDiagnostic({ operation: 'upsert_profile', category: 'ok', message: 'OK' });
+    return true;
+  } catch (err) {
+    recordProfileDiagnostic(
+      classifyPostgrestError('upsert_profile', err, 'Falha de rede ao salvar o perfil.')
+    );
+    return false;
+  }
+}
+
+export interface FetchProfileDetailedResult {
+  status: 'ok' | 'not_found' | 'error' | 'unconfigured';
+  profile: UserProfile | null;
+  errorCode?: string;
+  errorMessage?: string;
+}
+
+export async function fetchCustomerProfileByIdDetailed(userId: string): Promise<FetchProfileDetailedResult> {
+  const client = getSupabaseClient();
+  if (!client || !userId) {
+    return { status: 'unconfigured', profile: null };
+  }
+  try {
+    const { data, error } = await client.from('customer_profiles').select('*').eq('id', userId).maybeSingle();
+    if (error) {
+      return {
+        status: 'error',
+        profile: null,
+        errorCode: String((error as any).code || ''),
+        errorMessage: error.message,
+      };
+    }
+    if (!data || data.id !== userId) {
+      return { status: 'not_found', profile: null };
+    }
+    return { status: 'ok', profile: mapRowToCustomerProfile(data) };
+  } catch (err: any) {
+    return {
+      status: 'error',
+      profile: null,
+      errorMessage: err?.message || 'Erro de conexão ao consultar perfil.',
+    };
+  }
 }
 
 export async function fetchCustomerProfileById(userId: string): Promise<UserProfile | null> {
-  const client = getSupabaseClient();
-  if (!client || !userId) return null;
-  const { data, error } = await client.from('customer_profiles').select('*').eq('id', userId).maybeSingle();
-  return !error && data?.id === userId ? mapRowToCustomerProfile(data) : null;
+  const res = await fetchCustomerProfileByIdDetailed(userId);
+  return res.status === 'ok' ? res.profile : null;
 }
 
 /**
@@ -833,6 +1037,7 @@ export async function fetchAllCustomerProfilesFromSupabase(): Promise<UserProfil
 
 /**
  * Atualiza o cargo (role) e opcional desconto VIP de um usuário no Supabase
+ * Compatível com o esquema real (role IN ('customer', 'vip', 'admin', 'owner') e vip_discount_custom)
  */
 export async function updateCustomerRoleInSupabase(
   userId: string,
@@ -840,35 +1045,49 @@ export async function updateCustomerRoleInSupabase(
   customVipDiscount?: number
 ): Promise<boolean> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client || !userId) return false;
 
   try {
     const isVipTarget = newRole === 'vip';
-    const payload: Record<string, any> = {
-      role: isVipTarget ? 'customer' : newRole,
-      is_vip: isVipTarget,
-      vip_status: isVipTarget ? 'active' : 'inactive',
-      updated_at: new Date().toISOString(),
+    const nowIso = new Date().toISOString();
+    const realSchemaPayload: Record<string, any> = {
+      role: newRole,
+      vip_discount_custom: isVipTarget
+        ? (customVipDiscount ?? 10)
+        : customVipDiscount !== undefined
+        ? customVipDiscount
+        : null,
+      updated_at: nowIso,
     };
-
-    if (isVipTarget) {
-      payload.vip_since = new Date().toISOString();
-      payload.vip_discount_custom = customVipDiscount ?? 10;
-    } else if (customVipDiscount !== undefined) {
-      payload.vip_discount_custom = customVipDiscount;
-    }
 
     const { data, error } = await client
       .from('customer_profiles')
-      .update(payload)
-      .eq('id', userId).select('id');
+      .update(realSchemaPayload)
+      .eq('id', userId)
+      .select('id');
 
     if (error) {
+      recordProfileDiagnostic(
+        classifyPostgrestError('update_role', error, 'Erro ao atualizar cargo do usuário.')
+      );
       console.warn('[Supabase] Erro ao atualizar cargo do usuário:', error.message);
       return false;
     }
-    return Array.isArray(data) && data.some(row => row.id === userId);
+    const confirmed = Array.isArray(data) && data.some((row) => row.id === userId);
+    if (!confirmed) {
+      recordProfileDiagnostic({
+        operation: 'update_role',
+        category: 'not_found',
+        message: 'Nenhuma linha atualizada em customer_profiles (usuário inexistente ou bloqueado por RLS).',
+      });
+      return false;
+    }
+    recordProfileDiagnostic({ operation: 'update_role', category: 'ok', message: 'OK' });
+    return true;
   } catch (err) {
+    recordProfileDiagnostic(
+      classifyPostgrestError('update_role', err, 'Falha de conexão ao atualizar cargo.')
+    );
     console.warn('[Supabase] Falha ao atualizar cargo:', err);
     return false;
   }
@@ -877,42 +1096,98 @@ export async function updateCustomerRoleInSupabase(
 /**
  * Atualiza manualmente o Cartão de Fidelidade (selos) do cliente no Supabase
  */
-export async function updateCustomerLoyaltyInSupabase(userId: string, loyaltyCard: LoyaltyCardData, expectedCard: LoyaltyCardData): Promise<boolean> {
+export async function updateCustomerLoyaltyInSupabase(
+  userId: string,
+  loyaltyCard: LoyaltyCardData,
+  expectedCard: LoyaltyCardData
+): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client || !userId) return false;
   try {
-    const { data: existing, error: readError } = await client.from('customer_profiles').select('id, vip_benefit_note, default_address').eq('id', userId).maybeSingle();
-    if (readError) return false;
-    const nextNote = LOYALTY_NOTE_PREFIX + JSON.stringify(loyaltyCard);
+    const { data: existing, error: readError } = await client
+      .from('customer_profiles')
+      .select('*')
+      .eq('id', userId)
+      .maybeSingle();
+    if (readError) {
+      recordProfileDiagnostic(
+        classifyPostgrestError('update_loyalty', readError, 'Erro ao ler perfil do cliente antes de atualizar fidelidade.')
+      );
+      return false;
+    }
     if (!existing) {
-      const { data: inserted, error: insertError } = await client.from('customer_profiles').insert({
-        id: userId,
-        vip_benefit_note: nextNote,
-        updated_at: new Date().toISOString(),
-      }).select('id');
-      return !insertError && Array.isArray(inserted) && inserted.some(row => row.id === userId);
+      // Nunca realiza INSERT parcial sem os campos obrigatórios (email, full_name) nem confunde bloqueio de RLS com ausência.
+      recordProfileDiagnostic({
+        operation: 'update_loyalty',
+        category: 'not_found',
+        message: 'Cliente ainda não possui perfil cadastrado em customer_profiles (ou registro invisível por RLS).',
+      });
+      return false;
+    }
+    if (existing.default_address?.loyaltyCard && !existing.vip_benefit_note) {
+      recordProfileDiagnostic({
+        operation: 'update_loyalty',
+        category: 'conflict',
+        message: 'Registro legado de fidelidade em default_address exige migração antes de atualizar.',
+      });
+      return false;
     }
     const current = parseLoyaltyCardFromBenefitNote(existing.vip_benefit_note);
-    if (current && (
-        current.stamps !== expectedCard.stamps ||
-        current.completedCards !== expectedCard.completedCards
-    )) return false;
-    let query = client.from('customer_profiles').update({
-      vip_benefit_note: nextNote,
-      updated_at: new Date().toISOString(),
-    }).eq('id', userId);
-    query = existing.vip_benefit_note == null ? query.is('vip_benefit_note', null) : query.eq('vip_benefit_note', existing.vip_benefit_note);
+    if (
+      (current?.stamps ?? 0) !== expectedCard.stamps ||
+      (current?.completedCards ?? 0) !== expectedCard.completedCards
+    ) {
+      recordProfileDiagnostic({
+        operation: 'update_loyalty',
+        category: 'conflict',
+        message: 'Os selos deste cliente foram alterados em outra sessão. Recarregue antes de tentar novamente.',
+      });
+      return false;
+    }
+    const nextNote = LOYALTY_NOTE_PREFIX + JSON.stringify(loyaltyCard);
+    let query = client
+      .from('customer_profiles')
+      .update({
+        vip_benefit_note: nextNote,
+        updated_at: new Date().toISOString(),
+      })
+      .eq('id', userId);
+    query =
+      existing.vip_benefit_note == null
+        ? query.is('vip_benefit_note', null)
+        : query.eq('vip_benefit_note', existing.vip_benefit_note);
     const { data, error } = await query.select('id');
-    return !error && Array.isArray(data) && data.some(row => row.id === userId);
-  } catch { return false; }
+    if (error) {
+      recordProfileDiagnostic(
+        classifyPostgrestError('update_loyalty', error, 'O banco recusou a gravação de vip_benefit_note.')
+      );
+      return false;
+    }
+    const confirmed = Array.isArray(data) && data.some((row) => row.id === userId);
+    if (!confirmed) {
+      recordProfileDiagnostic({
+        operation: 'update_loyalty',
+        category: 'permission_denied',
+        message: 'Nenhuma linha foi confirmada pelo banco ao atualizar os selos.',
+      });
+      return false;
+    }
+    recordProfileDiagnostic({ operation: 'update_loyalty', category: 'ok', message: 'OK' });
+    return true;
+  } catch (err) {
+    recordProfileDiagnostic(
+      classifyPostgrestError('update_loyalty', err, 'Falha de conexão ao atualizar selos.')
+    );
+    return false;
+  }
 }
 
 /**
- * Exclui perfil de usuário no Supabase
+ * Exclui perfil de usuário no Supabase confirmando que a linha foi efetivamente afetada
  */
 export async function deleteCustomerProfileFromSupabase(userId: string): Promise<boolean> {
   const client = getSupabaseClient();
-  if (!client) return false;
+  if (!client || !userId) return false;
 
   try {
     const { data, error } = await client
@@ -922,11 +1197,27 @@ export async function deleteCustomerProfileFromSupabase(userId: string): Promise
       .select('id');
 
     if (error) {
+      recordProfileDiagnostic(
+        classifyPostgrestError('delete_profile', error, 'Erro ao excluir perfil.')
+      );
       console.warn('[Supabase] Erro ao excluir perfil:', error.message);
       return false;
     }
-    return Array.isArray(data) && data.some(row => row.id === userId);
+    const deleted = Array.isArray(data) && data.some((row) => row.id === userId);
+    if (!deleted) {
+      recordProfileDiagnostic({
+        operation: 'delete_profile',
+        category: 'not_found',
+        message: 'Nenhum perfil foi excluído no banco (registro inexistente ou sem permissão RLS).',
+      });
+      return false;
+    }
+    recordProfileDiagnostic({ operation: 'delete_profile', category: 'ok', message: 'OK' });
+    return true;
   } catch (err) {
+    recordProfileDiagnostic(
+      classifyPostgrestError('delete_profile', err, 'Falha de rede ao excluir perfil.')
+    );
     console.warn('[Supabase] Falha ao excluir perfil:', err);
     return false;
   }
@@ -1352,10 +1643,10 @@ export async function supabaseSignInWithPassword(
       };
     }
 
-    // Busca o perfil na tabela customer_profiles
-    let profile = await fetchCustomerProfileById(data.user.id);
+    // Busca o perfil na tabela customer_profiles diferenciando 'not_found' de erro de leitura
+    const profileLookup = await fetchCustomerProfileByIdDetailed(data.user.id);
+    let profile = profileLookup.profile;
 
-    // Se o perfil ainda não existir na tabela (ex: primeiro login após signup no Supabase Auth), cria o registro como customer
     if (!profile) {
       profile = {
         id: data.user.id,
@@ -1366,7 +1657,10 @@ export async function supabaseSignInWithPassword(
         createdAt: data.user.created_at,
       };
 
-      await upsertCustomerProfileToSupabase(profile);
+      // Só cria registro inicial no banco se comprovadamente não existir ('not_found')
+      if (profileLookup.status === 'not_found') {
+        await upsertCustomerProfileToSupabase(profile);
+      }
     }
 
     const isOwner = profile.role === 'owner';
@@ -1543,15 +1837,19 @@ export async function supabaseGetCurrentAuthUser(): Promise<UserProfile | null> 
   try {
     const { data, error } = await client.auth.getUser();
     if (error || !data.user?.email) return null;
-    const profile = await fetchCustomerProfileById(data.user.id);
-    if (profile) return profile;
+    const profileLookup = await fetchCustomerProfileByIdDetailed(data.user.id);
+    if (profileLookup.profile) return profileLookup.profile;
+    // Se houve falha temporária de leitura no banco ('error'), não sobrescreve perfil existente
+    if (profileLookup.status === 'error') return null;
     const fallback: UserProfile = {
       id: data.user.id, email: data.user.email.trim().toLowerCase(),
       fullName: data.user.user_metadata?.full_name || data.user.email.split('@')[0],
       phoneWhatsapp: data.user.user_metadata?.phone || '', role: 'customer',
       createdAt: data.user.created_at,
     };
-    await upsertCustomerProfileToSupabase(fallback);
+    if (profileLookup.status === 'not_found') {
+      await upsertCustomerProfileToSupabase(fallback);
+    }
     return fallback;
   } catch { return null; }
 }
@@ -1714,8 +2012,9 @@ export async function supabaseVerifyOtp(
       };
     }
 
-    // Busca ou cria perfil na tabela customer_profiles
-    let profile = await fetchCustomerProfileById(data.user.id);
+    // Busca ou cria perfil na tabela customer_profiles apenas se comprovadamente inexistente
+    const profileLookup = await fetchCustomerProfileByIdDetailed(data.user.id);
+    let profile = profileLookup.profile;
     if (!profile) {
       profile = {
         id: data.user.id,
@@ -1725,7 +2024,9 @@ export async function supabaseVerifyOtp(
         role: 'customer',
         createdAt: data.user.created_at || new Date().toISOString(),
       };
-      await upsertCustomerProfileToSupabase(profile);
+      if (profileLookup.status === 'not_found') {
+        await upsertCustomerProfileToSupabase(profile);
+      }
     }
 
     const isOwner = profile.role === 'owner';
@@ -1846,7 +2147,8 @@ export async function supabaseSignInWithPasskey(): Promise<SupabaseAuthResponse>
     }
 
     // Recupera o perfil real no Supabase (sem confiar em dados administrativos do localStorage)
-    let profile = await fetchCustomerProfileById(data.user.id);
+    const profileLookup = await fetchCustomerProfileByIdDetailed(data.user.id);
+    let profile = profileLookup.profile;
     if (!profile) {
       profile = {
         id: data.user.id,
@@ -1859,10 +2161,12 @@ export async function supabaseSignInWithPasskey(): Promise<SupabaseAuthResponse>
         role: 'customer',
         createdAt: data.user.created_at || new Date().toISOString(),
       };
-      try {
-        await upsertCustomerProfileToSupabase(profile);
-      } catch {
-        // Fallback local se estiver offline
+      if (profileLookup.status === 'not_found') {
+        try {
+          await upsertCustomerProfileToSupabase(profile);
+        } catch {
+          // Fallback local se estiver offline
+        }
       }
     }
 
