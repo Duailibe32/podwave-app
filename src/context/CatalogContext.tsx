@@ -764,18 +764,38 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     let mounted = true;
     let generation = 0;
+    let initialRefreshInFlight = false;
     setCurrentUser(null);
     const client = getSupabaseClient();
-    const refresh = async () => {
+    const refresh = async (options?: { silent?: boolean }) => {
+      const silent = Boolean(options?.silent && authenticatedIdentityRef.current);
       const attempt = ++generation;
-      setIsAuthChecking(true);
+      if (!silent) {
+        setIsAuthChecking(true);
+      }
+      let timeoutId: ReturnType<typeof setTimeout> | null = null;
       try {
-        const user = await supabaseGetCurrentAuthUser();
-        if (mounted && generation === attempt) setCurrentUser(user);
+        const timeoutPromise = new Promise<UserProfile | null>((resolve) => {
+          timeoutId = setTimeout(() => resolve(authenticatedIdentityRef.current ?? null), 8000);
+        });
+        const user = await Promise.race([supabaseGetCurrentAuthUser(), timeoutPromise]);
+        if (mounted && generation === attempt) {
+          if (user) {
+            setCurrentUser(user);
+          } else if (!silent) {
+            setCurrentUser(null);
+          }
+        }
       } catch {
-        if (mounted && generation === attempt) setCurrentUser(null);
+        if (mounted && generation === attempt && !silent) {
+          setCurrentUser(null);
+        }
       } finally {
-        if (mounted && generation === attempt) setIsAuthChecking(false);
+        if (timeoutId) clearTimeout(timeoutId);
+        initialRefreshInFlight = false;
+        if (mounted && generation === attempt) {
+          setIsAuthChecking(false);
+        }
       }
     };
     if (!client) {
@@ -786,14 +806,24 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       if (!mounted) return;
       if (event === 'SIGNED_OUT' || !session?.user) {
         ++generation;
+        initialRefreshInFlight = false;
         setCurrentUser(null);
         setIsAuthChecking(false);
       } else {
+        if (event === 'INITIAL_SESSION' && initialRefreshInFlight) {
+          return;
+        }
+        const isSameAuthenticatedUser =
+          Boolean(authenticatedIdentityRef.current) &&
+          authenticatedIdentityRef.current?.id === session.user.id;
         // Defer calls outside the auth event callback.
-        void Promise.resolve().then(() => { if (mounted) void refresh(); });
+        void Promise.resolve().then(() => {
+          if (mounted) void refresh({ silent: isSameAuthenticatedUser });
+        });
       }
     });
-    void refresh();
+    initialRefreshInFlight = true;
+    void refresh({ silent: false });
     return () => {
       mounted = false;
       ++generation;
@@ -1000,9 +1030,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const registerPasskey = async (
     friendlyName?: string
   ): Promise<{ success: boolean; message: string; passkey?: PasskeyItem }> => {
-    setIsAuthChecking(true);
     const res = await supabaseRegisterPasskey(friendlyName);
-    setIsAuthChecking(false);
 
     if (res.success) {
       toast.success('Passkey cadastrada!', res.message);
