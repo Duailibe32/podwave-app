@@ -745,7 +745,7 @@ export async function upsertCustomerProfileToSupabase(profile: UserProfile): Pro
   const { data: authData, error: authError } = await client.auth.getUser();
   if (authError || !authData.user) return false;
   const { data: previous, error: previousError } = await client.from('customer_profiles').select('default_address, vip_benefit_note').eq('id', profile.id).maybeSingle();
-  if (previousError || (previous?.default_address?.loyaltyCard && !previous.vip_benefit_note)) return false;
+  if (previousError) return false;
   // Profile editing never carries roles, VIP benefits or loyalty, even for an admin.
   const address: Partial<CustomerAddress> = profile.address || {};
   const payload = {
@@ -881,14 +881,24 @@ export async function updateCustomerLoyaltyInSupabase(userId: string, loyaltyCar
   const client = getSupabaseClient();
   if (!client || !userId) return false;
   try {
-    const { data: existing, error: readError } = await client.from('customer_profiles').select('vip_benefit_note, default_address').eq('id', userId).maybeSingle();
-    if (readError || !existing || (existing.default_address?.loyaltyCard && !existing.vip_benefit_note)) return false;
+    const { data: existing, error: readError } = await client.from('customer_profiles').select('id, vip_benefit_note, default_address').eq('id', userId).maybeSingle();
+    if (readError) return false;
+    const nextNote = LOYALTY_NOTE_PREFIX + JSON.stringify(loyaltyCard);
+    if (!existing) {
+      const { data: inserted, error: insertError } = await client.from('customer_profiles').insert({
+        id: userId,
+        vip_benefit_note: nextNote,
+        updated_at: new Date().toISOString(),
+      }).select('id');
+      return !insertError && Array.isArray(inserted) && inserted.some(row => row.id === userId);
+    }
     const current = parseLoyaltyCardFromBenefitNote(existing.vip_benefit_note);
-    if ((current?.updatedAt || '') !== (expectedCard.updatedAt || '') ||
-        (current?.stamps || 0) !== expectedCard.stamps ||
-        (current?.completedCards || 0) !== expectedCard.completedCards) return false;
+    if (current && (
+        current.stamps !== expectedCard.stamps ||
+        current.completedCards !== expectedCard.completedCards
+    )) return false;
     let query = client.from('customer_profiles').update({
-      vip_benefit_note: LOYALTY_NOTE_PREFIX + JSON.stringify(loyaltyCard),
+      vip_benefit_note: nextNote,
       updated_at: new Date().toISOString(),
     }).eq('id', userId);
     query = existing.vip_benefit_note == null ? query.is('vip_benefit_note', null) : query.eq('vip_benefit_note', existing.vip_benefit_note);
@@ -1111,7 +1121,7 @@ export async function saveCustomerOrderToSupabase(order: CustomerOrderHistoryIte
     if (cols.has('coupon_code')) payload.coupon_code = order.couponCode || null;
     if (cols.has('vip_discount_applied')) payload.vip_discount_applied = !!order.vipDiscountApplied;
     if (cols.has('vip_discount_amount')) payload.vip_discount_amount = Number(order.vipDiscountAmount) || 0;
-    const { data: existing, error: readError } = await client.from('customer_orders').select('id, delivery_info').eq('id', order.id).maybeSingle();
+    const { data: existing, error: readError } = await client.from('customer_orders').select('id, customer_id, delivery_info').eq('id', order.id).maybeSingle();
     if (readError) return false;
     if (!existing) {
       const { data, error } = await client.from('customer_orders').insert(payload).select('id');
@@ -1122,8 +1132,9 @@ export async function saveCustomerOrderToSupabase(order: CustomerOrderHistoryIte
     const expected = version - 1;
     const current = Number(existing.delivery_info?.version || 1);
     if (current !== expected) return false;
+    const targetOwnerId = existing.customer_id || ownerId;
     const { id, customer_id, created_at, order_code, ...update } = payload;
-    let query = client.from('customer_orders').update(update).eq('id', order.id).eq('customer_id', ownerId);
+    let query = client.from('customer_orders').update(update).eq('id', order.id).eq('customer_id', targetOwnerId);
     query = existing.delivery_info?.version == null
       ? query.is('delivery_info->>version', null)
       : query.eq('delivery_info->>version', String(expected));

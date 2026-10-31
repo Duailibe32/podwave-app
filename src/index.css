@@ -63,6 +63,14 @@
 
 /* Custom glowing effects */
 /* Keep native controls and long location links inside the checkout flex item. */
+form,
+.mobile-checkout-form,
+.customer-address-form {
+  width: 100%;
+  max-width: 100%;
+  overflow-x: hidden;
+}
+
 :is(.mobile-checkout-form, .customer-address-form) :is(input:not([type="checkbox"]), select, textarea) {
   min-width: 0;
   max-width: 100%;

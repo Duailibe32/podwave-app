@@ -313,8 +313,8 @@ export const AuthModal: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200">
-      <div className="relative w-full max-w-lg rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden my-auto">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/80 backdrop-blur-md overflow-y-auto overflow-x-hidden animate-in fade-in duration-200">
+      <div className="relative w-full max-w-lg rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden overflow-x-hidden my-auto">
         {/* Header with Neon Accent */}
         <div className="p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-b border-[#8423DA]/30 flex items-center justify-between">
           <div className="flex items-center gap-3">
@@ -498,7 +498,7 @@ export const AuthModal: React.FC = () => {
               <div className="flex-grow border-t border-[#8423DA]/25"></div>
             </div>
 
-            <form onSubmit={handleLoginSubmit} className="space-y-3.5">
+            <form onSubmit={handleLoginSubmit} className="w-full max-w-full overflow-x-hidden space-y-3.5">
               <div>
                 <label className="block text-gray-200 font-bold mb-1.5 flex items-center gap-1.5">
                   <Mail className="w-3.5 h-3.5 text-[#00DFFF]" />
@@ -703,7 +703,7 @@ export const AuthModal: React.FC = () => {
 
             {/* ETAPA 1: SOLICITAR CÓDIGO */}
             {otpStep === 'request' && (
-              <form onSubmit={handleSendOtp} className="space-y-3.5">
+              <form onSubmit={handleSendOtp} className="w-full max-w-full overflow-x-hidden space-y-3.5">
                 <div>
                   <label className="block text-gray-200 font-bold mb-1.5 flex items-center gap-1.5">
                     <Mail className="w-3.5 h-3.5 text-[#00DFFF]" />
@@ -736,7 +736,7 @@ export const AuthModal: React.FC = () => {
 
             {/* ETAPA 2: VALIDAR CÓDIGO RECEBIDO */}
             {otpStep === 'verify' && (
-              <form onSubmit={handleVerifyOtp} className="space-y-4 animate-in fade-in">
+              <form onSubmit={handleVerifyOtp} className="w-full max-w-full overflow-x-hidden space-y-4 animate-in fade-in">
                 <div className="p-3 rounded-xl bg-[#141838] border border-[#8423DA]/40 flex items-center justify-between">
                   <div className="truncate">
                     <span className="text-[10px] text-[#A5A5B8] block">Código enviado para:</span>
@@ -821,7 +821,7 @@ export const AuthModal: React.FC = () => {
 
         {/* ===================== TAB 3: SIGNUP ===================== */}
         {mode === 'signup' && (
-          <form onSubmit={handleRegisterSubmit} className="customer-address-form p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
+          <form onSubmit={handleRegisterSubmit} className="customer-address-form w-full max-w-full overflow-x-hidden p-6 space-y-4 text-xs max-h-[75vh] overflow-y-auto">
             {/* Botão de Registro / Login com Google (1 clique) */}
             <button
               type="button"

@@ -69,14 +69,14 @@ export const OrderRecordPreviewModal: React.FC<OrderRecordPreviewModalProps> = (
   };
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md animate-in fade-in duration-200">
+    <div className="fixed inset-0 z-50 flex items-center justify-center p-3 sm:p-5 bg-black/85 backdrop-blur-md overflow-hidden animate-in fade-in duration-200">
       <div
         className="absolute inset-0"
         onClick={onClose}
         aria-hidden="true"
       />
 
-      <div className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/50 shadow-[0_0_50px_rgba(132,35,218,0.4)] text-white z-10 overflow-hidden">
+      <div className="relative w-full max-w-2xl max-h-[92vh] flex flex-col rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/50 shadow-[0_0_50px_rgba(132,35,218,0.4)] text-white z-10 overflow-hidden overflow-x-hidden">
         {/* Header */}
         <div className="p-4 sm:p-5 border-b border-[#8423DA]/25 flex items-center justify-between bg-[#11152A]">
           <div className="flex items-center gap-2.5">

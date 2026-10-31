@@ -345,12 +345,12 @@ export const CustomerProfileModal: React.FC = () => {
 
   return (
     <div
-      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto animate-in fade-in duration-200"
+      className="fixed inset-0 z-50 flex items-center justify-center p-2.5 sm:p-5 bg-black/85 backdrop-blur-md overflow-y-auto overflow-x-hidden animate-in fade-in duration-200"
       role="dialog"
       aria-modal="true"
       aria-labelledby="customer-profile-modal-title"
     >
-      <div className="relative w-full max-w-xl rounded-2xl sm:rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden my-auto flex flex-col max-h-[94dvh] sm:max-h-[88vh]">
+      <div className="relative w-full max-w-xl rounded-2xl sm:rounded-3xl bg-[#0D1022] border-2 border-[#8423DA]/40 shadow-2xl overflow-hidden overflow-x-hidden my-auto flex flex-col max-h-[94dvh] sm:max-h-[88vh]">
         {/* User Hero Banner */}
         <div className="p-3.5 sm:p-6 bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-b border-[#8423DA]/30 flex items-start sm:items-center justify-between gap-2 shrink-0">
           <div className="flex items-center gap-2.5 sm:gap-3 min-w-0">
@@ -525,7 +525,7 @@ export const CustomerProfileModal: React.FC = () => {
         )}
 
         {/* Body Container */}
-        <div className="p-4 sm:p-6 overflow-y-auto flex-1">
+        <div className="w-full max-w-full p-4 sm:p-6 overflow-y-auto overflow-x-hidden flex-1">
           {/* ===================== TAB: DIGITAL LOYALTY CARD, BADGES, TIERS & HISTORY ===================== */}
           {activeTab === 'loyalty' && (
             <div className="space-y-5 text-xs animate-in fade-in duration-200">
@@ -984,7 +984,7 @@ export const CustomerProfileModal: React.FC = () => {
           )}
           {/* ===================== TAB 1: PROFILE & DELIVERY ADDRESS ===================== */}
           {activeTab === 'profile' && (
-            <form onSubmit={handleSaveProfile} className="customer-address-form space-y-4 text-xs">
+            <form onSubmit={handleSaveProfile} className="customer-address-form w-full max-w-full overflow-x-hidden space-y-4 text-xs">
               {/* Atalho Rápido para Configurar Face ID / Biometria */}
               <div className="p-3 rounded-2xl bg-gradient-to-r from-[#141838] via-[#10142D] to-[#161B3A] border border-[#00DFFF]/35 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5">
                 <div className="flex items-center gap-2.5 min-w-0">

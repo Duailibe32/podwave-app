@@ -226,8 +226,8 @@ export const CheckoutDrawer: React.FC = () => {
         aria-hidden="true"
       />
 
-      <div className="fixed inset-y-0 right-0 flex h-dvh w-full max-w-lg">
-        <div className="min-w-0 w-full max-w-full bg-[#0D1022] light:bg-white text-white light:text-slate-900 border-l border-[#8423DA]/30 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
+      <div className="fixed inset-y-0 right-0 flex h-dvh w-full max-w-lg overflow-hidden">
+        <div className="min-w-0 w-full max-w-full overflow-hidden bg-[#0D1022] light:bg-white text-white light:text-slate-900 border-l border-[#8423DA]/30 shadow-2xl flex flex-col animate-in slide-in-from-right duration-300">
           {/* HEADER */}
           <div className="p-4 sm:p-5 border-b border-[#8423DA]/25 light:border-slate-200 flex shrink-0 items-center justify-between gap-2">
             <div className="flex items-center gap-2">
@@ -247,7 +247,7 @@ export const CheckoutDrawer: React.FC = () => {
           </div>
 
           {/* FORM CONTENT */}
-          <form onSubmit={handleSubmit} className="mobile-checkout-form min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-6 space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <form onSubmit={handleSubmit} className="mobile-checkout-form w-full max-w-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-6 space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {errorMessage && (
               <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />

@@ -71,8 +71,8 @@ export const CartDrawer: React.FC = () => {
         aria-hidden="true"
       />
 
-      <div className="fixed inset-y-0 right-0 flex h-dvh w-full max-w-md">
-        <div className="min-w-0 w-full max-w-full bg-[#0D1022] light:bg-white text-white light:text-slate-900 border-l border-[#8423DA]/30 shadow-2xl flex flex-col justify-between animate-in slide-in-from-right duration-300">
+      <div className="fixed inset-y-0 right-0 flex h-dvh w-full max-w-md overflow-hidden">
+        <div className="min-w-0 w-full max-w-full overflow-hidden bg-[#0D1022] light:bg-white text-white light:text-slate-900 border-l border-[#8423DA]/30 shadow-2xl flex flex-col justify-between animate-in slide-in-from-right duration-300">
           {/* HEADER */}
           <div className="p-5 border-b border-[#8423DA]/25 light:border-slate-200 flex items-center justify-between">
             <div className="flex items-center gap-2.5">
@@ -95,7 +95,7 @@ export const CartDrawer: React.FC = () => {
           </div>
 
           {/* MAIN SCROLLABLE CONTENT */}
-          <div className="min-h-0 min-w-0 flex-1 overflow-y-auto overscroll-contain p-4 sm:p-5 space-y-5">
+          <div className="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-5 space-y-5">
             {/* Empty State */}
             {cart.length === 0 ? (
               <div className="py-16 text-center space-y-4">

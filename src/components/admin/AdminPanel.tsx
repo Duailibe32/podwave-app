@@ -1187,6 +1187,9 @@ export const AdminPanel: React.FC = () => {
               setFocusedCustomerIdInUsersTab(customerId);
               setActiveTab('usuarios');
             }}
+            onOpenBusinessTab={() => {
+              setActiveTab('meu_negocio');
+            }}
           />
         )}
 
