@@ -33,7 +33,15 @@ export function getSupabaseCredentials(): { url: string; anonKey: string; isConf
   const storedUrl = typeof window !== 'undefined' ? localStorage.getItem(SUPABASE_URL_KEY) || '' : '';
   const storedKey = typeof window !== 'undefined' ? localStorage.getItem(SUPABASE_ANON_KEY) || '' : '';
 
-  const url = (envUrl || storedUrl || '').trim();
+  const rawUrl = (envUrl || storedUrl || '').trim();
+  let url = rawUrl;
+  try {
+    if (rawUrl) {
+      url = new URL(rawUrl).origin;
+    }
+  } catch {
+    url = rawUrl;
+  }
   const anonKey = (envKey || storedKey || '').trim();
 
   const isConfigured = isPublicSupabaseConfig(url, anonKey);
@@ -1216,6 +1224,9 @@ export function translateSupabaseAuthError(errorMsg: string): string {
   }
   if (msg.includes('passkey') && (msg.includes('disabled') || msg.includes('not enabled') || msg.includes('unsupported') || msg.includes('not supported'))) {
     return 'O suporte a Passkeys precisa estar ativado no painel do Supabase (Authentication → Passkeys / WebAuthn).';
+  }
+  if (msg.includes('invalid path specified in request url') || msg.includes('requested path is invalid')) {
+    return 'Endereço de autenticação ou rota WebAuthn não disponível no Supabase. Verifique: (1) em Authentication → URL Configuration se o Site URL não tem "/**" no final, e (2) se tentar usar Passkey, ative Passkeys no painel do Supabase.';
   }
   if (msg.includes('securityerror') || msg.includes('relying party') || msg.includes('rp id') || msg.includes('origin')) {
     return 'Domínio WebAuthn não autorizado. Verifique se o endereço HTTPS da aplicação está cadastrado como Relying Party ID no Supabase.';
