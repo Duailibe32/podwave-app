@@ -59,7 +59,8 @@ export const LoyaltyHomeSection: React.FC = () => {
   return (
     <section
       id="fidelidade"
-      className="relative py-14 sm:py-20 bg-gradient-to-b from-[#080811] via-[#0D1022] to-[#080811] border-t border-b border-[#8423DA]/25 overflow-hidden"
+      tabIndex={-1}
+      className="relative py-14 sm:py-20 bg-gradient-to-b from-[#080811] via-[#0D1022] to-[#080811] border-t border-b border-[#8423DA]/25 overflow-hidden scroll-mt-20 focus:outline-none"
     >
       {/* Ambient background glow */}
       <div className="absolute top-1/2 left-1/4 -translate-y-1/2 w-96 h-96 bg-[#8423DA]/15 rounded-full blur-[130px] pointer-events-none" />

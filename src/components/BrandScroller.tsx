@@ -2,6 +2,7 @@ import React from 'react';
 import { motion } from 'motion/react';
 import { useCatalog } from '../context/CatalogContext';
 import { Check, RotateCcw, ArrowDown, Sparkles } from 'lucide-react';
+import { scrollToSectionById } from '../utils/anchorNavigation';
 
 interface BrandCardTheme {
   bgGradient: string;
@@ -18,26 +19,21 @@ export const BrandScroller: React.FC = () => {
   };
 
   const handleSelectBrand = (brandId: string) => {
-    // If user clicks the already selected brand, keep it or toggle
     setSelectedBrand(brandId);
-
-    // Smoothly scroll down to catalog section to show only the selected brand's devices
-    setTimeout(() => {
-      const el = document.getElementById('catalogo') || document.getElementById('modelos');
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 60);
+    scrollToSectionById('catalogo', {
+      afterFrames: 2,
+      updateHash: true,
+      moveFocus: true,
+    });
   };
 
   const handleClearFilter = () => {
     setSelectedBrand('all');
-    setTimeout(() => {
-      const el = document.getElementById('catalogo') || document.getElementById('modelos');
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth', block: 'start' });
-      }
-    }, 60);
+    scrollToSectionById('catalogo', {
+      afterFrames: 2,
+      updateHash: true,
+      moveFocus: true,
+    });
   };
 
   // Visual themes matching image_5a419201.png for each manufacturer
@@ -270,7 +266,7 @@ export const BrandScroller: React.FC = () => {
   };
 
   return (
-    <section id="marcas" className="py-8 bg-[#080811] border-b border-[#8423DA]/20 scroll-mt-16">
+    <section id="marcas" tabIndex={-1} className="py-8 bg-[#080811] border-b border-[#8423DA]/20 scroll-mt-20 focus:outline-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
         {/* Header matching image_5a419201.png ("9. Página de marcas - Organização visual por fabricante") */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -327,6 +323,8 @@ export const BrandScroller: React.FC = () => {
             return (
               <motion.button
                 key={brand.id}
+                type="button"
+                aria-pressed={isSelected}
                 whileTap={{ scale: 0.97 }}
                 onClick={() => handleSelectBrand(brand.id)}
                 className={`group relative flex flex-col justify-between h-[115px] sm:h-[125px] rounded-2xl p-2.5 transition-all duration-300 cursor-pointer overflow-hidden border text-left select-none ${theme.bgGradient} ${

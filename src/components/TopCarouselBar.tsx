@@ -11,6 +11,7 @@ import {
   ArrowUpRight,
 } from 'lucide-react';
 import { buildWhatsAppUrl } from '../utils/whatsappShare';
+import { scrollToSectionById } from '../utils/anchorNavigation';
 
 interface AnnouncementSlide {
   id: number;
@@ -115,16 +116,16 @@ export const TopCarouselBar: React.FC = () => {
       return;
     }
     if (slide.actionType === 'section' && slide.targetSection) {
-      if (currentView === 'admin') {
+      const wasAdmin = currentView === 'admin';
+      if (wasAdmin) {
         setCurrentView('catalog');
         window.history.pushState({}, '', '/');
       }
-      setTimeout(() => {
-        const el = document.getElementById(slide.targetSection!);
-        if (el) {
-          el.scrollIntoView({ behavior: 'smooth' });
-        }
-      }, 80);
+      scrollToSectionById(slide.targetSection, {
+        afterFrames: wasAdmin ? 3 : 2,
+        updateHash: true,
+        moveFocus: true,
+      });
     }
   };
 

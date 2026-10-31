@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { useCatalog } from '../context/CatalogContext';
 import { Zap, Search, ChevronRight, Layers, Sparkles, ChevronLeft, ShieldCheck, Truck, ShoppingBag, ArrowRight, Gift } from 'lucide-react';
+import { scrollToSectionById } from '../utils/anchorNavigation';
 
 export const HeroBanner: React.FC = () => {
   const { searchQuery, setSearchQuery, setSelectedPuffRange, banners } = useCatalog();
@@ -44,17 +45,11 @@ export const HeroBanner: React.FC = () => {
   };
 
   const scrollToCatalog = () => {
-    const el = document.getElementById('catalogo') || document.getElementById('modelos');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    scrollToSectionById('catalogo', { afterFrames: 2, updateHash: true, moveFocus: true });
   };
 
   const scrollToLoyalty = () => {
-    const el = document.getElementById('fidelidade');
-    if (el) {
-      el.scrollIntoView({ behavior: 'smooth' });
-    }
+    scrollToSectionById('fidelidade', { afterFrames: 2, updateHash: true, moveFocus: true });
   };
 
   const handlePuffQuickFilter = (range: string) => {

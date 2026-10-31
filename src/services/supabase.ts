@@ -912,7 +912,7 @@ export async function upsertCustomerProfileToSupabase(profile: UserProfile): Pro
     let { data, error } = await client.from('customer_profiles').upsert(primaryPayload).select('id');
     if (error && isMissingColumnError(error)) {
       // One compatibility retry for an explicitly missing column, never for permission/network errors.
-      const fallbackPayload = usesRealFlatSchema ? legacyJsonPayload : realFlatPayload;
+      const fallbackPayload: Record<string, unknown> = usesRealFlatSchema ? legacyJsonPayload : realFlatPayload;
       const retry = await client.from('customer_profiles').upsert(fallbackPayload).select('id');
       data = retry.data;
       error = retry.error;

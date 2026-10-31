@@ -113,7 +113,7 @@ export const CatalogSection: React.FC = () => {
     selectedSort !== 'relevance';
 
   return (
-    <section id="catalogo" className="py-12 sm:py-16 scroll-mt-20">
+    <section id="catalogo" tabIndex={-1} className="py-12 sm:py-16 scroll-mt-20 focus:outline-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-8">
         {/* Title & Section Introduction matching Image 2 */}
         <div className="flex flex-col md:flex-row md:items-end justify-between gap-4">
@@ -290,29 +290,20 @@ export const CatalogSection: React.FC = () => {
         <AnimatePresence mode="wait">
           {filteredModels.length > 0 ? (
             <motion.div
-              key="product-grid"
-              layout
+              key={`product-grid-${selectedBrand}-${selectedCategory}-${selectedPuffRange}`}
+              initial={{ opacity: 0.92 }}
+              animate={{ opacity: 1 }}
+              transition={{ duration: 0.2 }}
               className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6"
             >
-              <AnimatePresence mode="popLayout">
-                {filteredModels.map((product) => (
-                  <motion.div
-                    key={product.id}
-                    layout
-                    initial={{ opacity: 0, scale: 0.92, y: 16 }}
-                    animate={{ opacity: 1, scale: 1, y: 0 }}
-                    exit={{ opacity: 0, scale: 0.88, y: -8, transition: { duration: 0.18, ease: 'easeIn' } }}
-                    transition={{
-                      duration: 0.28,
-                      ease: [0.16, 1, 0.3, 1],
-                      layout: { duration: 0.3, ease: [0.16, 1, 0.3, 1] },
-                    }}
-                    className="h-full flex flex-col"
-                  >
-                    <ProductCard product={product} />
-                  </motion.div>
-                ))}
-              </AnimatePresence>
+              {filteredModels.map((product) => (
+                <div
+                  key={product.id}
+                  className="h-full flex flex-col animate-card-fade-slide-up"
+                >
+                  <ProductCard product={product} />
+                </div>
+              ))}
             </motion.div>
           ) : (
             <motion.div

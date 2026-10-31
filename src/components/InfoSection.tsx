@@ -48,7 +48,7 @@ export const InfoSection: React.FC = () => {
   ];
 
   return (
-    <section id="informacoes" className="py-16 bg-[#080811] border-t border-[#8423DA]/20">
+    <section id="informacoes" tabIndex={-1} className="py-16 bg-[#080811] border-t border-[#8423DA]/20 scroll-mt-20 focus:outline-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
         {/* Header Section */}
         <div className="text-center max-w-3xl mx-auto space-y-2">

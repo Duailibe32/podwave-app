@@ -33,7 +33,7 @@ const AppContent: React.FC = () => {
           <>
             <HeroBanner />
             <BrandScroller />
-            <div id="modelos">
+            <div id="modelos" tabIndex={-1} className="scroll-mt-20 focus:outline-none">
               <CatalogSection />
             </div>
             <LoyaltyHomeSection />

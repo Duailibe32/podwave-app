@@ -3,6 +3,7 @@ import { useCatalog } from '../context/CatalogContext';
 import { Search, ShieldCheck, Menu, X, ArrowLeft, Sparkles, ShoppingBag, User, Crown } from 'lucide-react';
 import { TopCarouselBar } from './TopCarouselBar';
 import { PWAInstallButton } from './PWAInstallButton';
+import { scrollToSectionById, scrollToTop } from '../utils/anchorNavigation';
 
 export const Header: React.FC = () => {
   const {
@@ -26,18 +27,33 @@ export const Header: React.FC = () => {
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [showSearchInput, setShowSearchInput] = useState(false);
 
-  const navigateTo = (sectionId: string) => {
+  const navigateTo = (sectionId: string, event?: React.MouseEvent<HTMLElement>) => {
+    if (event) {
+      event.preventDefault();
+    }
+    const wasAdmin = currentView === 'admin';
+    if (wasAdmin) {
+      setCurrentView('catalog');
+      window.history.pushState({}, '', '/');
+    }
+    setMobileMenuOpen(false);
+    scrollToSectionById(sectionId, {
+      afterFrames: wasAdmin ? 3 : 2,
+      updateHash: true,
+      moveFocus: true,
+    });
+  };
+
+  const handleGoHome = (event?: React.MouseEvent<HTMLElement>) => {
+    if (event) {
+      event.preventDefault();
+    }
     if (currentView === 'admin') {
       setCurrentView('catalog');
       window.history.pushState({}, '', '/');
     }
     setMobileMenuOpen(false);
-    setTimeout(() => {
-      const el = document.getElementById(sectionId);
-      if (el) {
-        el.scrollIntoView({ behavior: 'smooth' });
-      }
-    }, 100);
+    scrollToTop({ updateHash: true });
   };
 
   const toggleAdminView = () => {
@@ -52,21 +68,18 @@ export const Header: React.FC = () => {
   };
 
   return (
-    <div className="w-full">
+    <div id="topo" className="w-full">
       {/* Top Carousel Bar */}
       <TopCarouselBar />
 
-      <header className="border-b transition-colors duration-200 bg-[#080811] border-[#8423DA]/25">
+      <header className="relative z-40 border-b transition-colors duration-200 bg-[#080811] border-[#8423DA]/25">
         <div className="relative max-w-7xl mx-auto px-4 sm:px-6 lg:px-8">
           <div className="flex items-center justify-between h-20 gap-2 sm:gap-4">
           {/* Zone 1: Official Logo & Brand */}
           <div className="flex items-center gap-3">
-            <button
-              onClick={() => {
-                setCurrentView('catalog');
-                window.history.pushState({}, '', '/');
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
+            <a
+              href="#topo"
+              onClick={handleGoHome}
               className="group flex items-center gap-3 focus:outline-none"
               title={`${settings.storeName} — Início`}
             >
@@ -86,52 +99,56 @@ export const Header: React.FC = () => {
                   Catálogo Digital <span className="text-[#00DFFF]">⚡</span>
                 </span>
               </div>
-            </button>
+            </a>
           </div>
 
           {/* Zone 2: Navigation Links (Desktop) matching Image 2 */}
           {currentView === 'catalog' ? (
-            <nav className="hidden lg:flex items-center gap-6 xl:gap-8 text-sm font-semibold text-[#A5A5B8]">
-              <button
-                onClick={() => {
-                  window.scrollTo({ top: 0, behavior: 'smooth' });
-                }}
+            <nav aria-label="Navegação principal" className="hidden lg:flex items-center gap-6 xl:gap-8 text-sm font-semibold text-[#A5A5B8]">
+              <a
+                href="#topo"
+                onClick={handleGoHome}
                 className="relative text-[#00DFFF] hover:text-white transition-colors whitespace-nowrap cursor-pointer py-1"
               >
                 Início
                 {/* Cyan Neon active indicator line */}
                 <span className="absolute -bottom-1 left-0 right-0 h-0.5 bg-[#00DFFF] shadow-[0_0_8px_#00DFFF] rounded-full" />
-              </button>
-              <button
-                onClick={() => navigateTo('catalogo')}
+              </a>
+              <a
+                href="#catalogo"
+                onClick={(e) => navigateTo('catalogo', e)}
                 className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
                 Produtos
-              </button>
-              <button
-                onClick={() => navigateTo('marcas')}
+              </a>
+              <a
+                href="#marcas"
+                onClick={(e) => navigateTo('marcas', e)}
                 className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
                 Marcas
-              </button>
-              <button
-                onClick={() => navigateTo('modelos')}
+              </a>
+              <a
+                href="#modelos"
+                onClick={(e) => navigateTo('modelos', e)}
                 className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
                 Sabores
-              </button>
-              <button
-                onClick={() => navigateTo('fidelidade')}
+              </a>
+              <a
+                href="#fidelidade"
+                onClick={(e) => navigateTo('fidelidade', e)}
                 className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
                 Fidelidade
-              </button>
-              <button
-                onClick={() => navigateTo('informacoes')}
+              </a>
+              <a
+                href="#informacoes"
+                onClick={(e) => navigateTo('informacoes', e)}
                 className="hover:text-[#00DFFF] transition-colors whitespace-nowrap cursor-pointer py-1"
               >
                 Sobre
-              </button>
+              </a>
             </nav>
           ) : (
             <div className="hidden md:flex items-center gap-3 text-sm font-semibold text-[#00DFFF]">
@@ -280,6 +297,8 @@ export const Header: React.FC = () => {
               onClick={() => setMobileMenuOpen(!mobileMenuOpen)}
               className="p-2.5 lg:hidden rounded-xl bg-[#11152A] text-gray-300 border border-[#8423DA]/30"
               aria-label="Menu"
+              aria-expanded={mobileMenuOpen}
+              aria-controls="mobile-navigation-drawer"
             >
               {mobileMenuOpen ? <X className="w-5 h-5" /> : <Menu className="w-5 h-5" />}
             </button>
@@ -287,9 +306,12 @@ export const Header: React.FC = () => {
         </div>
       </div>
 
-      {/* Mobile Drawer Menu */}
+      {/* Mobile Drawer Menu — absolute overlay so opening/closing never shifts <main> height */}
       {mobileMenuOpen && (
-        <div className="lg:hidden border-t border-[#8423DA]/30 bg-[#080811]/98 backdrop-blur-2xl px-5 py-6 space-y-4 animate-in slide-in-from-top-4 duration-200">
+        <div
+          id="mobile-navigation-drawer"
+          className="lg:hidden absolute top-full left-0 right-0 z-50 border-t border-b border-[#8423DA]/40 bg-[#080811]/98 backdrop-blur-2xl px-5 py-6 space-y-4 shadow-[0_24px_48px_rgba(0,0,0,0.85)] animate-in slide-in-from-top-2 duration-150"
+        >
           <div className="flex items-center gap-3 pb-3 border-b border-[#8423DA]/20">
             <img src="/assets/images/logo.png" alt="PodWave Logo" className="h-10 w-10 object-contain" />
             <div>
@@ -298,43 +320,51 @@ export const Header: React.FC = () => {
             </div>
           </div>
 
-          <div className="space-y-1">
-            <button
-              onClick={() => {
-                setCurrentView('catalog');
-                setMobileMenuOpen(false);
-                window.scrollTo({ top: 0, behavior: 'smooth' });
-              }}
+          <nav aria-label="Navegação móvel" className="space-y-1 flex flex-col">
+            <a
+              href="#topo"
+              onClick={handleGoHome}
               className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
             >
               Início
-            </button>
-            <button
-              onClick={() => navigateTo('catalogo')}
+            </a>
+            <a
+              href="#catalogo"
+              onClick={(e) => navigateTo('catalogo', e)}
               className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A] flex items-center justify-between"
             >
               <span>Produtos & Catálogo</span>
               <span className="text-xs font-semibold text-[#00DFFF]">⚡ Todos</span>
-            </button>
-            <button
-              onClick={() => navigateTo('marcas')}
+            </a>
+            <a
+              href="#marcas"
+              onClick={(e) => navigateTo('marcas', e)}
               className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
             >
               Fabricantes & Marcas
-            </button>
-            <button
-              onClick={() => navigateTo('modelos')}
+            </a>
+            <a
+              href="#modelos"
+              onClick={(e) => navigateTo('modelos', e)}
               className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
             >
               Sabores & Modelos
-            </button>
-            <button
-              onClick={() => navigateTo('informacoes')}
+            </a>
+            <a
+              href="#fidelidade"
+              onClick={(e) => navigateTo('fidelidade', e)}
+              className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
+            >
+              Cartão Fidelidade
+            </a>
+            <a
+              href="#informacoes"
+              onClick={(e) => navigateTo('informacoes', e)}
               className="w-full text-left px-4 py-2.5 rounded-lg text-sm font-semibold text-gray-200 hover:bg-[#11152A]"
             >
               Sobre & Avisos (+18)
-            </button>
-          </div>
+            </a>
+          </nav>
 
           <div className="pt-2 border-t border-[#8423DA]/20 flex flex-col gap-2">
             {/* Mobile User Profile / Login */}
