@@ -1291,6 +1291,59 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [isAdmin, currentUser?.id, activeSupabaseClient, fetchAllCatalogOrders]);
 
+  // Supabase Realtime para sincronização de estoque e disponibilidade de sabores (flavor_variants)
+  useEffect(() => {
+    const client = activeSupabaseClient || getSupabaseClient();
+    if (!client || supabaseStatus !== 'connected') return;
+
+    const stockChannel = client
+      .channel('catalog-stock-realtime')
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'flavor_variants',
+        },
+        (payload) => {
+          if (payload.new && typeof payload.new === 'object') {
+            const updated = payload.new as {
+              id?: string;
+              model_id?: string;
+              demo_quantity?: number | null;
+              in_stock?: boolean;
+            };
+            if (updated.id) {
+              setModels((prevModels) =>
+                prevModels.map((m) => {
+                  if (updated.model_id && m.id !== updated.model_id) return m;
+                  return {
+                    ...m,
+                    flavors: m.flavors.map((f) =>
+                      f.id === updated.id
+                        ? {
+                            ...f,
+                            demoQuantity: updated.demo_quantity ?? f.demoQuantity,
+                            inStock:
+                              updated.in_stock ??
+                              (updated.demo_quantity === null ? true : (updated.demo_quantity ?? 0) > 0),
+                          }
+                        : f
+                    ),
+                  };
+                })
+              );
+            }
+          }
+        }
+      )
+      .subscribe();
+
+    return () => {
+      void client.removeChannel(stockChannel);
+    };
+  }, [supabaseStatus, activeSupabaseClient]);
+
   // REGISTRAR PEDIDO DO CLIENTE
   const recordCustomerOrder = async (orderData: {
     referenceId: string;

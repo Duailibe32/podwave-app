@@ -214,58 +214,51 @@ export async function fetchCatalogFromSupabase(): Promise<SupabaseCatalogResult 
   if (!client) return null;
 
   try {
-    // 1. Marcas
-    const { data: brandsData, error: brandsError } = await client.from('brands').select('*');
-    if (brandsError) {
-      if (isMissingTableError(brandsError)) {
-        console.info('[Supabase] Conexão ativa, mas as tabelas ainda não foram criadas. Execute o script de Migration no SQL Editor.');
-        return { data: null, tablesExist: false };
+    // Buscar todas as entidades do catálogo em paralelo via Promise.all para eliminar latência em cascata
+    const [
+      brandsRes,
+      modelsRes,
+      flavorsRes,
+      bannersRes,
+      couponsRes,
+      settingsRes,
+    ] = await Promise.all([
+      client.from('brands').select('*'),
+      client.from('product_models').select('*'),
+      client.from('flavor_variants').select('*'),
+      client.from('banners').select('*'),
+      client.from('coupons').select('*'),
+      client
+        .from('store_settings')
+        .select('id, store_name, support_email, support_phone, whatsapp_number, legal_notice, updated_at')
+        .limit(1)
+        .maybeSingle(),
+    ]);
+
+    const potentialErrors = [
+      brandsRes.error,
+      modelsRes.error,
+      flavorsRes.error,
+      bannersRes.error,
+      couponsRes.error,
+    ].filter(Boolean);
+
+    for (const err of potentialErrors) {
+      if (err) {
+        if (isMissingTableError(err)) {
+          console.info('[Supabase] Conexão ativa, mas tabelas pendentes de migration.');
+          return { data: null, tablesExist: false };
+        }
+        throw err;
       }
-      throw brandsError;
     }
 
-    // 2. Modelos
-    const { data: modelsData, error: modelsError } = await client.from('product_models').select('*');
-    if (modelsError) {
-      if (isMissingTableError(modelsError)) {
-        return { data: null, tablesExist: false };
-      }
-      throw modelsError;
-    }
-
-    // 3. Sabores
-    const { data: flavorsData, error: flavorsError } = await client.from('flavor_variants').select('*');
-    if (flavorsError) {
-      if (isMissingTableError(flavorsError)) {
-        return { data: null, tablesExist: false };
-      }
-      throw flavorsError;
-    }
-
-    // 4. Banners
-    const { data: bannersData, error: bannersError } = await client.from('banners').select('*');
-    if (bannersError) {
-      if (isMissingTableError(bannersError)) {
-        return { data: null, tablesExist: false };
-      }
-      throw bannersError;
-    }
-
-    // 5. Cupons
-    const { data: couponsData, error: couponsError } = await client.from('coupons').select('*');
-    if (couponsError) {
-      if (isMissingTableError(couponsError)) {
-        return { data: null, tablesExist: false };
-      }
-      throw couponsError;
-    }
-
-    // 6. Configurações (consulta apenas colunas públicas permitidas pelo GRANT de coluna)
-    const { data: settingsData } = await client
-      .from('store_settings')
-      .select('id, store_name, support_email, support_phone, whatsapp_number, legal_notice, updated_at')
-      .limit(1)
-      .maybeSingle();
+    const brandsData = brandsRes.data;
+    const modelsData = modelsRes.data;
+    const flavorsData = flavorsRes.data;
+    const bannersData = bannersRes.data;
+    const couponsData = couponsRes.data;
+    const settingsData = settingsRes.data;
 
     // Montar estrutura de modelos com os sabores aninhados
     const mappedBrands: Brand[] = (brandsData || []).map((b) => ({
