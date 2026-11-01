@@ -23,7 +23,11 @@ import {
   loadWhatsappOrderTemplates,
   saveWhatsappOrderTemplates,
   DEFAULT_WHATSAPP_ORDER_TEMPLATES,
+  QuickWhatsappResponseKey,
+  QUICK_WHATSAPP_OPTIONS,
+  buildQuickWhatsappUrl,
 } from '../../services/orderCenterService';
+import { openWhatsAppShare } from '../../utils/whatsappShare';
 import { OrderStatusTimeline } from '../OrderStatusTimeline';
 import {
   ShoppingBag,
@@ -388,6 +392,80 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
     setWhatsappModalOrder({ order, statusContext });
   };
 
+  /**
+   * Respostas Rápidas em 1 Clique para WhatsApp:
+   * - 'pix': Chave Pix para Pagamento
+   * - 'entrega': Pedido Saiu para Entrega
+   * - 'selo': Obrigado pela Compra! Ganhou 1 Selo no Cartão
+   */
+  const handleQuickWhatsapp = async (
+    order: CustomerOrderHistoryItem,
+    key: QuickWhatsappResponseKey
+  ) => {
+    const profile = order.customerId
+      ? allUsers.find((u) => u.id === order.customerId)
+      : undefined;
+
+    // Se for "+1 Selo" e o selo ainda não foi concedido, credita automaticamente
+    if (key === 'selo' && !order.loyaltyStampGranted && order.status !== 'cancelado') {
+      try {
+        await grantLoyaltyStampForOrder(order.id, undefined, true);
+      } catch (err) {
+        console.warn('Aviso ao conceder selo automaticamente:', err);
+      }
+    }
+
+    // Se for "Saiu para Entrega" e o pedido ainda estiver nas etapas iniciais, avança para 'enviado'
+    if (
+      key === 'entrega' &&
+      (order.status === 'confirmado' || order.status === 'em_separacao' || order.status === 'recebido')
+    ) {
+      try {
+        await updateCatalogOrderStatus(order.id, 'enviado', {
+          origin: 'admin_panel',
+          reason: 'Pedido despachado para entrega via botão rápido de WhatsApp',
+        });
+      } catch (err) {
+        console.warn('Aviso ao atualizar status para enviado:', err);
+      }
+    }
+
+    const result = buildQuickWhatsappUrl(order, key, settings, profile?.loyaltyCard);
+
+    // Copia o texto para a área de transferência como contingência rápida
+    try {
+      if (typeof navigator !== 'undefined' && navigator.clipboard?.writeText) {
+        await navigator.clipboard.writeText(result.message);
+      }
+    } catch {
+      // ignore
+    }
+
+    // Se não tiver telefone válido cadastrado, abre o modal para conferência
+    if (!result.valid || !result.url) {
+      setCustomWhatsappText(result.message);
+      setWhatsappModalPhone(order.customerPhone || profile?.phoneWhatsapp || '');
+      setCopiedWhatsapp(true);
+      setWhatsappModalOrder({ order });
+      showFeedback(
+        'info',
+        'Telefone ausente no pedido. Texto copiado! Digite o número abaixo para abrir o WhatsApp.'
+      );
+      return;
+    }
+
+    const opened = openWhatsAppShare(order.customerPhone || '', result.message);
+    if (opened) {
+      const label =
+        key === 'pix'
+          ? 'Chave Pix para Pagamento'
+          : key === 'entrega'
+          ? 'Pedido Saiu para Entrega'
+          : 'Obrigado pela Compra! Ganhou 1 Selo no Cartão';
+      showFeedback('success', `WhatsApp aberto (${label}) e mensagem copiada para o clipboard!`);
+    }
+  };
+
   const handleSaveTemplates = (e: React.FormEvent) => {
     e.preventDefault();
     saveWhatsappOrderTemplates(whatsappTemplates);
@@ -652,6 +730,64 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                 Venda Registrada
               </span>
             )}
+          </div>
+        </div>
+
+        {/* Respostas Rápidas WhatsApp (1 Clique) */}
+        <div className="pt-2 border-t border-white/10 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase text-[#00DFFF] flex items-center gap-1 tracking-wider">
+              <MessageSquare className="w-3 h-3 text-emerald-400" />
+              WhatsApp 1 Clique
+            </span>
+            {order.customerPhone ? (
+              <span className="text-[10px] text-emerald-400/90 font-mono flex items-center gap-1">
+                <Phone className="w-2.5 h-2.5" />
+                {order.customerPhone}
+              </span>
+            ) : (
+              <span className="text-[10px] text-amber-400 font-medium">
+                Sem telefone
+              </span>
+            )}
+          </div>
+
+          <div className="grid grid-cols-3 gap-1.5">
+            {/* 1. Chave Pix para Pagamento */}
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => void handleQuickWhatsapp(order, 'pix')}
+              title="Chave Pix para Pagamento: envia chave Pix, total e itens em 1 clique"
+              className="py-1.5 px-1 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/30 border border-emerald-400/35 hover:border-emerald-400 text-emerald-300 text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer transition shadow-sm text-center leading-tight active:scale-95"
+            >
+              <DollarSign className="w-3 h-3 text-emerald-400 shrink-0" />
+              <span className="truncate">Chave Pix</span>
+            </button>
+
+            {/* 2. Pedido Saiu para Entrega */}
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => void handleQuickWhatsapp(order, 'entrega')}
+              title="Pedido Saiu para Entrega: notifica despacho com endereço e itens em 1 clique"
+              className="py-1.5 px-1 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/30 border border-cyan-400/35 hover:border-cyan-400 text-cyan-300 text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer transition shadow-sm text-center leading-tight active:scale-95"
+            >
+              <Truck className="w-3 h-3 text-cyan-400 shrink-0" />
+              <span className="truncate">Saiu Entrega</span>
+            </button>
+
+            {/* 3. Obrigado pela Compra! Ganhou 1 Selo no Cartão */}
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => void handleQuickWhatsapp(order, 'selo')}
+              title="Obrigado pela Compra! Ganhou 1 Selo no Cartão: credita selo e agradece em 1 clique"
+              className="py-1.5 px-1 rounded-xl bg-[#E53CF3]/15 hover:bg-[#E53CF3]/30 border border-[#E53CF3]/35 hover:border-[#E53CF3] text-[#E53CF3] text-[10px] font-black flex items-center justify-center gap-1 cursor-pointer transition shadow-sm text-center leading-tight active:scale-95"
+            >
+              <Gift className="w-3 h-3 text-[#E53CF3] shrink-0" />
+              <span className="truncate">+1 Selo Cartão</span>
+            </button>
           </div>
         </div>
 
@@ -1422,7 +1558,54 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                     className="px-3 py-2 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-emerald-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer"
                   >
                     <MessageSquare className="w-3.5 h-3.5" />
-                    <span>WhatsApp</span>
+                    <span>Personalizar WhatsApp</span>
+                  </button>
+                </div>
+              </div>
+
+              {/* Respostas Rápidas WhatsApp de 1 Clique no Modal de Detalhes */}
+              <div className="p-4 rounded-2xl bg-[#11152A] border border-emerald-500/35 space-y-3">
+                <div className="flex items-center justify-between flex-wrap gap-2">
+                  <div className="flex items-center gap-2">
+                    <MessageSquare className="w-4 h-4 text-emerald-400" />
+                    <span className="font-heading font-black text-xs text-white uppercase tracking-wider">
+                      Respostas Rápidas WhatsApp (1 Clique)
+                    </span>
+                  </div>
+                  <span className="text-[11px] text-[#A5A5B8]">
+                    Abre a conversa oficial e copia a mensagem pronta para a área de transferência
+                  </span>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-3 gap-2.5">
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickWhatsapp(selectedOrder, 'pix')}
+                    className="p-3.5 rounded-xl bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 text-emerald-200 text-xs font-bold flex flex-col items-center justify-center gap-1.5 cursor-pointer transition text-center shadow-sm active:scale-95"
+                  >
+                    <DollarSign className="w-4 h-4 text-emerald-400" />
+                    <span className="font-black text-white">Chave Pix para Pagamento</span>
+                    <span className="text-[10px] text-emerald-300/80">Valor, chave Pix e dados</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickWhatsapp(selectedOrder, 'entrega')}
+                    className="p-3.5 rounded-xl bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/40 text-cyan-200 text-xs font-bold flex flex-col items-center justify-center gap-1.5 cursor-pointer transition text-center shadow-sm active:scale-95"
+                  >
+                    <Truck className="w-4 h-4 text-cyan-400" />
+                    <span className="font-black text-white">Pedido Saiu para Entrega</span>
+                    <span className="text-[10px] text-cyan-300/80">Endereço e despacho</span>
+                  </button>
+
+                  <button
+                    type="button"
+                    onClick={() => void handleQuickWhatsapp(selectedOrder, 'selo')}
+                    className="p-3.5 rounded-xl bg-[#E53CF3]/15 hover:bg-[#E53CF3]/25 border border-[#E53CF3]/40 text-[#E53CF3] text-xs font-bold flex flex-col items-center justify-center gap-1.5 cursor-pointer transition text-center shadow-sm active:scale-95"
+                  >
+                    <Gift className="w-4 h-4 text-[#E53CF3]" />
+                    <span className="font-black text-white">+1 Selo no Cartão</span>
+                    <span className="text-[10px] text-purple-300/80">Agradecimento e crédito</span>
                   </button>
                 </div>
               </div>

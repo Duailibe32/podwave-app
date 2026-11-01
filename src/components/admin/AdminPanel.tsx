@@ -1612,10 +1612,15 @@ export const AdminPanel: React.FC = () => {
                             </button>
 
                             <button
-                              onClick={() => {
-                                if (confirm(`Excluir o modelo "${model.modelName}"?`)) {
-                                  deleteModel(model.id);
-                                  showToast('Modelo removido com sucesso!');
+                              onClick={async () => {
+                                if (confirm(`Excluir o modelo "${model.modelName}" e todos os seus sabores associados? Esta ação apagará o item do catálogo e do banco de dados.`)) {
+                                  showToast(`Excluindo modelo "${model.modelName}"...`);
+                                  const res = await deleteModel(model.id);
+                                  if (res && !res.success) {
+                                    showToast(`Modelo removido localmente. Aviso do banco: ${res.error}`);
+                                  } else {
+                                    showToast('Modelo e sabores vinculados excluídos do banco com sucesso!');
+                                  }
                                 }
                               }}
                               className="p-1.5 rounded-lg bg-[#181C38] text-rose-400 hover:bg-rose-900 hover:text-white transition-all cursor-pointer"
@@ -1768,10 +1773,15 @@ export const AdminPanel: React.FC = () => {
 
                       {/* Delete Brand */}
                       <button
-                        onClick={() => {
-                          if (confirm(`Remover a marca "${brand.name}" e desvincular modelos?`)) {
-                            deleteBrand(brand.id);
-                            showToast('Marca removida!');
+                        onClick={async () => {
+                          if (confirm(`Remover a marca "${brand.name}" e desvincular modelos associados? Esta ação apagará a marca do banco de dados.`)) {
+                            showToast(`Excluindo marca "${brand.name}"...`);
+                            const res = await deleteBrand(brand.id);
+                            if (res && !res.success) {
+                              showToast(`Marca removida localmente. Aviso do banco: ${res.error}`);
+                            } else {
+                              showToast('Marca excluída do banco com sucesso!');
+                            }
                           }
                         }}
                         className="p-2 rounded-xl bg-[#181C38] text-rose-400 hover:bg-rose-900/60 hover:text-white transition-all cursor-pointer shrink-0"
@@ -2207,10 +2217,15 @@ export const AdminPanel: React.FC = () => {
                                 </button>
 
                                 <button
-                                  onClick={() => {
-                                    if (confirm(`Remover o sabor "${item.flavor.name}" do modelo ${item.modelName}?`)) {
-                                      deleteFlavor(item.modelId, item.flavor.id);
-                                      showToast('Sabor removido!');
+                                  onClick={async () => {
+                                    if (confirm(`Remover o sabor "${item.flavor.name}" do modelo ${item.modelName}? Esta ação excluirá a variante do catálogo e do banco de dados.`)) {
+                                      showToast(`Excluindo sabor "${item.flavor.name}"...`);
+                                      const res = await deleteFlavor(item.modelId, item.flavor.id);
+                                      if (res && !res.success) {
+                                        showToast(`Removido localmente. Aviso do banco: ${res.error}`);
+                                      } else {
+                                        showToast('Sabor excluído do catálogo e do banco com sucesso!');
+                                      }
                                     }
                                   }}
                                   className="p-2 rounded-xl bg-[#141838] text-rose-400 hover:bg-rose-900/60 hover:text-white transition-all cursor-pointer"
@@ -2445,6 +2460,66 @@ export const AdminPanel: React.FC = () => {
                   placeholder="5586999014685"
                   className="w-full p-2.5 rounded-xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/30 text-white light:text-slate-900 font-mono"
                 />
+              </div>
+
+              {/* PIX CONFIGURATION FOR 1-CLICK WHATSAPP BUTTONS */}
+              <div className="p-4 rounded-2xl bg-[#11152A] border border-emerald-500/30 space-y-3">
+                <div className="flex items-center gap-2">
+                  <span className="p-1 rounded-lg bg-emerald-500/20 text-emerald-300 font-bold text-xs">
+                    ⚡ PIX
+                  </span>
+                  <h4 className="font-heading font-bold text-white text-sm">
+                    Configuração da Chave Pix (Respostas Rápidas)
+                  </h4>
+                </div>
+                <p className="text-xs text-[#A5A5B8]">
+                  Esta chave é utilizada pelo botão de 1 clique "Chave Pix para Pagamento" no painel de pedidos do WhatsApp.
+                </p>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="block text-xs text-gray-300 font-semibold mb-1">
+                      Chave Pix
+                    </label>
+                    <input
+                      type="text"
+                      value={settings.pixKey ?? settings.whatsappNumber ?? ''}
+                      onChange={(e) => updateSettings({ pixKey: e.target.value })}
+                      placeholder="Ex: 5586999014685 ou financeiro@loja.com"
+                      className="w-full p-2.5 rounded-xl bg-[#141838] border border-emerald-500/30 text-white font-mono text-xs"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="block text-xs text-gray-300 font-semibold mb-1">
+                      Tipo de Chave
+                    </label>
+                    <select
+                      value={settings.pixKeyType || 'telefone'}
+                      onChange={(e) => updateSettings({ pixKeyType: e.target.value as any })}
+                      className="w-full p-2.5 rounded-xl bg-[#141838] border border-emerald-500/30 text-white text-xs cursor-pointer"
+                    >
+                      <option value="telefone">Telefone / Celular</option>
+                      <option value="cpf">CPF</option>
+                      <option value="cnpj">CNPJ</option>
+                      <option value="email">E-mail</option>
+                      <option value="aleatoria">Chave Aleatória (EVP)</option>
+                    </select>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="block text-xs text-gray-300 font-semibold mb-1">
+                    Nome do Titular / Favorecido (Loja ou Empresa)
+                  </label>
+                  <input
+                    type="text"
+                    value={settings.pixBeneficiary ?? settings.storeName ?? ''}
+                    onChange={(e) => updateSettings({ pixBeneficiary: e.target.value })}
+                    placeholder="Ex: PodWave Teresina"
+                    className="w-full p-2.5 rounded-xl bg-[#141838] border border-emerald-500/30 text-white text-xs"
+                  />
+                </div>
               </div>
 
               <div>
@@ -2695,10 +2770,15 @@ export const AdminPanel: React.FC = () => {
                         </button>
 
                         <button
-                          onClick={() => {
-                            if (confirm(`Deseja realmente excluir o cupom "${coupon.code}"?`)) {
-                              deleteCoupon(coupon.id);
-                              showToast(`Cupom "${coupon.code}" excluído com sucesso!`);
+                          onClick={async () => {
+                            if (confirm(`Deseja realmente excluir o cupom "${coupon.code}"? Esta ação removerá o cupom do banco de dados.`)) {
+                              showToast(`Excluindo cupom "${coupon.code}"...`);
+                              const res = await deleteCoupon(coupon.id);
+                              if (res && !res.success) {
+                                showToast(`Cupom removido localmente. Aviso do banco: ${res.error}`);
+                              } else {
+                                showToast(`Cupom "${coupon.code}" excluído do banco com sucesso!`);
+                              }
                             }
                           }}
                           className="p-1.5 rounded-lg bg-[#181C38] hover:bg-rose-600 text-gray-300 hover:text-white transition-all cursor-pointer"

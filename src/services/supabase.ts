@@ -2793,20 +2793,8 @@ export async function saveManualExpenseToSupabase(expense: ManualExpenseEntry): 
 }
 
 export async function deleteManualExpenseFromSupabase(expenseId: string): Promise<boolean> {
-  const client = getSupabaseClient();
-  if (!client) return false;
-
-  try {
-    const { error } = await client.from('manual_expenses').delete().eq('id', expenseId);
-    if (error) {
-      if (isMissingTableError(error)) return false;
-      console.warn('[Supabase] Falha ao deletar despesa:', error.message);
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
+  const result = await executeConfirmedSupabaseDelete('manual_expenses', expenseId);
+  return result.success;
 }
 
 // -------------------------------------------------------------
@@ -2900,20 +2888,8 @@ export async function saveMerchandisePurchaseToSupabase(purchase: MerchandisePur
 }
 
 export async function deleteMerchandisePurchaseFromSupabase(purchaseId: string): Promise<boolean> {
-  const client = getSupabaseClient();
-  if (!client) return false;
-
-  try {
-    const { error } = await client.from('merchandise_purchases').delete().eq('id', purchaseId);
-    if (error) {
-      if (isMissingTableError(error)) return false;
-      console.warn('[Supabase] Falha ao deletar compra de mercadoria:', error.message);
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
+  const result = await executeConfirmedSupabaseDelete('merchandise_purchases', purchaseId);
+  return result.success;
 }
 
 // -------------------------------------------------------------
@@ -2989,20 +2965,8 @@ export async function saveCashMovementToSupabase(movement: CashMovementEntry): P
 }
 
 export async function deleteCashMovementFromSupabase(movementId: string): Promise<boolean> {
-  const client = getSupabaseClient();
-  if (!client) return false;
-
-  try {
-    const { error } = await client.from('cash_movements').delete().eq('id', movementId);
-    if (error) {
-      if (isMissingTableError(error)) return false;
-      console.warn('[Supabase] Falha ao deletar movimentação de caixa:', error.message);
-      return false;
-    }
-    return true;
-  } catch {
-    return false;
-  }
+  const result = await executeConfirmedSupabaseDelete('cash_movements', movementId);
+  return result.success;
 }
 
 // -------------------------------------------------------------
@@ -3197,3 +3161,314 @@ export async function syncOrderFlavorStockInSupabase(
 ): Promise<{ success: boolean; updatedFlavors: { flavorId: string; modelId: string; newQuantity: number; inStock: boolean }[]; error?: string }> {
   return { success: false, updatedFlavors: [], error: 'Alteração direta de estoque bloqueada. Use a operação autorizada.' };
 }
+
+// ============================================================================
+// EXCLUSÃO CONFIRMADA DE ITENS DO CATÁLOGO NO SUPABASE (CRUD & RLS LOGGING)
+// ============================================================================
+
+export interface SupabaseDeleteDiagnosticResult {
+  success: boolean;
+  affectedCount: number;
+  error?: string;
+  code?: string;
+  details?: string | null;
+  hint?: string | null;
+  rlsBlocked?: boolean;
+}
+
+/**
+ * Executa uma exclusão no Supabase com rastreamento completo de diagnóstico,
+ * verificação de RLS (.select('id')) e logging detalhado de erros do PostgreSQL.
+ */
+export async function executeConfirmedSupabaseDelete(
+  table: string,
+  id: string,
+  idColumn: string = 'id'
+): Promise<SupabaseDeleteDiagnosticResult> {
+  const client = getSupabaseClient();
+  if (!client) {
+    const errorMsg = 'Supabase não conectado ou credenciais não inicializadas.';
+    console.warn(`[Supabase Delete Diagnostics] [${table}] ${errorMsg}`);
+    return { success: false, affectedCount: 0, error: errorMsg };
+  }
+
+  // 1. Inspeciona a sessão do Supabase Auth para contexto de auditoria e RLS
+  let authUserId: string | null = null;
+  let authUserEmail: string | null = null;
+  try {
+    const { data: sessionData } = await client.auth.getSession();
+    authUserId = sessionData?.session?.user?.id || null;
+    authUserEmail = sessionData?.session?.user?.email || null;
+  } catch (authErr) {
+    console.warn(`[Supabase Delete Diagnostics] [${table}] Aviso ao verificar sessão:`, authErr);
+  }
+
+  console.info(`[Supabase Delete Diagnostics] [START] Excluindo em "${table}" (${idColumn}='${id}'). Operador Auth UID: ${authUserId || 'Nenhum (Anônimo/Sem sessão)'} (${authUserEmail || 'Sem email'})`);
+
+  try {
+    // PostgREST exige .select() para retornar as linhas excluídas.
+    // Sem .select(), um bloqueio de RLS (USING = false) retorna HTTP 200 com array vazio silenciosamente!
+    const { data, error } = await client
+      .from(table)
+      .delete()
+      .eq(idColumn, id)
+      .select(idColumn);
+
+    if (error) {
+      console.error(`[Supabase Delete Diagnostics] [PG ERROR] Erro retornado pelo PostgreSQL ao excluir de "${table}":`, {
+        table,
+        id,
+        idColumn,
+        code: error.code,
+        message: error.message,
+        details: error.details,
+        hint: error.hint,
+        authenticatedUserId: authUserId,
+        authenticatedUserEmail: authUserEmail,
+      });
+
+      let friendlyMessage = error.message;
+      if (error.code === '42501') {
+        friendlyMessage = `Permissão negada pelo banco (RLS 42501). A tabela "${table}" exige cargo de Administrador/Proprietário em customer_profiles.`;
+      } else if (error.code === '23503') {
+        friendlyMessage = `Violação de chave estrangeira (23503). O registro em "${table}" possui vínculos ativos em outras tabelas.`;
+      }
+
+      return {
+        success: false,
+        affectedCount: 0,
+        error: friendlyMessage,
+        code: error.code,
+        details: error.details,
+        hint: error.hint,
+      };
+    }
+
+    const affected = Array.isArray(data) ? data.length : 0;
+    if (affected === 0) {
+      console.warn(`[Supabase Delete Diagnostics] [RLS BLOCKED / 0 ROWS] Nenhuma linha foi afetada ao excluir de "${table}" (${idColumn}='${id}').`, {
+        motivo: 'A política RLS (Row Level Security) bloqueou a operação (o usuário não atendeu is_admin()) OU o registro já foi removido/não existe no Supabase.',
+        table,
+        id,
+        authUserId,
+        authUserEmail,
+      });
+
+      return {
+        success: false,
+        affectedCount: 0,
+        rlsBlocked: true,
+        error: `O Supabase não confirmou a exclusão (0 linhas afetadas no banco). Causa provável: política RLS bloqueou a exclusão (verifique se sua conta possui cargo 'admin' ou 'owner' no banco) ou o ID não existe remotamente.`,
+      };
+    }
+
+    console.info(`[Supabase Delete Diagnostics] [CONFIRMED] Sucesso: ${affected} linha(s) excluída(s) de "${table}" (${idColumn}='${id}') por UID ${authUserId}.`);
+    return {
+      success: true,
+      affectedCount: affected,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    console.error(`[Supabase Delete Diagnostics] [EXCEPTION] Falha de conexão ou execução ao excluir de "${table}":`, err);
+    return {
+      success: false,
+      affectedCount: 0,
+      error: `Falha de conexão com o banco de dados: ${msg}`,
+    };
+  }
+}
+
+/**
+ * Exclui permanentemente uma variante de sabor do Supabase com diagnóstico RLS
+ */
+export async function deleteFlavorVariantFromSupabase(
+  flavorId: string
+): Promise<{ success: boolean; error?: string }> {
+  const result = await executeConfirmedSupabaseDelete('flavor_variants', flavorId);
+  return { success: result.success, error: result.error };
+}
+
+/**
+ * Exclui permanentemente um modelo de produto e seus sabores vinculados do Supabase com diagnóstico RLS
+ */
+export async function deleteProductModelFromSupabase(
+  modelId: string
+): Promise<{ success: boolean; error?: string }> {
+  // 1. Excluir sabores vinculados para manter integridade relacional
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data: flavs, error: flavErr } = await client
+        .from('flavor_variants')
+        .delete()
+        .eq('model_id', modelId)
+        .select('id');
+      if (flavErr) {
+        console.warn(`[Supabase Delete Diagnostics] [flavor_variants child] Aviso ao excluir sabores do modelo "${modelId}":`, flavErr);
+      } else {
+        console.info(`[Supabase Delete Diagnostics] [flavor_variants child] ${(flavs || []).length} sabor(es) filho(s) excluído(s) do modelo "${modelId}".`);
+      }
+    } catch (e) {
+      console.warn(`[Supabase Delete Diagnostics] [flavor_variants child] Exceção ao limpar sabores do modelo "${modelId}":`, e);
+    }
+  }
+
+  // 2. Excluir o modelo em si
+  const result = await executeConfirmedSupabaseDelete('product_models', modelId);
+  return { success: result.success, error: result.error };
+}
+
+/**
+ * Exclui permanentemente uma marca do Supabase, desvinculando modelos associados com diagnóstico RLS
+ */
+export async function deleteBrandFromSupabase(
+  brandId: string
+): Promise<{ success: boolean; error?: string }> {
+  // 1. Desvincular modelos associados à marca
+  const client = getSupabaseClient();
+  if (client) {
+    try {
+      const { data: unlinked, error: uErr } = await client
+        .from('product_models')
+        .update({ brand_id: null })
+        .eq('brand_id', brandId)
+        .select('id');
+      if (uErr) {
+        console.warn(`[Supabase Delete Diagnostics] [product_models unbind] Aviso ao desvincular modelos da marca "${brandId}":`, uErr);
+      } else {
+        console.info(`[Supabase Delete Diagnostics] [product_models unbind] ${(unlinked || []).length} modelo(s) desvinculado(s) da marca "${brandId}".`);
+      }
+    } catch (e) {
+      console.warn(`[Supabase Delete Diagnostics] [product_models unbind] Exceção ao desvincular modelos:`, e);
+    }
+  }
+
+  // 2. Excluir a marca
+  const result = await executeConfirmedSupabaseDelete('brands', brandId);
+  return { success: result.success, error: result.error };
+}
+
+/**
+ * Exclui permanentemente um cupom do Supabase com diagnóstico RLS
+ */
+export async function deleteCouponFromSupabase(
+  couponId: string
+): Promise<{ success: boolean; error?: string }> {
+  const result = await executeConfirmedSupabaseDelete('coupons', couponId);
+  return { success: result.success, error: result.error };
+}
+
+/**
+ * Exclui permanentemente um banner do Supabase com diagnóstico RLS
+ */
+export async function deleteBannerFromSupabase(
+  bannerId: string
+): Promise<{ success: boolean; error?: string }> {
+  const result = await executeConfirmedSupabaseDelete('banners', bannerId);
+  return { success: result.success, error: result.error };
+}
+
+/**
+ * Ferramenta de auditoria e diagnóstico em tempo real das permissões de exclusão (RLS) no Supabase.
+ * Verifica o UID autenticado, email e cargo (role) registrado na tabela customer_profiles.
+ */
+export async function verifySupabaseDeletePermissions(): Promise<{
+  isAuthenticated: boolean;
+  userId: string | null;
+  userEmail: string | null;
+  role: string | null;
+  isAdmin: boolean;
+  diagnostics: string[];
+}> {
+  const client = getSupabaseClient();
+  if (!client) {
+    return {
+      isAuthenticated: false,
+      userId: null,
+      userEmail: null,
+      role: null,
+      isAdmin: false,
+      diagnostics: ['Cliente Supabase não inicializado ou sem credenciais configuradas.'],
+    };
+  }
+
+  const logs: string[] = [];
+  try {
+    const { data: sessionData, error: sessionErr } = await client.auth.getSession();
+    if (sessionErr || !sessionData?.session?.user) {
+      logs.push('Sessão Supabase Auth: NÃO AUTENTICADO. Operações de exclusão (DELETE) protegidas por RLS falharão silenciosamente.');
+      return {
+        isAuthenticated: false,
+        userId: null,
+        userEmail: null,
+        role: null,
+        isAdmin: false,
+        diagnostics: logs,
+      };
+    }
+
+    const user = sessionData.session.user;
+    logs.push(`Usuário autenticado no Supabase Auth: ${user.id} (${user.email || 'sem email'})`);
+
+    // Consultar perfil na tabela customer_profiles
+    const { data: profile, error: profileErr } = await client
+      .from('customer_profiles')
+      .select('id, email, full_name, role')
+      .eq('id', user.id)
+      .maybeSingle();
+
+    if (profileErr) {
+      logs.push(`Erro ao consultar cargo em customer_profiles: ${profileErr.message} (Código ${profileErr.code})`);
+      return {
+        isAuthenticated: true,
+        userId: user.id,
+        userEmail: user.email || null,
+        role: null,
+        isAdmin: false,
+        diagnostics: logs,
+      };
+    }
+
+    if (!profile) {
+      logs.push(`Nenhum perfil encontrado em customer_profiles para o UID "${user.id}". A função app_security.is_admin() retornará false e as políticas RLS de DELETE bloquearão qualquer exclusão no banco.`);
+      return {
+        isAuthenticated: true,
+        userId: user.id,
+        userEmail: user.email || null,
+        role: null,
+        isAdmin: false,
+        diagnostics: logs,
+      };
+    }
+
+    const isAdm = profile.role === 'admin' || profile.role === 'owner';
+    logs.push(`Perfil localizado no banco: cargo = "${profile.role}". É admin/owner no banco: ${isAdm ? 'SIM' : 'NÃO'}`);
+    if (!isAdm) {
+      logs.push(`Aviso RLS: O cargo "${profile.role}" NÃO possui permissão para executar DELETE nas tabelas do catálogo (exige 'admin' ou 'owner').`);
+    } else {
+      logs.push(`Permissões RLS de DELETE validadas com sucesso para o usuário ${user.id}.`);
+    }
+
+    return {
+      isAuthenticated: true,
+      userId: user.id,
+      userEmail: user.email || null,
+      role: profile.role,
+      isAdmin: isAdm,
+      diagnostics: logs,
+    };
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    logs.push(`Exceção ao verificar permissões RLS: ${msg}`);
+    return {
+      isAuthenticated: false,
+      userId: null,
+      userEmail: null,
+      role: null,
+      isAdmin: false,
+      diagnostics: logs,
+    };
+  }
+}
+
+

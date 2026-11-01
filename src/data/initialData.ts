@@ -646,4 +646,7 @@ export const INITIAL_SETTINGS: StoreSettings = {
   whatsappNumber: '5586999014685',
   themePreference: 'dark',
   vipDiscountPercent: 10,
+  pixKey: '5586999014685',
+  pixKeyType: 'telefone',
+  pixBeneficiary: 'PodWave Teresina',
 };

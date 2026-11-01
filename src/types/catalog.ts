@@ -109,6 +109,9 @@ export interface StoreSettings {
   vipDiscountPercent?: number; // Desconto padrão (%) para clientes com cargo 'vip' (ex: 10)
   loyaltyGoalStamps?: number; // Meta padrão de selos do cartão fidelidade (padrão: 10)
   loyaltyDefaultReward?: string; // Recompensa padrão ao completar o cartão fidelidade
+  pixKey?: string; // Chave Pix para respostas rápidas de pagamento
+  pixKeyType?: 'telefone' | 'cpf' | 'cnpj' | 'email' | 'aleatoria';
+  pixBeneficiary?: string; // Nome do favorecido/titular da conta Pix
 }
 
 export interface CartItem {

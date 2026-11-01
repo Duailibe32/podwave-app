@@ -102,6 +102,11 @@ import {
   fetchManualCommitmentsFromSupabase,
   saveManualCommitmentToSupabase,
   deleteManualCommitmentFromSupabase,
+  deleteFlavorVariantFromSupabase,
+  deleteProductModelFromSupabase,
+  deleteBrandFromSupabase,
+  deleteCouponFromSupabase,
+  deleteBannerFromSupabase,
 } from '../services/supabase';
 import {
   acquireOrderActionLock,
@@ -337,29 +342,29 @@ interface CatalogContextType {
   // Admin Actions: Brands
   addBrand: (brand: Omit<Brand, 'id'>) => void;
   updateBrand: (id: string, brand: Partial<Brand>) => void;
-  deleteBrand: (id: string) => void;
+  deleteBrand: (id: string) => Promise<{ success: boolean; error?: string }>;
 
   // Admin Actions: Models
   addModel: (model: Omit<ProductModel, 'id'>) => void;
   updateModel: (id: string, model: Partial<ProductModel>) => void;
-  deleteModel: (id: string) => void;
+  deleteModel: (id: string) => Promise<{ success: boolean; error?: string }>;
   toggleModelActive: (id: string) => void;
 
   // Admin Actions: Flavors
   addFlavor: (modelId: string, flavor: Omit<FlavorVariant, 'id'>) => void;
   updateFlavor: (modelId: string, flavorId: string, flavor: Partial<FlavorVariant>) => void;
-  deleteFlavor: (modelId: string, flavorId: string) => void;
+  deleteFlavor: (modelId: string, flavorId: string) => Promise<{ success: boolean; error?: string }>;
 
   // Admin Actions: Coupons
   addCoupon: (coupon: Omit<Coupon, 'id' | 'usedCount'>) => void;
   updateCoupon: (id: string, coupon: Partial<Coupon>) => void;
-  deleteCoupon: (id: string) => void;
+  deleteCoupon: (id: string) => Promise<{ success: boolean; error?: string }>;
   toggleCouponActive: (id: string) => void;
 
   // Admin Actions: Banners
   addBanner: (banner: Omit<BannerSlide, 'id'>) => void;
   updateBanner: (id: string, banner: Partial<BannerSlide>) => void;
-  deleteBanner: (id: string) => void;
+  deleteBanner: (id: string) => Promise<{ success: boolean; error?: string }>;
   toggleBannerActive: (id: string) => void;
 
   // Settings & Reset
@@ -2855,8 +2860,74 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  const deleteBrand = (id: string) => {
-    setBrands((prev) => prev.filter((b) => b.id !== id));
+  // ============================================================================
+  // TOMBSTONES DE EXCLUSÃO DO CATÁLOGO (Impede ressurreição em recargas e sync)
+  // ============================================================================
+  const CATALOG_TOMBSTONES_KEY = 'podwave_deleted_catalog_tombstones_v1';
+  interface CatalogTombstoneRecord {
+    id: string;
+    type: 'flavor' | 'model' | 'brand' | 'coupon' | 'banner';
+    deletedAt: string;
+  }
+
+  const getCatalogTombstones = (): CatalogTombstoneRecord[] => {
+    if (typeof window === 'undefined') return [];
+    try {
+      const raw = localStorage.getItem(CATALOG_TOMBSTONES_KEY);
+      return raw ? JSON.parse(raw) : [];
+    } catch {
+      return [];
+    }
+  };
+
+  const addCatalogTombstone = (id: string, type: CatalogTombstoneRecord['type']) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const current = getCatalogTombstones().filter((t) => t.id !== id);
+      current.push({ id, type, deletedAt: new Date().toISOString() });
+      localStorage.setItem(CATALOG_TOMBSTONES_KEY, JSON.stringify(current));
+    } catch (e) {
+      console.warn('Erro ao salvar tombstone do catálogo:', e);
+    }
+  };
+
+  const removeCatalogTombstone = (id: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const updated = getCatalogTombstones().filter((t) => t.id !== id);
+      localStorage.setItem(CATALOG_TOMBSTONES_KEY, JSON.stringify(updated));
+    } catch (e) {
+      console.warn('Erro ao remover tombstone do catálogo:', e);
+    }
+  };
+
+  const deleteBrand = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    let brandName = 'Marca';
+    setBrands((prev) => {
+      const found = prev.find((b) => b.id === id);
+      if (found) brandName = found.name;
+      return prev.filter((b) => b.id !== id);
+    });
+
+    addCatalogTombstone(id, 'brand');
+
+    addActivityLog({
+      action: 'MARCA_REMOVIDA',
+      actionLabel: 'Marca Removida',
+      entity: 'brands',
+      entityName: brandName,
+      details: `Marca "${brandName}" removida do catálogo e desvinculada dos modelos.`,
+      status: 'alerta',
+    });
+
+    const res = await deleteBrandFromSupabase(id);
+    if (res.success) {
+      removeCatalogTombstone(id);
+      logSupabaseAuditEvent('DELETE_BRAND', brandName, `Marca ID ${id} excluída do banco de dados.`);
+    } else {
+      console.warn('[Supabase] Falha ao excluir marca no banco:', res.error);
+    }
+    return res;
   };
 
   // Admin CRUD operations: Models
@@ -2906,16 +2977,19 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     toast.success('Produto atualizado!', `${targetName} foi salvo com sucesso.`);
   };
 
-  const deleteModel = (id: string) => {
+  const deleteModel = async (id: string): Promise<{ success: boolean; error?: string }> => {
     let deletedModelName = 'Produto';
     let deletedBrand = '';
     let flavorsCount = 0;
+    const childFlavorIds: string[] = [];
+
     setModels((prev) => {
       const found = prev.find((m) => m.id === id);
       if (found) {
         deletedModelName = found.modelName;
         deletedBrand = found.brandName;
         flavorsCount = found.flavors.length;
+        found.flavors.forEach((f) => childFlavorIds.push(f.id));
       }
       return prev.filter((m) => m.id !== id);
     });
@@ -2923,6 +2997,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     if (activeModalProduct && activeModalProduct.id === id) {
       setActiveModalProduct(null);
     }
+
+    addCatalogTombstone(id, 'model');
+    childFlavorIds.forEach((fid) => addCatalogTombstone(fid, 'flavor'));
 
     addActivityLog({
       action: 'PRODUTO_REMOVIDO',
@@ -2933,6 +3010,20 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       status: 'alerta',
     });
     toast.info('Produto removido', `${deletedModelName} foi excluído do catálogo.`);
+
+    const res = await deleteProductModelFromSupabase(id);
+    if (res.success) {
+      removeCatalogTombstone(id);
+      childFlavorIds.forEach((fid) => removeCatalogTombstone(fid));
+      logSupabaseAuditEvent(
+        'DELETE_MODEL',
+        deletedModelName,
+        `Modelo ID ${id} e ${flavorsCount} sabor(es) excluídos do banco de dados.`
+      );
+    } else {
+      console.warn('[Supabase] Falha ao excluir modelo no banco:', res.error);
+    }
+    return res;
   };
 
   const toggleModelActive = (id: string) => {
@@ -3033,7 +3124,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
-  const deleteFlavor = (modelId: string, flavorId: string) => {
+  const deleteFlavor = async (
+    modelId: string,
+    flavorId: string
+  ): Promise<{ success: boolean; error?: string }> => {
     let modelName = '';
     let flavorName = '';
     setModels((prev) =>
@@ -3049,6 +3143,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       })
     );
 
+    addCatalogTombstone(flavorId, 'flavor');
+
     addActivityLog({
       action: 'SABOR_REMOVIDO',
       actionLabel: 'Sabor Removido',
@@ -3057,6 +3153,19 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       details: `Sabor excluído do modelo ${modelName || modelId}.`,
       status: 'alerta',
     });
+
+    const res = await deleteFlavorVariantFromSupabase(flavorId);
+    if (res.success) {
+      removeCatalogTombstone(flavorId);
+      logSupabaseAuditEvent(
+        'DELETE_VARIANT',
+        `${modelName} - ${flavorName}`,
+        `Variante ID ${flavorId} excluída do banco de dados.`
+      );
+    } else {
+      console.warn('[Supabase] Falha ao excluir variante no banco:', res.error);
+    }
+    return res;
   };
 
   // Dedicated Intelligent Variant Availability Actions
@@ -3266,11 +3375,17 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
-  const deleteCoupon = (id: string) => {
+  const deleteCoupon = async (id: string): Promise<{ success: boolean; error?: string }> => {
     setCoupons((prev) => prev.filter((c) => c.id !== id));
     if (appliedCoupon && appliedCoupon.id === id) {
       setAppliedCoupon(null);
     }
+    addCatalogTombstone(id, 'coupon');
+    const res = await deleteCouponFromSupabase(id);
+    if (res.success) {
+      removeCatalogTombstone(id);
+    }
+    return res;
   };
 
   const toggleCouponActive = (id: string) => {
@@ -3296,8 +3411,14 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     );
   };
 
-  const deleteBanner = (id: string) => {
+  const deleteBanner = async (id: string): Promise<{ success: boolean; error?: string }> => {
     setBanners((prev) => prev.filter((b) => b.id !== id));
+    addCatalogTombstone(id, 'banner');
+    const res = await deleteBannerFromSupabase(id);
+    if (res.success) {
+      removeCatalogTombstone(id);
+    }
+    return res;
   };
 
   const toggleBannerActive = (id: string) => {
@@ -3346,11 +3467,41 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const { data } = result;
       if (!data) return false;
 
-      if (data.brands) setBrands(data.brands);
-      if (data.models) setModels(data.models);
-      if (data.banners) setBanners(data.banners);
-      if (data.coupons) setCoupons(data.coupons);
-      if (data.settings) setSettings(data.settings);
+      // Aplicar filtro de tombstones locais para impedir que exclusões recentes ressuscitem antes da confirmação do banco
+      const tombstones = getCatalogTombstones();
+      const tombstoneFlavorIds = new Set(tombstones.filter((t) => t.type === 'flavor').map((t) => t.id));
+      const tombstoneModelIds = new Set(tombstones.filter((t) => t.type === 'model').map((t) => t.id));
+      const tombstoneBrandIds = new Set(tombstones.filter((t) => t.type === 'brand').map((t) => t.id));
+      const tombstoneCouponIds = new Set(tombstones.filter((t) => t.type === 'coupon').map((t) => t.id));
+      const tombstoneBannerIds = new Set(tombstones.filter((t) => t.type === 'banner').map((t) => t.id));
+
+      if (data.brands) {
+        setBrands(data.brands.filter((b) => !tombstoneBrandIds.has(b.id)));
+      }
+      if (data.models) {
+        const filteredModels = data.models
+          .filter((m) => !tombstoneModelIds.has(m.id))
+          .map((m) => ({
+            ...m,
+            flavors: m.flavors.filter((f) => !tombstoneFlavorIds.has(f.id)),
+          }));
+        setModels(filteredModels);
+      }
+      if (data.banners) {
+        setBanners(data.banners.filter((bn) => !tombstoneBannerIds.has(bn.id)));
+      }
+      if (data.coupons) {
+        setCoupons(data.coupons.filter((c) => !tombstoneCouponIds.has(c.id)));
+      }
+      if (data.settings) {
+        setSettings((prev) => ({
+          ...prev,
+          ...data.settings,
+          pixKey: data.settings?.pixKey || prev.pixKey,
+          pixKeyType: data.settings?.pixKeyType || prev.pixKeyType,
+          pixBeneficiary: data.settings?.pixBeneficiary || prev.pixBeneficiary,
+        }));
+      }
       hasRemoteCatalogRef.current = true;
 
       setSupabaseStatus('connected');

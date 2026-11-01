@@ -5,9 +5,11 @@ import {
   LoyaltyCardData,
   ManualSaleEntry,
   OrderStatusHistoryEntry,
+  StoreSettings,
   UserProfile,
 } from '../types/catalog';
 import { getUserLoyaltyCard, hasOrderStampInCard } from '../utils/loyaltyCard';
+import { buildWhatsAppUrl } from '../utils/whatsappShare';
 
 export interface OrderStatusMeta {
   status: CatalogOrderStatus;
@@ -783,6 +785,212 @@ export function buildWhatsappConversationUrl(
     valid: true,
     url: `https://wa.me/${check.digits}?text=${encoded}`,
   };
+}
+
+// ============================================================================
+// RESPOSTAS RÁPIDAS DE WHATSAPP EM 1 CLIQUE PARA O PAINEL DE PEDIDOS
+// ============================================================================
+
+export type QuickWhatsappResponseKey = 'pix' | 'entrega' | 'selo';
+
+export interface QuickWhatsappOption {
+  key: QuickWhatsappResponseKey;
+  label: string;
+  badgeLabel: string;
+  description: string;
+  iconType: 'pix' | 'entrega' | 'selo';
+  accentClass: string;
+}
+
+export const QUICK_WHATSAPP_OPTIONS: QuickWhatsappOption[] = [
+  {
+    key: 'pix',
+    label: 'Chave Pix para Pagamento',
+    badgeLabel: 'Chave Pix',
+    description: 'Envia a chave Pix oficial, valor total e resumo do pedido para o cliente pagar.',
+    iconType: 'pix',
+    accentClass: 'text-emerald-400 bg-emerald-500/15 border-emerald-400/40 hover:bg-emerald-500/25',
+  },
+  {
+    key: 'entrega',
+    label: 'Pedido Saiu para Entrega',
+    badgeLabel: 'Saiu p/ Entrega',
+    description: 'Avisa que o motoboy/entrega está a caminho com o endereço e itens conferidos.',
+    iconType: 'entrega',
+    accentClass: 'text-cyan-400 bg-cyan-500/15 border-cyan-400/40 hover:bg-cyan-500/25',
+  },
+  {
+    key: 'selo',
+    label: 'Obrigado pela Compra! Ganhou 1 Selo no Cartão',
+    badgeLabel: '+1 Selo Fidelidade',
+    description: 'Agradece pela preferência e notifica o crédito de +1 selo no cartão fidelidade digital.',
+    iconType: 'selo',
+    accentClass: 'text-[#E53CF3] bg-[#E53CF3]/15 border-[#E53CF3]/40 hover:bg-[#E53CF3]/25',
+  },
+];
+
+/**
+ * 1. Gera a mensagem rápida com a Chave Pix para pagamento
+ */
+export function generateQuickWhatsappPixMessage(
+  order: CustomerOrderHistoryItem,
+  settings?: StoreSettings
+): string {
+  const customerName = (order.customerName || 'Cliente').trim();
+  const firstName = customerName.split(/\s+/)[0] || customerName;
+  const storeName = settings?.storeName || 'PodWave';
+  const ref = (order.referenceId || order.id).replace(/^#/, '');
+  const totalStr = (Number(order.total) || 0).toFixed(2).replace('.', ',');
+  const pixKey =
+    settings?.pixKey ||
+    settings?.whatsappNumber ||
+    settings?.supportPhone ||
+    'Chave informada no atendimento';
+  const beneficiary = settings?.pixBeneficiary || storeName;
+  const keyType = settings?.pixKeyType ? ` (${settings.pixKeyType.toUpperCase()})` : '';
+
+  const itemsSummary =
+    Array.isArray(order.items) && order.items.length > 0
+      ? order.items
+          .map((item) => `• ${item.quantity}x *${item.modelName}* (${item.flavorName})`)
+          .join('\n')
+      : '• Produtos do catálogo';
+
+  return `Olá, *${firstName}*! 👋 Tudo bem?
+Aqui é da equipe *${storeName}*.
+
+Recebemos o seu pedido *#${ref}* no total de *R$ ${totalStr}*.
+
+🔑 *Chave PIX para Pagamento${keyType}:*
+\`${pixKey}\`
+🏢 *Favorecido / Loja:* ${beneficiary}
+💰 *Valor exato:* R$ ${totalStr}
+
+📦 *Itens do pedido:*
+${itemsSummary}
+
+Assim que realizar a transferência, basta nos enviar o comprovante por aqui para iniciarmos a separação e o envio imediato! 🚀✨`;
+}
+
+/**
+ * 2. Gera a mensagem rápida de saída para entrega
+ */
+export function generateQuickWhatsappDispatchedMessage(
+  order: CustomerOrderHistoryItem,
+  settings?: StoreSettings
+): string {
+  const customerName = (order.customerName || 'Cliente').trim();
+  const firstName = customerName.split(/\s+/)[0] || customerName;
+  const storeName = settings?.storeName || 'PodWave';
+  const ref = (order.referenceId || order.id).replace(/^#/, '');
+  const totalStr = (Number(order.total) || 0).toFixed(2).replace('.', ',');
+
+  const itemsSummary =
+    Array.isArray(order.items) && order.items.length > 0
+      ? order.items
+          .map((item) => `• ${item.quantity}x *${item.modelName}* (${item.flavorName})`)
+          .join('\n')
+      : '• Produtos do catálogo';
+
+  const address =
+    order.deliveryType === 'pickup'
+      ? 'Retirada no ponto combinado 📍'
+      : order.addressSummary
+      ? order.addressSummary
+      : 'Endereço cadastrado no pedido';
+
+  const paymentText =
+    order.paymentStatus === 'pago'
+      ? 'Pago ✅'
+      : `${order.paymentMethod || 'PIX'} a conferir na entrega ⏳`;
+
+  return `Olá, *${firstName}*! 🛵💨
+Boas notícias da *${storeName}*!
+
+O seu pedido *#${ref}* acabou de sair para entrega e está a caminho!
+
+📍 *Destino:* ${address}
+📦 *Itens:*
+${itemsSummary}
+💰 *Total:* R$ ${totalStr} (${paymentText})
+
+Por favor, fique atento ao interfone ou chamada no WhatsApp. Qualquer dúvida estamos à disposição! ✨`;
+}
+
+/**
+ * 3. Gera a mensagem rápida de agradecimento com +1 Selo Fidelidade
+ */
+export function generateQuickWhatsappLoyaltyMessage(
+  order: CustomerOrderHistoryItem,
+  settings?: StoreSettings,
+  loyaltyCard?: LoyaltyCardData | null
+): string {
+  const customerName = (order.customerName || 'Cliente').trim();
+  const firstName = customerName.split(/\s+/)[0] || customerName;
+  const storeName = settings?.storeName || 'PodWave';
+  const ref = (order.referenceId || order.id).replace(/^#/, '');
+
+  let seloStatus = '';
+  if (loyaltyCard) {
+    const current = loyaltyCard.stamps;
+    const goal = loyaltyCard.goal;
+    const remaining = Math.max(0, goal - current);
+    seloStatus = `\n\n🎯 *Seu Cartão Fidelidade Digital:*
+Você agora tem *${current}/${goal} selos validados*!${
+      remaining === 0
+        ? '\n🏆 *PARABÉNS! Seu cartão está completo para resgate do seu brinde exclusivo!*'
+        : `\nFaltam apenas *${remaining} selo(s)* para desbloquear sua recompensa exclusiva!`
+    }`;
+  } else {
+    seloStatus = `\n\n🎯 *Cartão Fidelidade Digital:*
++1 selo validado e registrado no seu histórico de compras! Acesse sua conta no catálogo para acompanhar seu progresso.`;
+  }
+
+  return `Olá, *${firstName}*! 🎁✨
+Muito obrigado por sua compra com a *${storeName}*!
+
+O seu pedido *#${ref}* foi entregue e finalizado com sucesso.
+
+🎉 *Você acaba de ganhar +1 SELO no seu Cartão Fidelidade!*${seloStatus}
+
+Esperamos que curta muito os seus produtos! Sempre que precisar de reposição, conte com a gente. Até a próxima! 🔥🙌`;
+}
+
+/**
+ * Constrói URL direta do WhatsApp preservando integridade de emojis Unicode
+ */
+export function buildQuickWhatsappUrl(
+  order: CustomerOrderHistoryItem,
+  key: QuickWhatsappResponseKey,
+  settings?: StoreSettings,
+  loyaltyCard?: LoyaltyCardData | null
+): { valid: boolean; url?: string; message: string; error?: string } {
+  let message = '';
+  if (key === 'pix') {
+    message = generateQuickWhatsappPixMessage(order, settings);
+  } else if (key === 'entrega') {
+    message = generateQuickWhatsappDispatchedMessage(order, settings);
+  } else {
+    message = generateQuickWhatsappLoyaltyMessage(order, settings, loyaltyCard);
+  }
+
+  const rawPhone = order.customerPhone || '';
+  const check = validateAndFormatWhatsappPhone(rawPhone);
+  if (!check.valid) {
+    return {
+      valid: false,
+      message,
+      error: check.error || 'Telefone do cliente não cadastrado ou inválido.',
+    };
+  }
+
+  try {
+    const url = buildWhatsAppUrl(check.digits, message);
+    return { valid: true, url, message };
+  } catch {
+    const encoded = encodeURIComponent(message);
+    return { valid: true, url: `https://wa.me/${check.digits}?text=${encoded}`, message };
+  }
 }
 
 // ============================================================================

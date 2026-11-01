@@ -50,8 +50,10 @@ function loadTsModule(filePath, customRequires = {}) {
 }
 
 const loyaltyMod = loadTsModule('src/utils/loyaltyCard.ts');
+const whatsappShareMod = loadTsModule('src/utils/whatsappShare.ts');
 const orderCenterMod = loadTsModule('src/services/orderCenterService.ts', {
   '../utils/loyaltyCard': loyaltyMod,
+  '../utils/whatsappShare': whatsappShareMod,
 });
 const timelineMod = loadTsModule('src/components/OrderStatusTimeline.tsx');
 

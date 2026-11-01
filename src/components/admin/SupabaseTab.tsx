@@ -1,6 +1,7 @@
 import React, { useEffect, useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
-import { Fingerprint, AlertCircle, KeyRound } from 'lucide-react';
+import { Fingerprint, AlertCircle, KeyRound, ShieldAlert, CheckCircle2, ShieldCheck } from 'lucide-react';
+import { verifySupabaseDeletePermissions } from '../../services/supabase';
 
 export const SupabaseTab: React.FC<{ mode?: 'status' | 'advanced' }> = ({ mode = 'status' }) => {
   const {
@@ -14,7 +15,26 @@ export const SupabaseTab: React.FC<{ mode?: 'status' | 'advanced' }> = ({ mode =
   const [busy, setBusy] = useState(false);
   const [notice, setNotice] = useState('');
   const [confirmation, setConfirmation] = useState<'disconnect' | 'pull' | null>(null);
+  const [rlsAuditLogs, setRlsAuditLogs] = useState<string[] | null>(null);
+  const [rlsAuditPassed, setRlsAuditPassed] = useState<boolean | null>(null);
   useEffect(() => { setUrlInput(supabaseUrl); setKeyInput(supabaseAnonKey); }, [supabaseUrl, supabaseAnonKey]);
+
+  const handleTestRls = async () => {
+    setBusy(true);
+    setRlsAuditLogs(null);
+    try {
+      const result = await verifySupabaseDeletePermissions();
+      setRlsAuditLogs(result.diagnostics);
+      setRlsAuditPassed(result.isAdmin);
+      console.info('[SupabaseTab] Relatório de Diagnóstico RLS:', result);
+    } catch (e) {
+      const msg = e instanceof Error ? e.message : String(e);
+      setRlsAuditLogs([`Falha ao testar RLS: ${msg}`]);
+      setRlsAuditPassed(false);
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const run = async (action: () => Promise<string>) => {
     if (busy) return;
@@ -155,6 +175,56 @@ export const SupabaseTab: React.FC<{ mode?: 'status' | 'advanced' }> = ({ mode =
           <p>5. Clique em <strong>Save</strong>. O PodWave já está 100% pronto e integrado com <code>supabase.auth.signInWithPasskey()</code> e <code>supabase.auth.registerPasskey()</code>.</p>
         </div>
       </details>
+    </section>
+
+    {/* RLS & Deletion Permissions Diagnostic Card */}
+    <section className="rounded-2xl border border-white/10 bg-[#0D1022] p-5 space-y-4">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div className="flex items-center gap-2.5">
+          <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#00DFFF]/20 to-[#8423DA]/30 border border-[#00DFFF]/40 flex items-center justify-center text-[#00DFFF]">
+            <ShieldCheck className="w-4 h-4" />
+          </div>
+          <div>
+            <h3 className="font-bold text-base text-white">Diagnóstico de Permissões RLS (Exclusão / DELETE)</h3>
+            <p className="text-xs text-gray-400">Verifica se a sua sessão do Supabase possui privilégios de administrador para exclusão física de variantes, modelos e marcas</p>
+          </div>
+        </div>
+        <button
+          type="button"
+          disabled={busy || !isSupabaseConfigured}
+          onClick={handleTestRls}
+          className={`${button} bg-[#8423DA]/40 hover:bg-[#8423DA]/70 border-[#8423DA] text-white flex items-center gap-2`}
+        >
+          {busy ? 'Testando RLS...' : 'Testar Permissões RLS'}
+        </button>
+      </div>
+
+      <p className="text-xs text-gray-400 leading-relaxed">
+        No PostgreSQL/Supabase, quando uma política RLS (como <code>app_security.is_admin()</code>) não autoriza o usuário, o banco ignora silenciosamente o DELETE retornando 0 linhas afetadas se não for inspecionado com <code>.select()</code>. O PodWave agora executa exclusões confirmadas no Supabase com tombstones locais imediatos e captura de erros detalhados. Clique no botão acima para inspecionar sua sessão e perfil.
+      </p>
+
+      {rlsAuditLogs && (
+        <div className={`p-4 rounded-xl border ${rlsAuditPassed ? 'bg-emerald-500/10 border-emerald-500/30 text-emerald-200' : 'bg-rose-500/10 border-rose-500/30 text-rose-200'} text-xs space-y-2`}>
+          <div className="flex items-center gap-2 font-bold text-sm">
+            {rlsAuditPassed ? (
+              <>
+                <CheckCircle2 className="w-4 h-4 text-emerald-400" />
+                <span className="text-emerald-300">RLS Aprovado: Usuário autenticado com privilégios</span>
+              </>
+            ) : (
+              <>
+                <ShieldAlert className="w-4 h-4 text-rose-400" />
+                <span className="text-rose-300">Diagnóstico RLS: Verifique os detalhes abaixo</span>
+              </>
+            )}
+          </div>
+          <div className="font-mono text-[11px] bg-black/40 p-3 rounded-lg space-y-1 overflow-x-auto text-gray-300">
+            {rlsAuditLogs.map((log, idx) => (
+              <div key={idx} className="whitespace-pre-wrap">{log}</div>
+            ))}
+          </div>
+        </div>
+      )}
     </section>
 
     {confirmationView}
