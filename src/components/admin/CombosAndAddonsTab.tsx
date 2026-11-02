@@ -90,7 +90,6 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
         tier2DiscountType: 'percent',
         tier2DiscountPercent: 5,
         tier3DiscountType: 'percent',
-        tier3DiscountPercent: 10,
         ...settings.progressiveDiscountConfig,
       };
       if (nextProg.tier2DiscountPercent === undefined || nextProg.tier2Label === 'Frete Grátis ✓') {
@@ -245,9 +244,9 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
     setIsSavingSupabase(false);
 
     addActivityLog({
-      action: 'CONFIG_ATUALIZADA',
+      action: 'CONFIGURACAO_ALTERADA',
       actionLabel: 'Promoções Atualizadas (Desconto Progressivo & Compre Junto)',
-      entity: 'store_settings',
+      entity: 'settings',
       entityName: 'Aba Promoções',
       details: `Desconto Progressivo: Nível 2 (${normalizedProg.tier2MinUnits} un. = ${
         normalizedProg.tier2DiscountType === 'fixed'

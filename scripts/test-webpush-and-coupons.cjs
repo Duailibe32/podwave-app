@@ -28,7 +28,7 @@ console.log('  ✓ Coupon suggestions completely removed from both CheckoutDrawe
 
 // 2. Check coupon limit auto-inactivation logic in CatalogContext
 console.log('\n2. Checking coupon limit auto-inactivation in CatalogContext...');
-const catalogContextContent = fs.readFileSync(path.join(__dirname, '../src/context/CatalogContext.tsx'), 'utf-8');
+const catalogContextContent = fs.readFileSync(path.join(__dirname, '../src/context/CatalogContext.tsx'), 'utf-8').replace(/\r\n/g, '\n');
 
 assert.ok(
   catalogContextContent.includes('c.maxUses && c.maxUses > 0 && c.usedCount >= c.maxUses ? { ...c, active: false } : c'),

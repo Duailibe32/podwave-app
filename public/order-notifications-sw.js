@@ -58,7 +58,13 @@ self.addEventListener('notificationclick', event => {
   event.notification.close();
   const notifData = event.notification.data || {};
   const isOrderNotif = notifData.type === 'podwave-order';
-  const targetUrl = notifData.url || (isOrderNotif ? '/?orders=1' : '/');
+  let targetUrl = isOrderNotif ? '/?orders=1' : '/';
+  if (!isOrderNotif && notifData.url) {
+    try {
+      const candidate = new URL(notifData.url, self.location.origin);
+      if (candidate.origin === self.location.origin) targetUrl = candidate.href;
+    } catch { /* Use the local homepage for invalid notification URLs. */ }
+  }
 
   event.waitUntil((async () => {
     const windows = await self.clients.matchAll({ type: 'window', includeUncontrolled: true });
@@ -73,7 +79,7 @@ self.addEventListener('notificationclick', event => {
         } else if (targetUrl) {
           const resolvedTarget = new URL(targetUrl, self.location.origin).href;
           if (client.url !== resolvedTarget) {
-            client.navigate(resolvedTarget);
+            await client.navigate(resolvedTarget);
           }
         }
         return;
