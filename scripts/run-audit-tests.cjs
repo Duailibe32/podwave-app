@@ -7,6 +7,8 @@ const tests=[
   'test-signup-confirmation',
   'test-order-history-reconciliation',
   'test-product-images',
+  'test-diagnostic-no-replay',
+  'test-progressive-discount-regression',
 ];
 for(const name of tests){
   const result=spawnSync(process.execPath,[`scripts/${name}.cjs`],{stdio:'inherit'});

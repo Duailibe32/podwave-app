@@ -34,7 +34,6 @@ export const CartDrawer: React.FC = () => {
     toggleSiliconeCover,
     siliconeCoverPrice,
     totalPodUnits,
-    progressiveDiscountRate,
     progressiveDiscountAmount,
     isProgressiveFreeShipping,
     coupons,
@@ -66,7 +65,7 @@ export const CartDrawer: React.FC = () => {
       ? `R$ ${tier2Percent.toFixed(2).replace('.', ',')} OFF`
       : `${tier2Percent}% OFF`;
   const tier3Min = Math.max(tier2Min, Number(progCfg.tier3MinUnits) || 3);
-  const tier3Percent = Math.max(0, Number(progCfg.tier3DiscountPercent) || 10);
+  const tier3Percent = Math.max(0, Number(progCfg.tier3DiscountPercent ?? 10));
   const formattedTier3Discount =
     progCfg.tier3DiscountType === 'fixed'
       ? `R$ ${tier3Percent.toFixed(2).replace('.', ',')} OFF`
@@ -595,7 +594,7 @@ export const CartDrawer: React.FC = () => {
                     <span className="flex items-center gap-1">
                       <Flame className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
                       <span>
-                        Combo {totalPodUnits >= tier3Min ? `${tier3Min}+` : `${tier2Min}`} Pods ({progressiveDiscountRate > 0 ? `${progressiveDiscountRate}% OFF` : totalPodUnits >= tier3Min ? formattedTier3Discount : formattedTier2Discount}):
+                        Combo {totalPodUnits >= tier3Min ? `${tier3Min}+` : `${tier2Min}`} Pods ({totalPodUnits >= tier3Min ? formattedTier3Discount : formattedTier2Discount}):
                       </span>
                     </span>
                     <span className="font-mono">-R$ {progressiveDiscountAmount.toFixed(2).replace('.', ',')}</span>

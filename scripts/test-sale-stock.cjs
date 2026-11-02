@@ -103,6 +103,8 @@ const { PGlite } = require('@electric-sql/pglite');
     INSERT INTO customer_orders VALUES('atomic','recebido','{"version":1}'),('rollback-order','recebido','{"version":1}');`);
   const orderProposal=fs.readFileSync('supabase/proposals/20261102_atomic_order_sale.sql','utf8');
   await db.exec(orderProposal);await db.exec(orderProposal);
+  const linkedGuard=fs.readFileSync('supabase/proposals/20261102_guard_linked_sale_deletion.sql','utf8');
+  await db.exec(linkedGuard);await db.exec(linkedGuard);
   await db.exec(`CREATE FUNCTION reject_test_order() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN
     IF NEW.id='rollback-order' THEN RAISE EXCEPTION 'synthetic order refusal'; END IF; RETURN NEW; END $$;
     CREATE TRIGGER reject_test_order BEFORE UPDATE ON customer_orders FOR EACH ROW EXECUTE FUNCTION reject_test_order();
@@ -115,6 +117,20 @@ const { PGlite } = require('@electric-sql/pglite');
   const confirmed=await mutate('atomic',1,'confirmado',orderSale('atomic'));
   assert.equal(confirmed.order.delivery_info.stockDeducted,true);assert.equal(confirmed.order.delivery_info.version,2);
   assert.equal(await qty('second'),1);
+  // A stale frontend and hidden orders must not allow deleting the linked sale.
+  const beforeAudit=(await db.query("SELECT count(*)::int n FROM business_audit_events")).rows[0].n;
+  await db.exec('RESET ROLE; ALTER POLICY order_admin ON customer_orders USING(false); SET ROLE authenticated');
+  assert.equal((await db.query('SELECT count(*)::int n FROM customer_orders')).rows[0].n,0);
+  await assert.rejects(call({id:'sale-ord-atomic'},1,undefined,true),e=>e.code==='23503');
+  assert.equal(await qty('second'),1,'Blocked deletion must roll back the restock');
+  assert.equal((await db.query("SELECT stock_revision FROM manual_sales WHERE id='sale-ord-atomic'")).rows[0].stock_revision,1);
+  assert.equal((await db.query("SELECT count(*)::int n FROM business_audit_events")).rows[0].n,beforeAudit);
+  await db.exec('RESET ROLE; ALTER POLICY order_admin ON customer_orders USING(public.is_admin()); SET ROLE authenticated');
+  assert.equal((await db.query("SELECT delivery_info->>'financialSaleId' link FROM customer_orders WHERE id='atomic'")).rows[0].link,'sale-ord-atomic');
+  // Unlinked manual sales still support deletion and stock return.
+  await call(sale('standalone-after-guard',1,{items:[{productId:'model',flavorId:'second',quantity:1}]}));
+  assert.equal(await qty('second'),0);
+  await call({id:'standalone-after-guard'},1,undefined,true);assert.equal(await qty('second'),1);
   await assert.rejects(db.query('SELECT save_order_with_sale($1,$2,$3,$4::jsonb)',
     ['atomic',2,'confirmado',JSON.stringify({version:3,paymentStatus:'pago'})]),/requires the linked sale/);
   await assert.rejects(mutate('atomic',1,'confirmado',orderSale('atomic')),e=>e.code==='40001');

@@ -479,6 +479,8 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
       const report = await diagnoseOrdersConnection(true);
       setRlsDiagnosticReport(report);
       const isOk =
+        report?.overallStatus === 'healthy' &&
+        Boolean(report?.rlsWriteTest?.cleanupDeleted) &&
         Boolean(report?.rlsWriteTest?.insertAllowed) &&
         Boolean(report?.customerOrdersTable?.rlsSelectAllowed);
       showFeedback(
@@ -784,8 +786,8 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
             return (
               <div className="px-2.5 py-1 rounded-xl bg-rose-500/10 border border-rose-500/30 text-[10px] text-rose-300 flex items-center justify-between gap-2">
                 <span>
-                  🗑️ Auto-exclusão do banco em{' '}
-                  <strong>{remainingHours > 0 ? `${remainingHours}h` : 'instantes'}</strong> (após 24h cancelado)
+                  🗑️ Elegível para limpeza em{' '}
+                  <strong>{remainingHours > 0 ? `${remainingHours}h` : 'agora'}</strong> (após 24h cancelado; execução depende de ação administrativa)
                 </span>
               </div>
             );

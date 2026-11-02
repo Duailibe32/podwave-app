@@ -2222,10 +2222,11 @@ export interface SupabaseOrdersRLSDiagnosticReport {
  * Função de diagnóstico detalhado que investiga a conexão entre o cliente e o Supabase,
  * verifica se as tabelas 'orders' e 'customer_orders' estão acessíveis, valida se as
  * políticas de RLS estão permitindo leitura (SELECT) e escrita (INSERT) para usuários
- * autenticados, repara perfis ausentes e reconcilia pedidos locais pendentes.
+ * autenticados. Escritas de sonda/reparo exigem runWriteProbe=true; nunca reenvia cache.
  * Exibe todos os resultados em um console.log estruturado.
  */
 export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
+  /** @deprecated Diagnostics never replay browser orders. Use explicit draft retry. */
   localOrdersToReconcile?: CustomerOrderHistoryItem[];
   runWriteProbe?: boolean;
 }): Promise<SupabaseOrdersRLSDiagnosticReport> {
@@ -2331,8 +2332,8 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
       if (!profErr && profData) {
         report.profileExists = true;
         report.profileRole = String(profData.role || 'customer');
-      } else {
-        // Tenta auto-reparar criando o perfil do usuário autenticado
+      } else if (options?.runWriteProbe === true) {
+        // Reparo somente quando a sonda de escrita foi solicitada explicitamente.
         const repaired = await ensureCustomerProfileForOrder(client, report.authUserId, {
           customerName: report.authUserEmail?.split('@')[0] || 'Cliente PodWave',
           customerEmail: report.authUserEmail || undefined,
@@ -2442,7 +2443,7 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
   }
 
   // 4. Testar Escrita RLS (INSERT) para usuário autenticado
-  const shouldRunWriteProbe = options?.runWriteProbe !== false && report.authenticated && Boolean(report.authUserId);
+  const shouldRunWriteProbe = options?.runWriteProbe === true && report.authenticated && Boolean(report.authUserId);
   if (shouldRunWriteProbe && report.activeTargetTable !== 'none') {
     const target = report.activeTargetTable;
     const probeId = `diag-rls-probe-${Date.now()}`;
@@ -2494,38 +2495,8 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
 
   console.log('✍️ [5/5] Teste de Escrita RLS (INSERT) para Usuário Autenticado:', report.rlsWriteTest);
 
-  // 5. Reconciliar automaticamente pedidos locais pendentes para o Supabase
-  const localOrders = (options?.localOrdersToReconcile || []).filter(
-    (o) => o && o.id && !o.id.startsWith('diag-rls-probe-')
-  );
-  report.reconciledLocalOrders.foundLocal = localOrders.length;
-
-  if (report.authenticated && report.authUserId && localOrders.length > 0) {
-    const remoteCheck = await fetchAllCustomerOrdersFromSupabase();
-    const existingIds = new Set((remoteCheck.orders || []).map((o) => o.id));
-    const existingRefs = new Set((remoteCheck.orders || []).map((o) => o.referenceId));
-
-    for (const ord of localOrders) {
-      if (existingIds.has(ord.id) || (ord.referenceId && existingRefs.has(ord.referenceId))) {
-        continue;
-      }
-      const targetCustomerId =
-        !ord.customerId || ord.customerId.startsWith('guest-')
-          ? report.authUserId
-          : ord.customerId;
-      const ok = await saveCustomerOrderToSupabase(
-        { ...ord, customerId: targetCustomerId },
-        targetCustomerId
-      );
-      if (ok) {
-        report.reconciledLocalOrders.syncedNow++;
-      } else {
-        report.reconciledLocalOrders.failedNow++;
-      }
-    }
-
-    console.log('🔄 [Reconciliação Automática de Pedidos Locais -> Supabase]:', report.reconciledLocalOrders);
-  }
+  // Diagnóstico não reenvia pedidos: o histórico e o cache nunca autorizam INSERT.
+  // O reenvio de rascunho próprio é uma ação explícita na tela do cliente.
 
   // 6. Status Geral
   const selectOk = report.customerOrdersTable.rlsSelectAllowed || report.ordersTable.rlsSelectAllowed;
@@ -2536,15 +2507,23 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
     report.summaryMessage = !selectOk
       ? 'Leitura bloqueada ou tabela inacessível no Supabase. Execute o script SQL de organização e RLS.'
       : `Escrita (INSERT) recusada pelo banco (${report.rlsWriteTest.errorCode || 'RLS'}): ${report.rlsWriteTest.errorMessage}`;
+  } else if (report.rlsWriteTest.attempted && !report.rlsWriteTest.cleanupDeleted) {
+    report.overallStatus = 'warning';
+    report.summaryMessage = 'A sonda foi gravada, mas sua exclusão não foi confirmada. Confira os registros diag-rls-probe antes de repetir.';
+    recommendations.push(report.summaryMessage);
+  } else if (!report.profileExists && report.authenticated) {
+    report.overallStatus = 'warning';
+    report.summaryMessage = 'Perfil não confirmado. O diagnóstico de leitura não cria nem repara dados.';
   } else if (!report.ordersTable.exists || !report.authenticated) {
     report.overallStatus = 'warning';
     report.summaryMessage = !report.authenticated
       ? 'Conectado ao Supabase, mas sem usuário autenticado na sessão atual.'
-      : 'Leitura e escrita funcionando em "customer_orders"! Para habilitar também o alias direto "orders", rode o SQL de unificação.';
+      : 'Leitura funcionando em customer_orders; o alias orders não está disponível.';
   } else {
     report.overallStatus = 'healthy';
-    report.summaryMessage =
-      'Conexão Supabase, tabelas "orders" / "customer_orders" e políticas RLS (SELECT e INSERT) 100% operacionais!';
+    report.summaryMessage = report.rlsWriteTest.attempted
+      ? 'Leitura, INSERT e exclusão da sonda confirmados nesta sessão.'
+      : 'Leitura confirmada nesta sessão. Escrita não testada; nenhum pedido foi reenviado.';
   }
 
   console.log('✅ Resultado Final do Diagnóstico:', {
