@@ -13,6 +13,7 @@ import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
 import {
   fetchCustomerOrdersFromSupabase,
   saveCustomerOrderToSupabase,
+  getLastSupabaseOrderDiagnostic,
 } from '../../services/supabase';
 import {
   X,
@@ -175,9 +176,10 @@ export const CustomerProfileModal: React.FC = () => {
       const remoteRefs = new Set((fetched || []).map((r) => r.referenceId));
 
       // Se houver pedidos feitos localmente neste navegador que ainda não estão em customer_orders no Supabase, envia agora
+      let syncWarning: string | null = null;
       for (const loc of localOrders) {
         if (!remoteIds.has(loc.id) && !remoteRefs.has(loc.referenceId)) {
-          void saveCustomerOrderToSupabase(
+          const ok = await saveCustomerOrderToSupabase(
             {
               ...loc,
               customerId: targetUserId,
@@ -187,13 +189,31 @@ export const CustomerProfileModal: React.FC = () => {
             },
             targetUserId
           );
+          if (!ok) {
+            const diag = getLastSupabaseOrderDiagnostic();
+            if (diag?.message) {
+              syncWarning = `Pedido salvo neste aparelho, mas pendente de envio ao servidor (${diag.code || diag.category}): ${diag.message}`;
+            }
+          }
         }
       }
 
-      if (fetched && fetched.length > 0) {
-        setRemoteOrders(fetched);
-      } else {
-        setRemoteOrders(localOrders);
+      const mergedMap = new Map<string, typeof localOrders[number]>();
+      for (const loc of localOrders) {
+        mergedMap.set(loc.id, loc);
+      }
+      for (const rem of fetched || []) {
+        const existing = mergedMap.get(rem.id);
+        if (!existing || (rem.version || 1) >= (existing.version || 1)) {
+          mergedMap.set(rem.id, rem);
+        }
+      }
+      const mergedList = Array.from(mergedMap.values()).sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
+      setRemoteOrders(mergedList);
+      if (syncWarning) {
+        setCustomerOrdersError(syncWarning);
       }
     } catch {
       if (reqId !== activeOrdersReqRef.current) return;

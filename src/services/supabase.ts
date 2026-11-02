@@ -1511,6 +1511,58 @@ export function getLastSupabaseOrderDiagnostic(): SupabaseOrderDiagnostic | null
 }
 
 /**
+ * Extrai o nome da coluna ausente a partir de mensagens do PostgREST (PGRST204) ou PostgreSQL (42703)
+ */
+function extractMissingColumnFromError(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null;
+  const msg = String((err as { message?: string; details?: string }).message || '');
+  const pgrstMatch = msg.match(/Could not find the '([^']+)' column/i);
+  if (pgrstMatch && pgrstMatch[1]) return pgrstMatch[1];
+  const pgMatch = msg.match(/column "([^"]+)" of relation "[^"]+" does not exist/i);
+  if (pgMatch && pgMatch[1]) return pgMatch[1];
+  const pgSimpleMatch = msg.match(/column "([^"]+)" does not exist/i);
+  if (pgSimpleMatch && pgSimpleMatch[1]) {
+    const col = pgSimpleMatch[1];
+    return col.includes('.') ? col.split('.').pop() || null : col;
+  }
+  return null;
+}
+
+/**
+ * Extrai o nome da coluna que violou NOT NULL (código 23502)
+ */
+function extractNotNullColumnFromError(err: unknown): string | null {
+  if (!err || typeof err !== 'object') return null;
+  const msg = String((err as { message?: string; details?: string }).message || '');
+  const match = msg.match(/null value in column "([^"]+)"/i);
+  return match && match[1] ? match[1] : null;
+}
+
+/**
+ * Converte um ID textual (ex: ord-1730...) em um UUID v4 determinístico caso a coluna id no banco seja UUID
+ */
+function toDeterministicUuid(input: string): string {
+  const clean = String(input || '').trim();
+  if (/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(clean)) {
+    return clean.toLowerCase();
+  }
+  let h1 = 0xdeadbeef ^ clean.length;
+  let h2 = 0x41c6ce57 ^ clean.length;
+  let h3 = 0x1b873593 ^ clean.length;
+  let h4 = 0x85ebca6b ^ clean.length;
+  for (let i = 0; i < clean.length; i++) {
+    const ch = clean.charCodeAt(i);
+    h1 = Math.imul(h1 ^ ch, 2654435761);
+    h2 = Math.imul(h2 ^ ch, 1597334677);
+    h3 = Math.imul(h3 ^ ch, 3266489909);
+    h4 = Math.imul(h4 ^ ch, 668265263);
+  }
+  const hex = (n: number) => (n >>> 0).toString(16).padStart(8, '0');
+  const full = hex(h1) + hex(h2) + hex(h3) + hex(h4);
+  return `${full.slice(0, 8)}-${full.slice(8, 12)}-4${full.slice(13, 16)}-a${full.slice(17, 20)}-${full.slice(20, 32)}`;
+}
+
+/**
  * Assegura que o perfil do cliente exista em customer_profiles antes de vincular chave estrangeira.
  * Usa INSERT (em vez de UPSERT) para clientes comuns a fim de respeitar a política RLS FOR INSERT sem exigir FOR UPDATE.
  */
@@ -1541,62 +1593,76 @@ async function ensureCustomerProfileForOrder(
       .trim()
       .toLowerCase();
     const fullName = (order.customerName || 'Cliente PodWave').trim() || 'Cliente PodWave';
+    const safePhone = (order.customerPhone || cleanPhone || '').trim();
     const nowIso = new Date().toISOString();
 
-    // 1. Esquema oficial verificado de customer_profiles (sem coluna 'street' inválida e sem 'role' para respeitar RLS de cliente)
-    const verifiedFlatPayload: Record<string, unknown> = {
+    // 1. Esquema oficial verificado de customer_profiles (usa string vazia em phone para respeitar tanto NULL quanto NOT NULL)
+    const activeProfilePayload: Record<string, unknown> = {
       id: ownerId,
       email: guestEmail,
       full_name: fullName,
-      phone: (order.customerPhone || cleanPhone || '').trim() || null,
+      phone: safePhone,
       address_street: order.addressSummary || null,
       updated_at: nowIso,
     };
 
     let { error: insertErr } = await client
       .from('customer_profiles')
-      .insert(verifiedFlatPayload);
+      .insert(activeProfilePayload);
 
-    // Se já existe (23505 duplicate key), está garantido
     if (!insertErr || insertErr.code === '23505') {
       return true;
     }
 
-    // 2. Se houve erro de coluna ausente (ex: address_street não existe), tenta payload mínimo universal
-    if (isMissingColumnError(insertErr)) {
-      const minimalFlatPayload: Record<string, unknown> = {
-        id: ownerId,
-        email: guestEmail,
-        full_name: fullName,
-        phone: (order.customerPhone || cleanPhone || '').trim() || null,
-      };
-      const retryMin = await client.from('customer_profiles').insert(minimalFlatPayload);
-      if (!retryMin.error || retryMin.error.code === '23505') {
-        return true;
+    // Adaptação dinâmica para colunas ausentes ou NOT NULL em customer_profiles
+    for (let attempt = 0; attempt < 5 && insertErr; attempt++) {
+      if (insertErr.code === '23505') return true;
+
+      if (isMissingColumnError(insertErr)) {
+        const missingCol = extractMissingColumnFromError(insertErr);
+        if (missingCol && missingCol in activeProfilePayload) {
+          delete activeProfilePayload[missingCol];
+          if (missingCol === 'full_name') {
+            activeProfilePayload.name = fullName;
+          }
+        } else if ('address_street' in activeProfilePayload) {
+          delete activeProfilePayload.address_street;
+        } else if ('full_name' in activeProfilePayload) {
+          delete activeProfilePayload.full_name;
+          activeProfilePayload.name = fullName;
+        } else {
+          break;
+        }
+        const retry = await client.from('customer_profiles').insert(activeProfilePayload);
+        insertErr = retry.error;
+        if (!insertErr || insertErr.code === '23505') return true;
+        continue;
       }
-      insertErr = retryMin.error;
+
+      if (insertErr.code === '23502') {
+        const notNullCol = extractNotNullColumnFromError(insertErr);
+        if (notNullCol === 'name' && !('name' in activeProfilePayload)) {
+          activeProfilePayload.name = fullName;
+          const retry = await client.from('customer_profiles').insert(activeProfilePayload);
+          insertErr = retry.error;
+          if (!insertErr || insertErr.code === '23505') return true;
+          continue;
+        }
+        if (notNullCol === 'full_name' && !('full_name' in activeProfilePayload)) {
+          activeProfilePayload.full_name = fullName;
+          const retry = await client.from('customer_profiles').insert(activeProfilePayload);
+          insertErr = retry.error;
+          if (!insertErr || insertErr.code === '23505') return true;
+          continue;
+        }
+      }
+      break;
     }
 
-    // 3. Fallback para esquema legado (name + default_address) caso full_name não exista
-    if (insertErr && isMissingColumnError(insertErr)) {
-      const legacyPayload: Record<string, unknown> = {
-        id: ownerId,
-        email: guestEmail,
-        name: fullName,
-        phone: (order.customerPhone || cleanPhone || '').trim() || '',
-        default_address: order.addressSummary ? { street: order.addressSummary } : {},
-        updated_at: nowIso,
-      };
-      const retryLegacy = await client.from('customer_profiles').insert(legacyPayload);
-      if (!retryLegacy.error || retryLegacy.error.code === '23505') {
-        return true;
-      }
-    }
-
-    // 4. Última tentativa via upsert
+    // Última tentativa via upsert
     const { error: upsertErr } = await client
       .from('customer_profiles')
-      .upsert(verifiedFlatPayload, { onConflict: 'id' });
+      .upsert(activeProfilePayload, { onConflict: 'id' });
 
     return !upsertErr;
   } catch (err) {
@@ -1608,7 +1674,7 @@ async function ensureCustomerProfileForOrder(
 /**
  * Salva pedido realizado pelo cliente ou atualizado pelo administrador no Supabase.
  * Compatível com RLS (usa .insert para novos pedidos e garante customer_id = auth.uid() quando autenticado como cliente)
- * e sincroniza com `customer_orders` (com fallback automático para `orders` caso o projeto use a tabela `orders`).
+ * e adapta-se automaticamente às colunas reais existentes em `customer_orders` (ou `orders`).
  */
 export async function saveCustomerOrderToSupabase(
   order: CustomerOrderHistoryItem,
@@ -1647,7 +1713,7 @@ export async function saveCustomerOrderToSupabase(
   if (!client || !ownerId || !order.id) {
     lastSupabaseOrderDiagnostic = {
       category: 'unconfigured',
-      message: 'Cliente Supabase não configurado ou pedido sem identificador de cliente.',
+      message: 'Cliente Supabase não configurado neste dispositivo ou pedido sem identificador.',
     };
     return false;
   }
@@ -1709,67 +1775,140 @@ export async function saveCustomerOrderToSupabase(
       );
     }
 
+    // Se a tabela tiver colunas flat adicionais já detectadas, preenche também
+    if (cols.has('customer_name')) payload.customer_name = enrichedOrder.customerName || 'Cliente';
+    if (cols.has('customer_phone')) payload.customer_phone = enrichedOrder.customerPhone || '';
+    if (cols.has('customer_email')) payload.customer_email = enrichedOrder.customerEmail || '';
+    if (cols.has('delivery_type')) payload.delivery_type = enrichedOrder.deliveryType || 'delivery';
+    if (cols.has('delivery_fee')) payload.delivery_fee = Number(enrichedOrder.deliveryFee) || 0;
+    if (cols.has('address_summary')) payload.address_summary = enrichedOrder.addressSummary || '';
+    if (cols.has('payment_status')) payload.payment_status = enrichedOrder.paymentStatus || 'pendente';
+
     if (cols.has('coupon_code')) payload.coupon_code = order.couponCode || null;
     if (cols.has('vip_discount_applied'))
       payload.vip_discount_applied = Boolean(order.vipDiscountApplied);
     if (cols.has('vip_discount_amount'))
       payload.vip_discount_amount = Number(order.vipDiscountAmount) || 0;
 
-    // Se o pedido ainda não existe, usa INSERT puro (evita falha 42501 da política UPDATE RLS para clientes!)
-    if (!existing) {
-      let { data, error } = await client
-        .from(targetTable)
-        .insert(payload)
-        .select('id');
+    // Função auxiliar que tenta inserir o pedido adaptando dinamicamente colunas ausentes, NOT NULL ou tipo UUID
+    const executeAdaptiveInsert = async (initialPayload: Record<string, unknown>) => {
+      const workingPayload: Record<string, unknown> = { ...initialPayload };
+      const fallbackRemoveOrder = [
+        'coupon_code',
+        'vip_discount_applied',
+        'vip_discount_amount',
+        'delivery_info',
+        'order_code',
+        'reference_id',
+        'discount',
+        'subtotal',
+        'payment_method',
+      ];
+      let res = await client.from(targetTable).insert(workingPayload).select('id');
 
-      // Se houver erro de coluna ausente no banco, enxuga para o payload mínimo essencial e tenta novamente
-      if (error && isMissingColumnError(error)) {
-        const minimalPayload: Record<string, unknown> = {
-          id: order.id,
-          order_code: order.referenceId || order.id,
-          customer_id: payload.customer_id,
-          created_at: payload.created_at,
-          status: payload.status,
-          items: payload.items,
-          subtotal: payload.subtotal,
-          discount: payload.discount,
-          total: payload.total,
-          payment_method: payload.payment_method,
-          delivery_info: buildOrderDeliveryInfoPayload(
-            enrichedOrder,
-            (payload.customer_id as string) || ownerId
-          ),
-        };
-        const retryMin = await client.from(targetTable).insert(minimalPayload).select('id');
-        data = retryMin.data;
-        error = retryMin.error;
+      for (let step = 0; step < 10 && res.error; step++) {
+        const err = res.error;
+        const code = String((err as any).code || '');
+
+        // A) Coluna inexistente no schema remoto (PGRST204 ou 42703)
+        if (isMissingColumnError(err)) {
+          const missingCol = extractMissingColumnFromError(err);
+          if (missingCol && missingCol in workingPayload) {
+            delete workingPayload[missingCol];
+            if (customerOrdersSupportedColumnsCache) {
+              customerOrdersSupportedColumnsCache.delete(missingCol);
+            }
+            if (missingCol === 'order_code' && !('reference_id' in workingPayload)) {
+              // Não força reference_id a menos que seja exigido por NOT NULL
+            }
+          } else {
+            const nextToRemove = fallbackRemoveOrder.find((k) => k in workingPayload);
+            if (!nextToRemove) break;
+            delete workingPayload[nextToRemove];
+          }
+          res = await client.from(targetTable).insert(workingPayload).select('id');
+          continue;
+        }
+
+        // B) Coluna obrigatória NOT NULL ausente no payload (23502)
+        if (code === '23502') {
+          const reqCol = extractNotNullColumnFromError(err);
+          if (reqCol && !(reqCol in workingPayload)) {
+            if (reqCol === 'reference_id' || reqCol === 'order_code') {
+              workingPayload[reqCol] = order.referenceId || order.id;
+            } else if (reqCol === 'customer_name') {
+              workingPayload[reqCol] = enrichedOrder.customerName || 'Cliente';
+            } else if (reqCol === 'customer_phone') {
+              workingPayload[reqCol] = enrichedOrder.customerPhone || '';
+            } else if (reqCol === 'customer_email') {
+              workingPayload[reqCol] = enrichedOrder.customerEmail || '';
+            } else if (reqCol === 'delivery_type') {
+              workingPayload[reqCol] = enrichedOrder.deliveryType || 'delivery';
+            } else if (reqCol === 'address_summary') {
+              workingPayload[reqCol] = enrichedOrder.addressSummary || '';
+            } else if (reqCol === 'payment_status') {
+              workingPayload[reqCol] = enrichedOrder.paymentStatus || 'pendente';
+            } else if (reqCol === 'delivery_fee') {
+              workingPayload[reqCol] = Number(enrichedOrder.deliveryFee) || 0;
+            } else if (reqCol === 'delivery_info') {
+              workingPayload[reqCol] = buildOrderDeliveryInfoPayload(enrichedOrder, ownerId);
+            } else {
+              workingPayload[reqCol] = '';
+            }
+            res = await client.from(targetTable).insert(workingPayload).select('id');
+            continue;
+          }
+          break;
+        }
+
+        // C) Caso a coluna id no banco remoto seja do tipo UUID (22P02 invalid input syntax for type uuid)
+        if (code === '22P02' && /uuid/i.test(err.message || '')) {
+          const uuidId = toDeterministicUuid(String(workingPayload.id || order.id));
+          if (workingPayload.id !== uuidId) {
+            workingPayload.id = uuidId;
+            res = await client.from(targetTable).insert(workingPayload).select('id');
+            continue;
+          }
+          break;
+        }
+
+        break;
       }
 
+      return { data: res.data, error: res.error, finalPayload: workingPayload };
+    };
+
+    // Se o pedido ainda não existe, usa INSERT puro (evita falha 42501 da política UPDATE RLS para clientes!)
+    if (!existing) {
+      let { data, error, finalPayload } = await executeAdaptiveInsert(payload);
+
       // Se falhar por RLS (42501) porque o customer_id difere do auth.uid() da sessão ativa, alinha com authUserId
-      if (error && error.code === '42501' && authUserId && payload.customer_id !== authUserId) {
+      if (error && error.code === '42501' && authUserId && finalPayload.customer_id !== authUserId) {
         await ensureCustomerProfileForOrder(client, authUserId, enrichedOrder);
-        payload.customer_id = authUserId;
-        if (hasDeliveryInfoCol) {
-          payload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, authUserId);
+        finalPayload.customer_id = authUserId;
+        if ('delivery_info' in finalPayload) {
+          finalPayload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, authUserId);
         }
-        const retryAuth = await client.from(targetTable).insert(payload).select('id');
+        const retryAuth = await executeAdaptiveInsert(finalPayload);
         data = retryAuth.data;
         error = retryAuth.error;
+        finalPayload = retryAuth.finalPayload;
       }
 
       // Se falhar por foreign key (23503), assegura perfil do authUserId
       if (error && error.code === '23503') {
         if (authUserId) {
           await ensureCustomerProfileForOrder(client, authUserId, enrichedOrder);
-          payload.customer_id = authUserId;
-          if (hasDeliveryInfoCol) {
-            payload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, authUserId);
+          finalPayload.customer_id = authUserId;
+          if ('delivery_info' in finalPayload) {
+            finalPayload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, authUserId);
           }
-          const retryFkAuth = await client.from(targetTable).insert(payload).select('id');
+          const retryFkAuth = await executeAdaptiveInsert(finalPayload);
           data = retryFkAuth.data;
           error = retryFkAuth.error;
+          finalPayload = retryFkAuth.finalPayload;
         }
-        // Apenas se não houver authUserId (ou se o admin estiver salvando pedido de visitante cujo ID não pôde ser criado em customer_profiles)
+        // Apenas se ainda falhar por FK (ex: trigger bloqueando criação de perfil em customer_profiles)
         if (error && error.code === '23503') {
           const { data: firstProf } = await client
             .from('customer_profiles')
@@ -1778,25 +1917,25 @@ export async function saveCustomerOrderToSupabase(
             .maybeSingle();
 
           if (firstProf && firstProf.id) {
-            payload.customer_id = firstProf.id;
-            // Preserva o customerId original e e-mail/telefone dentro de delivery_info
-            if (hasDeliveryInfoCol) {
-              payload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, ownerId);
+            finalPayload.customer_id = firstProf.id;
+            if ('delivery_info' in finalPayload) {
+              finalPayload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, ownerId);
             }
-            const retry = await client.from(targetTable).insert(payload).select('id');
+            const retry = await executeAdaptiveInsert(finalPayload);
             data = retry.data;
             error = retry.error;
+            finalPayload = retry.finalPayload;
           }
         }
       }
 
       // Se o registro já existia (23505 duplicate key), faz update
       if (error && error.code === '23505') {
-        const { id, created_at, customer_id, order_code, reference_id, ...updateFields } = payload;
+        const { id, created_at, customer_id, order_code, reference_id, ...updateFields } = finalPayload;
         const retryUpd = await client
           .from(targetTable)
           .update(updateFields)
-          .eq('id', order.id)
+          .eq('id', String(finalPayload.id || order.id))
           .select('id');
         data = retryUpd.data;
         error = retryUpd.error;
@@ -1807,7 +1946,7 @@ export async function saveCustomerOrderToSupabase(
         console.warn('[Supabase] Falha ao gravar pedido em customer_orders:', {
           orderId: order.id,
           referenceId: order.referenceId,
-          customerId: payload.customer_id,
+          customerId: finalPayload.customer_id,
           authUserId,
           code,
           message: error.message,
@@ -1827,7 +1966,8 @@ export async function saveCustomerOrderToSupabase(
         return false;
       }
 
-      const ok = Array.isArray(data) && data.some((row) => row.id === order.id);
+      const targetId = String(finalPayload.id || order.id);
+      const ok = Array.isArray(data) && data.some((row) => String(row.id) === targetId);
       lastSupabaseOrderDiagnostic = ok
         ? { category: 'ok', message: 'OK' }
         : { category: 'ok', message: 'Pedido gravado no banco.' };
@@ -1836,11 +1976,26 @@ export async function saveCustomerOrderToSupabase(
 
     // Se já existe, atualiza os campos do pedido de forma limpa e direta
     const { id, created_at, customer_id, order_code, reference_id, ...updateFields } = payload;
-    const { error: updateError } = await client
+    let { error: updateError } = await client
       .from(targetTable)
       .update(updateFields)
       .eq('id', order.id)
       .select('id');
+
+    for (let step = 0; step < 6 && updateError && isMissingColumnError(updateError); step++) {
+      const missingCol = extractMissingColumnFromError(updateError);
+      if (missingCol && missingCol in updateFields) {
+        delete (updateFields as Record<string, unknown>)[missingCol];
+      } else {
+        break;
+      }
+      const retryUpd = await client
+        .from(targetTable)
+        .update(updateFields)
+        .eq('id', order.id)
+        .select('id');
+      updateError = retryUpd.error;
+    }
 
     if (updateError) {
       const code = String((updateError as any).code || '');

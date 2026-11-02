@@ -58,6 +58,7 @@ import {
   fetchCustomerProfileById,
   fetchCustomerProfileFromSupabase,
   saveCustomerOrderToSupabase,
+  getLastSupabaseOrderDiagnostic,
   deleteCustomerOrderFromSupabase,
   mapSupabaseRowToCustomerOrder,
   fetchCustomerOrdersFromSupabase,
@@ -1765,7 +1766,20 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // 4. Tenta persistir no Supabase (se conectado) sem travar a experiência do usuário caso falhe
     try {
-      await saveCustomerOrderToSupabase(orderItem, customerId);
+      const savedRemotely = await saveCustomerOrderToSupabase(orderItem, customerId);
+      if (!savedRemotely) {
+        const diag = getLastSupabaseOrderDiagnostic();
+        console.warn('[Catalog] Pedido mantido localmente; falha ao gravar em customer_orders:', diag);
+        if (diag?.category === 'unconfigured') {
+          toast.warning(
+            'Pedido salvo neste aparelho! Para sincronizar entre celular e PC, conecte o Supabase (VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY).'
+          );
+        } else if (diag?.message) {
+          toast.warning(
+            `Pedido salvo no aparelho, mas o banco Supabase recusou o envio (${diag.code || diag.category}): ${diag.message}`
+          );
+        }
+      }
     } catch (e) {
       console.warn('[Catalog] Aviso ao salvar pedido no Supabase (pedido mantido localmente):', e);
     }
