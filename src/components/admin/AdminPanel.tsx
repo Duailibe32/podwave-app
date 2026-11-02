@@ -59,6 +59,7 @@ import { BusinessAuditSection } from './BusinessAuditSection';
 import { ImageEditorStudioModal } from './ImageEditorStudioModal';
 import { MyBusinessModule } from './MyBusinessModule';
 import { OrdersCenterTab } from './OrdersCenterTab';
+import { ImageStorageSettingsSection } from './ImageStorageSettingsSection';
 import { calculateVariantAvailability, calculateVariantsSummary, isNeedsAttention, DEFAULT_LOW_QUANTITY_THRESHOLD } from '../../utils/availability';
 
 type AdminTab = 'pedidos' | 'meu_negocio' | 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'usuarios' | 'configuracoes' | 'supabase';
@@ -385,7 +386,12 @@ export const AdminPanel: React.FC = () => {
   ];
 
   // Client-side image compression to prevent localStorage overflow
-  const compressImage = (file: File, maxWidth = 320, maxHeight = 320): Promise<string> => {
+  const compressImage = (
+    file: File,
+    maxWidth = settings.imageStorageConfig?.maxImageDimension || 480,
+    maxHeight = settings.imageStorageConfig?.maxImageDimension || 480,
+    quality = settings.imageStorageConfig?.compressionQuality || 0.85
+  ): Promise<string> => {
     return new Promise((resolve) => {
       const reader = new FileReader();
       reader.onload = (readerEvent) => {
@@ -405,12 +411,18 @@ export const AdminPanel: React.FC = () => {
             }
           }
           const canvas = document.createElement('canvas');
-          canvas.width = width;
-          canvas.height = height;
+          canvas.width = Math.max(1, width);
+          canvas.height = Math.max(1, height);
           const ctx = canvas.getContext('2d');
           if (ctx) {
+            ctx.imageSmoothingEnabled = true;
+            ctx.imageSmoothingQuality = 'high';
             ctx.drawImage(image, 0, 0, width, height);
-            resolve(canvas.toDataURL('image/png', 0.88));
+            let compressed = canvas.toDataURL('image/webp', quality);
+            if (!compressed.startsWith('data:image/webp')) {
+              compressed = canvas.toDataURL('image/jpeg', quality);
+            }
+            resolve(compressed);
           } else {
             resolve(readerEvent.target?.result as string);
           }
@@ -2545,6 +2557,10 @@ export const AdminPanel: React.FC = () => {
 
               </div>
             </form>
+
+            {/* SEÇÃO PERSONALIZÁVEL: GESTÃO DE CACHE & ARMAZENAMENTO DE IMAGENS */}
+            <ImageStorageSettingsSection onNotify={showToast} />
+
             <OwnerAdvancedSettings />
           </div>
         )}

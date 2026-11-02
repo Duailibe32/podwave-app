@@ -1,4 +1,4 @@
-import { Brand, ProductModel, BannerSlide, StoreSettings, Coupon } from '../types/catalog';
+import { Brand, ProductModel, BannerSlide, StoreSettings, Coupon, ImageStorageConfig } from '../types/catalog';
 
 export const INITIAL_BRANDS: Brand[] = [
   {
@@ -663,6 +663,14 @@ export const AVAILABLE_COUPONS: Coupon[] = [
   },
 ];
 
+export const DEFAULT_IMAGE_STORAGE_CONFIG: ImageStorageConfig = {
+  autoClearOnStartup: false,
+  maxImageDimension: 480,
+  compressionQuality: 0.85,
+  cacheRetentionDays: 15,
+  enableBrowserCache: true,
+};
+
 export const INITIAL_SETTINGS: StoreSettings = {
   storeName: 'PodWave',
   legalNotice: 'PRODUTO DESTINADO EXCLUSIVAMENTE A MAIORES DE 18 ANOS. Catálogo de especificações técnicas, contagem de puffs e sabores. Atendimento e pedidos diretos via WhatsApp em conformidade com as diretrizes aplicáveis.',
@@ -674,4 +682,5 @@ export const INITIAL_SETTINGS: StoreSettings = {
   pixKey: '5586999014685',
   pixKeyType: 'telefone',
   pixBeneficiary: 'PodWave Teresina',
+  imageStorageConfig: DEFAULT_IMAGE_STORAGE_CONFIG,
 };

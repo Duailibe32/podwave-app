@@ -98,6 +98,15 @@ export interface BannerSlide {
   createdAt?: string;
 }
 
+export interface ImageStorageConfig {
+  autoClearOnStartup?: boolean; // Purgar cache temporário de imagens ao carregar o painel
+  maxImageDimension?: number; // Dimensão máxima recomendada para fotos (ex: 320, 480, 640, 800)
+  compressionQuality?: number; // Qualidade de compressão JPEG/WebP (ex: 0.70, 0.80, 0.90)
+  cacheRetentionDays?: number; // Dias de retenção no navegador (0 = manual apenas, 7, 15, 30)
+  enableBrowserCache?: boolean; // Habilitar armazenamento offline no Cache Storage API
+  lastCacheClearedAt?: string; // Data ISO da última limpeza manual
+}
+
 export interface StoreSettings {
   storeName: string;
   legalNotice: string;
@@ -112,6 +121,7 @@ export interface StoreSettings {
   pixKey?: string; // Chave Pix para respostas rápidas de pagamento
   pixKeyType?: 'telefone' | 'cpf' | 'cnpj' | 'email' | 'aleatoria';
   pixBeneficiary?: string; // Nome do favorecido/titular da conta Pix
+  imageStorageConfig?: ImageStorageConfig; // Configuração personalizável de cache e armazenamento de imagens
 }
 
 export interface CartItem {

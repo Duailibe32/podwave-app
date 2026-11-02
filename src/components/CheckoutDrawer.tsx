@@ -164,44 +164,21 @@ export const CheckoutDrawer: React.FC = () => {
       return;
     }
 
-    // Salvar pedido no histórico do cliente e atualizar dados para compras futuras
-    if (currentUser) {
-      const addressSummary = isPickup
-        ? 'Retirada no Local'
-        : `${address}${numberAndComplement ? `, ${numberAndComplement}` : ''}${bairro ? ` - ${bairro}` : ''}${city ? ` (${[city, addressState].filter(Boolean).join(' - ')})` : ''}`;
-
-      recordCustomerOrder({
-        referenceId: `PW-${Date.now().toString().slice(-6)}`,
-        subtotal: cartSubtotal,
-        discount: discountAmount + vipDiscountAmount,
-        total: cartTotal,
-        paymentMethod,
-        deliveryType: isPickup ? 'pickup' : 'delivery',
-        addressSummary,
-        customerNotes: notes.trim() || undefined,
-        couponCode: appliedCoupon?.code || undefined,
-        vipDiscountApplied: Boolean(isVip && vipDiscountAmount > 0),
-        vipDiscountAmount: vipDiscountAmount || 0,
-        customerName: fullName.trim(),
-        customerPhone: phoneWhatsapp.trim(),
-        items: cart,
+    // Atualizar dados de endereço na conta do cliente para compras futuras
+    if (currentUser && saveAddressToAccount && !isPickup) {
+      updateCustomerProfile({
+        fullName,
+        phoneWhatsapp,
+        address: {
+          street: address,
+          number: numberAndComplement,
+          bairro,
+          city,
+          state: addressState,
+          referencePoint,
+          cep: cep || currentUser.address?.cep,
+        },
       });
-
-      if (saveAddressToAccount && !isPickup) {
-        updateCustomerProfile({
-          fullName,
-          phoneWhatsapp,
-          address: {
-            street: address,
-            number: numberAndComplement,
-            bairro,
-            city,
-            state: addressState,
-            referencePoint,
-            cep: cep || currentUser.address?.cep,
-          },
-        });
-      }
     }
 
     submitOrderViaWhatsapp({

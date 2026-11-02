@@ -1427,7 +1427,10 @@ export function getLastSupabaseOrderDiagnostic(): SupabaseOrderDiagnostic | null
  */
 export async function saveCustomerOrderToSupabase(order: CustomerOrderHistoryItem, customerId: string): Promise<boolean> {
   const client = getSupabaseClient();
-  const ownerId = (customerId || order.customerId || '').trim();
+  const fallbackGuestId = order.customerPhone
+    ? `guest-${order.customerPhone.replace(/\D/g, '')}`
+    : `guest-${order.referenceId || order.id || Date.now()}`;
+  const ownerId = (customerId || order.customerId || fallbackGuestId).trim();
   if (!client || !ownerId || !order.id) {
     lastSupabaseOrderDiagnostic = {
       category: 'unconfigured',

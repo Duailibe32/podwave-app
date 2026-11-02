@@ -224,7 +224,7 @@ interface CatalogContextType {
     customerName?: string;
     customerPhone?: string;
     items?: CartItem[];
-  }) => Promise<void>;
+  }) => Promise<CustomerOrderHistoryItem | void>;
   allCatalogOrders: CustomerOrderHistoryItem[];
   isLoadingCatalogOrders: boolean;
   catalogOrdersError: string | null;
@@ -380,6 +380,7 @@ interface CatalogContextType {
   // Settings & Reset
   updateSettings: (settings: Partial<StoreSettings>) => void;
   resetAllData: () => void;
+  replaceCatalogData: (newBrands: Brand[], newModels: ProductModel[], newBanners: BannerSlide[]) => void;
 
   // Activity Logs (Auditoria de Produtos, Modificações e Erros de Permissão)
   activityLogs: ActivityLogEntry[];
@@ -1139,41 +1140,94 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  // CENTRAL DE PEDIDOS — ESTADO & AÇÕES ADMINISTRATIVAS
-  const LOCAL_CATALOG_ORDERS_KEY = businessCacheKey('podwave_local_catalog_orders_v1');
+  // CENTRAL DE PEDIDOS — ESTADO & AÇÕES ADMINISTRATIVAS (COMPARTILHADO & RESILIENTE)
+  const SHARED_CATALOG_ORDERS_KEY = 'podwave_shared_catalog_orders_v2';
 
-  const loadLocalCatalogOrders = (): CustomerOrderHistoryItem[] => {
+  const loadSharedCatalogOrders = (): CustomerOrderHistoryItem[] => {
     if (typeof window === 'undefined') return [];
     try {
-      const raw = localStorage.getItem(LOCAL_CATALOG_ORDERS_KEY);
-      if (!raw) return [];
-      const parsed = JSON.parse(raw);
-      return Array.isArray(parsed) ? parsed : [];
+      const orders: CustomerOrderHistoryItem[] = [];
+      const seenIds = new Set<string>();
+
+      const addUniqueOrder = (item: any) => {
+        if (!item || typeof item !== 'object') return;
+        const id = item.id || (item.referenceId ? `ord-${item.referenceId}` : '');
+        if (!id || seenIds.has(id)) return;
+        seenIds.add(id);
+        orders.push({
+          ...item,
+          id,
+          referenceId: item.referenceId || id,
+          items: Array.isArray(item.items) ? item.items : [],
+          subtotal: Number(item.subtotal) || 0,
+          discount: Number(item.discount) || 0,
+          total: Number(item.total) || 0,
+          paymentMethod: item.paymentMethod || 'A combinar',
+          deliveryType: item.deliveryType === 'pickup' ? 'pickup' : 'delivery',
+          status: item.status || 'recebido',
+          createdAt: item.createdAt || new Date().toISOString(),
+        });
+      };
+
+      // 1. Chave compartilhada principal
+      const raw = localStorage.getItem(SHARED_CATALOG_ORDERS_KEY);
+      if (raw) {
+        try {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) parsed.forEach(addUniqueOrder);
+        } catch {}
+      }
+
+      // 2. Recuperação inteligente: varre chaves de sessões anteriores/legadas para resgatar pedidos
+      for (let i = 0; i < localStorage.length; i++) {
+        const k = localStorage.key(i);
+        if (
+          k &&
+          k !== SHARED_CATALOG_ORDERS_KEY &&
+          (k.includes('catalog_orders') || k.includes('customer_orders') || k.includes('orderHistory'))
+        ) {
+          try {
+            const rawVal = localStorage.getItem(k);
+            if (rawVal) {
+              const legacyItems = JSON.parse(rawVal);
+              if (Array.isArray(legacyItems)) {
+                legacyItems.forEach(addUniqueOrder);
+              } else if (legacyItems && typeof legacyItems === 'object' && Array.isArray(legacyItems.orderHistory)) {
+                legacyItems.orderHistory.forEach(addUniqueOrder);
+              }
+            }
+          } catch {}
+        }
+      }
+
+      return orders.sort(
+        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+      );
     } catch {
       return [];
     }
   };
 
-  const persistLocalCatalogOrders = (orders: CustomerOrderHistoryItem[]) => {
+  const persistSharedCatalogOrders = (orders: CustomerOrderHistoryItem[]) => {
     if (typeof window === 'undefined') return;
     try {
-      localStorage.setItem(LOCAL_CATALOG_ORDERS_KEY, JSON.stringify(orders.slice(0, 500)));
+      localStorage.setItem(SHARED_CATALOG_ORDERS_KEY, JSON.stringify(orders.slice(0, 500)));
     } catch {
       // ignore quota errors
     }
   };
 
   const [allCatalogOrders, setAllCatalogOrders] = useState<CustomerOrderHistoryItem[]>(() =>
-    loadLocalCatalogOrders()
+    loadSharedCatalogOrders()
   );
   const [isLoadingCatalogOrders, setIsLoadingCatalogOrders] = useState<boolean>(false);
   const [catalogOrdersError, setCatalogOrdersError] = useState<string | null>(null);
 
   useEffect(() => {
-    if (isAdmin && allCatalogOrders.length > 0) {
-      persistLocalCatalogOrders(allCatalogOrders);
+    if (allCatalogOrders.length > 0) {
+      persistSharedCatalogOrders(allCatalogOrders);
     }
-  }, [isAdmin, allCatalogOrders]);
+  }, [allCatalogOrders]);
 
   const enrichOrderWithProfile = React.useCallback(
     (order: CustomerOrderHistoryItem, profilesList: UserProfile[]): CustomerOrderHistoryItem => {
@@ -1203,7 +1257,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const requestedIdentity = authenticatedIdentityRef.current;
     const requestedProject = getSupabaseCredentials().url;
     if (!isAdmin) {
-      setAllCatalogOrders([]);
+      setAllCatalogOrders(loadSharedCatalogOrders());
       setCatalogOrdersError(null);
       return;
     }
@@ -1225,19 +1279,36 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       const mapById = new Map<string, CustomerOrderHistoryItem>();
+
+      // 1. Adiciona pedidos remotos do Supabase
       for (const ord of ordersResult.orders) {
         mapById.set(ord.id, enrichOrderWithProfile(ord, profilesToUse));
       }
 
-      // Server-confirmed records are authoritative; local timestamps cannot override them.
+      // 2. Mescla com pedidos locais compartilhados para não perder pedidos recém-criados ou feitos como visitante
+      const localOrders = loadSharedCatalogOrders();
+      for (const locOrd of localOrders) {
+        if (!mapById.has(locOrd.id)) {
+          const hasRefConflict = Array.from(mapById.values()).some(
+            (o) => o.referenceId && locOrd.referenceId && o.referenceId === locOrd.referenceId
+          );
+          if (!hasRefConflict) {
+            mapById.set(locOrd.id, enrichOrderWithProfile(locOrd, profilesToUse));
+          }
+        }
+      }
+
       const sorted = Array.from(mapById.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
       setAllCatalogOrders(sorted);
-      persistLocalCatalogOrders(sorted);
+      persistSharedCatalogOrders(sorted);
     } catch {
+      // Fallback seguro: mantém pedidos locais intactos
+      const localOrders = loadSharedCatalogOrders();
+      setAllCatalogOrders(localOrders);
       setCatalogOrdersError(
-        'Não foi possível carregar os pedidos. Verifique sua conexão e tente novamente.'
+        'Não foi possível consultar os pedidos remotos no banco. Exibindo pedidos salvos localmente.'
       );
     } finally {
       setIsLoadingCatalogOrders(false);
@@ -1354,7 +1425,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [supabaseStatus, activeSupabaseClient]);
 
-  // REGISTRAR PEDIDO DO CLIENTE
+  // REGISTRAR PEDIDO DO CLIENTE (UNIVERSAL: VISITANTE / CLIENTE)
   const recordCustomerOrder = async (orderData: {
     referenceId: string;
     subtotal: number;
@@ -1371,17 +1442,21 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     customerName?: string;
     customerPhone?: string;
     items?: CartItem[];
-  }): Promise<void> => {
-    if (!currentUser) return;
-
+  }): Promise<CustomerOrderHistoryItem> => {
     const nowIso = new Date().toISOString();
+    const fallbackGuestId = orderData.customerPhone
+      ? `guest-${orderData.customerPhone.replace(/\D/g, '')}`
+      : `guest-${orderData.referenceId || Date.now()}`;
+    const customerId = currentUser?.id || fallbackGuestId;
+    const authorName = orderData.customerName || currentUser?.fullName || currentUser?.email || 'Cliente';
+
     const initialHistory: OrderStatusHistoryEntry = {
       id: `osh-${Date.now()}-init`,
       fromStatus: null,
       toStatus: 'recebido',
       changedAt: nowIso,
-      changedBy: orderData.customerName || currentUser.fullName || currentUser.email || 'Cliente',
-      changedByEmail: currentUser.email,
+      changedBy: authorName,
+      changedByEmail: currentUser?.email,
       origin: 'checkout',
       reason: 'Pedido criado pelo cliente no catálogo',
     };
@@ -1389,13 +1464,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const orderItem: CustomerOrderHistoryItem = {
       id: `ord-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
       referenceId: orderData.referenceId,
-      customerId: currentUser.id,
-      customerName: orderData.customerName || currentUser.fullName || undefined,
-      customerPhone: orderData.customerPhone || currentUser.phoneWhatsapp || undefined,
-      customerEmail: currentUser.email || undefined,
+      customerId,
+      customerName: orderData.customerName || currentUser?.fullName || undefined,
+      customerPhone: orderData.customerPhone || currentUser?.phoneWhatsapp || undefined,
+      customerEmail: currentUser?.email || undefined,
       createdAt: nowIso,
       updatedAt: nowIso,
-      updatedBy: currentUser.fullName || currentUser.email,
+      updatedBy: authorName,
       items: orderData.items || cart,
       subtotal: orderData.subtotal,
       discount: orderData.discount,
@@ -1417,28 +1492,48 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       version: 1,
     };
 
-    // Salvar pedido persistente no Supabase
-    const savedRemotely = await saveCustomerOrderToSupabase(orderItem, currentUser.id);
-    if (!savedRemotely) {
-      toast.warning(
-        'Atenção ao registrar pedido',
-        'O servidor não confirmou a gravação. Nenhum novo registro foi salvo neste dispositivo.'
+    // 1. Sempre salva localmente primeiro (Garantia de que o pedido nunca se perde!)
+    const currentShared = loadSharedCatalogOrders();
+    const updatedShared = [
+      orderItem,
+      ...currentShared.filter(
+        (o) => o.id !== orderItem.id && o.referenceId !== orderItem.referenceId
+      ),
+    ];
+    persistSharedCatalogOrders(updatedShared);
+
+    // Atualiza estado allCatalogOrders na memória (para que o Admin veja imediatamente na aba Pedidos)
+    setAllCatalogOrders(updatedShared);
+
+    // Se estiver logado, atualiza também o histórico pessoal do cliente
+    if (currentUser) {
+      const updatedOrders = [
+        orderItem,
+        ...(currentUser.orderHistory || []).filter(
+          (o) => o.id !== orderItem.id && o.referenceId !== orderItem.referenceId
+        ),
+      ];
+      setCurrentUser({
+        ...currentUser,
+        orderHistory: updatedOrders,
+      });
+    }
+
+    // 2. Dispara evento customizado para notificar abas abertas
+    if (typeof window !== 'undefined') {
+      window.dispatchEvent(
+        new CustomEvent('podwave_new_order_placed', { detail: { order: orderItem } })
       );
-      return;
     }
 
-    const updatedOrders = [orderItem, ...(currentUser.orderHistory || [])];
-    const updatedProfile: UserProfile = {
-      ...currentUser,
-      orderHistory: updatedOrders,
-    };
-
-    setCurrentUser(updatedProfile);
-    const currentLocal = loadLocalCatalogOrders();
-    persistLocalCatalogOrders([orderItem, ...currentLocal.filter((o) => o.id !== orderItem.id)]);
-    if (isAdmin) {
-      setAllCatalogOrders((prev) => [orderItem, ...prev.filter((o) => o.id !== orderItem.id)]);
+    // 3. Tenta persistir no Supabase (se conectado) sem travar a experiência do usuário caso falhe
+    try {
+      await saveCustomerOrderToSupabase(orderItem, customerId);
+    } catch (e) {
+      console.warn('[Catalog] Aviso ao salvar pedido no Supabase (pedido mantido localmente):', e);
     }
+
+    return orderItem;
   };
 
   // ATUALIZAR STATUS DO PEDIDO (ADMIN)
@@ -1663,7 +1758,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
-        persistLocalCatalogOrders(next);
+        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -1851,7 +1946,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
-        persistLocalCatalogOrders(next);
+        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -2066,7 +2161,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === order.id ? updatedOrder : o));
-        persistLocalCatalogOrders(next);
+        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -2208,7 +2303,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === order.id ? updatedOrder : o));
-        persistLocalCatalogOrders(next);
+        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -2904,23 +2999,31 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
     }
 
-    const refId = generateReferenceId();
+    // Extrai o referenceId consistente se já veio pré-formatado na ficha ou gera novo
+    const matchedRef = customMessage?.match(/#(?:PW-[A-Z0-9]+|[A-Z0-9-]+)/)?.[0]?.replace('#', '');
+    const refId = matchedRef || generateReferenceId();
 
-    // Persistir o pedido real na tabela customer_orders do Supabase para o cliente logado
-    if (currentUser?.id) {
-      recordCustomerOrder({
-        referenceId: refId,
-        subtotal: rawTotal,
-        discount: discountAmount,
-        total: cartTotal,
-        paymentMethod: form.paymentMethod,
-        deliveryType: form.isPickup ? 'pickup' : 'delivery',
-        addressSummary: form.isPickup
-          ? 'Retirada no Local'
-          : [form.address, form.numberAndComplement, form.bairro, form.city].filter(Boolean).join(' - '),
-        items: [...cart],
-      });
-    }
+    const addressSummary = form.isPickup
+      ? 'Retirada no Local'
+      : [form.address, form.numberAndComplement, form.bairro, form.city].filter(Boolean).join(' - ');
+
+    // Persistir SEMPRE o pedido (seja cliente autenticado ou visitante no catálogo)
+    await recordCustomerOrder({
+      referenceId: refId,
+      subtotal: rawTotal,
+      discount: discountAmount,
+      total: cartTotal,
+      paymentMethod: form.paymentMethod,
+      deliveryType: form.isPickup ? 'pickup' : 'delivery',
+      addressSummary,
+      customerNotes: form.notes?.trim() || undefined,
+      couponCode: appliedCoupon?.code || undefined,
+      vipDiscountApplied: Boolean(isVip && vipDiscountAmount > 0),
+      vipDiscountAmount: vipDiscountAmount || 0,
+      customerName: form.fullName?.trim() || undefined,
+      customerPhone: form.phoneWhatsapp?.trim() || undefined,
+      items: [...cart],
+    });
 
     // Use the exact same Unicode string from the preview modal or generate using the unified formatter
     const message = customMessage || formatAttendanceRecord({
@@ -3546,6 +3649,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setAppliedCoupon(null);
     setIsUsbCableAdded(false);
     setAppliedCoupon(null);
+  };
+
+  const replaceCatalogData = (
+    newBrands: Brand[],
+    newModels: ProductModel[],
+    newBanners: BannerSlide[]
+  ) => {
+    setBrands(newBrands);
+    setModels(newModels);
+    setBanners(newBanners);
   };
 
   const syncToSupabase = async () => {
@@ -4676,6 +4789,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         toggleBannerActive,
         updateSettings,
         resetAllData,
+        replaceCatalogData,
         activityLogs,
         addActivityLog,
         clearActivityLogs,

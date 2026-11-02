@@ -141,6 +141,16 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
     settings.loyaltyDefaultReward ||
     'Brinde Especial ou Desconto Exclusivo na 10ª Compra';
 
+  React.useEffect(() => {
+    const handleNewOrder = () => {
+      void fetchAllCatalogOrders();
+    };
+    if (typeof window !== 'undefined') {
+      window.addEventListener('podwave_new_order_placed', handleNewOrder);
+      return () => window.removeEventListener('podwave_new_order_placed', handleNewOrder);
+    }
+  }, [fetchAllCatalogOrders]);
+
   // Period-filtered orders for KPIs
   const periodFilteredOrders = useMemo(
     () =>
