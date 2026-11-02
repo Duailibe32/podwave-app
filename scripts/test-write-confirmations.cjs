@@ -27,9 +27,13 @@ async function run(file,name,{configured=true,save=true,throws=false}={}) {
   saveSaleWithStock:async()=>({success:true,stockRevision:1}),
   setManualSales:()=>{},
   saveCustomerOrderToSupabase:async()=>{calls.save++;if(throws)throw Error('synthetic network');return save;},
+  saveCatalogOrderMutation:async(order)=>{calls.save++;if(throws)throw Error('synthetic network');return {success:save,updatedOrder:save?order:undefined,error:'synthetic refusal',stockRevision:1,stockManaged:true};},
+  refreshSaleStock:async()=>{},
   fetchAllCustomerOrdersFromSupabase:async()=>{calls.read++;return {orders:[record]};},
   setAllCatalogOrders:()=>{calls.state++;},persistLocalCatalogOrders:()=>{calls.persist++;},
+  persistSharedCatalogOrders:()=>{calls.persist++;},
   setCurrentUser:()=>{},addActivityLog:()=>{calls.logs++;},
+  logSupabaseAuditEvent:async()=>{calls.logs++;},
   Date,Math,Number,Boolean,console,
   module:{exports:{}},
  };
@@ -59,6 +63,12 @@ async function run(file,name,{configured=true,save=true,throws=false}={}) {
   assert.equal(network.calls.state,0);
   assert.equal(network.calls.logs,0);
   assert.equal(network.calls.release,1);
+  const confirmed=await run('CatalogContext.after.tsx',name,{save:true});
+  assert.ifError(confirmed.error);
+  assert.equal(confirmed.result.success,true);
+  assert.equal(confirmed.calls.state,1);
+  assert.equal(confirmed.calls.save,1,'one transactional call owns the whole mutation');
+  assert.equal(confirmed.calls.release,1);
   console.log('PASS: '+name+' does not falsely confirm denied, unconfigured or exceptional writes.');
  }
  const servicePath = process.argv[3] || path.resolve(__dirname, '../src/services/supabase.ts');
@@ -73,6 +83,6 @@ async function run(file,name,{configured=true,save=true,throws=false}={}) {
   assert.equal(await mod.exports.deleteCustomerProfileFromSupabase('synthetic-id'),mode==='confirmed');
  }
  console.log('PASS: deletion requires confirmed affected ID; empty/denied/wrong-ID results do not claim deletion. Mocks only.');
- console.log('Exact callback bodies extracted at source boundaries and transpiled; mocked services only, no remote writes. Coupled transactions are outside this test.');
+ console.log('Exact callback bodies extracted at source boundaries and transpiled; mocked services only. Database transaction rollback is covered in test-sale-stock.cjs.');
 })().catch(e=>{console.error(e);process.exitCode=1;});
 

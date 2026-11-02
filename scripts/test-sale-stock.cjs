@@ -93,6 +93,45 @@ const { PGlite } = require('@electric-sql/pglite');
   await assert.rejects(call(sale('customer-forbidden')),/restrito/);
   await db.exec('RESET ROLE; SET ROLE anon');
   await assert.rejects(db.exec('SELECT * FROM business_audit_events'),/permission denied/);
+  // The real order RPC wraps the existing sale RPC: a later order failure rolls stock back.
+  await db.exec(`RESET ROLE;
+    SELECT set_config('podwave.test_admin','true',false),set_config('podwave.test_finance_owner','true',false);
+    CREATE TABLE customer_orders(id text PRIMARY KEY,status text NOT NULL,delivery_info jsonb NOT NULL DEFAULT '{}');
+    ALTER TABLE customer_orders ENABLE ROW LEVEL SECURITY;
+    GRANT SELECT,UPDATE ON customer_orders TO authenticated;
+    CREATE POLICY order_admin ON customer_orders TO authenticated USING(public.is_admin()) WITH CHECK(public.is_admin());
+    INSERT INTO customer_orders VALUES('atomic','recebido','{"version":1}'),('rollback-order','recebido','{"version":1}');`);
+  const orderProposal=fs.readFileSync('supabase/proposals/20261102_atomic_order_sale.sql','utf8');
+  await db.exec(orderProposal);await db.exec(orderProposal);
+  await db.exec(`CREATE FUNCTION reject_test_order() RETURNS trigger LANGUAGE plpgsql AS $$BEGIN
+    IF NEW.id='rollback-order' THEN RAISE EXCEPTION 'synthetic order refusal'; END IF; RETURN NEW; END $$;
+    CREATE TRIGGER reject_test_order BEFORE UPDATE ON customer_orders FOR EACH ROW EXECUTE FUNCTION reject_test_order();
+    SET ROLE authenticated;`);
+  const orderSale=(id)=>sale('sale-ord-'+id,1,{items:[{productId:'model',flavorId:'second',quantity:1}]});
+  const mutate=async(id,version,status,payload,revision=0)=>(await db.query(
+    'SELECT save_order_with_sale($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7) result',
+    [id,version,status,JSON.stringify({version:version+1}),payload?JSON.stringify(payload):null,revision,'atomic-request-'+(++request)])).rows[0].result;
+  assert.equal(await qty('second'),2);
+  const confirmed=await mutate('atomic',1,'confirmado',orderSale('atomic'));
+  assert.equal(confirmed.order.delivery_info.stockDeducted,true);assert.equal(confirmed.order.delivery_info.version,2);
+  assert.equal(await qty('second'),1);
+  await assert.rejects(db.query('SELECT save_order_with_sale($1,$2,$3,$4::jsonb)',
+    ['atomic',2,'confirmado',JSON.stringify({version:3,paymentStatus:'pago'})]),/requires the linked sale/);
+  await assert.rejects(mutate('atomic',1,'confirmado',orderSale('atomic')),e=>e.code==='40001');
+  assert.equal(await qty('second'),1);
+  await assert.rejects(mutate('atomic',2,'confirmado',orderSale('unrelated')),/does not belong/);
+  await assert.rejects(mutate('rollback-order',1,'confirmado',orderSale('rollback-order')),/synthetic order refusal/);
+  assert.equal(await qty('second'),1);
+  assert.equal((await db.query("SELECT count(*)::int n FROM manual_sales WHERE id='sale-ord-rollback-order'")).rows[0].n,0);
+  assert.equal((await db.query("SELECT status FROM customer_orders WHERE id='rollback-order'")).rows[0].status,'recebido');
+  const cancelled=await mutate('atomic',2,'cancelado',orderSale('atomic'),1);
+  assert.equal(cancelled.order.delivery_info.stockDeducted,false);assert.equal(await qty('second'),2);
+  await mutate('atomic',3,'cancelado',orderSale('atomic'),2);assert.equal(await qty('second'),2);
+  await db.exec("SELECT set_config('podwave.test_admin','false',false)");
+  await assert.rejects(mutate('atomic',4,'cancelado',null),e=>e.code==='42501');
+  await db.exec('RESET ROLE; SET ROLE anon');
+  await assert.rejects(mutate('atomic',4,'cancelado',null),e=>e.code==='42501');
   await db.close();
   console.log('PASS: atomic stock, retry, stale edit, cancellation, deletion, rollback, competing requests, legacy sales, RLS, immutable audit and commitment delete. In-memory database only.');
+  console.log('PASS: order + sale + stock transaction, late order rejection rollback, persistent revision, sale identity, cancellation retry, administrator/anonymous access and idempotent installation.');
 })().catch(e => {console.error(e);process.exitCode=1;});

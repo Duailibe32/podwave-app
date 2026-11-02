@@ -42,5 +42,11 @@ function setup(preference={userId:'user-a',enabled:true}) {
   let clicked=false,pending;
   clickHandler({notification:{data:{type:'podwave-order',url:'https://evil.test'},close:()=>{clicked=true;}},waitUntil:p=>{pending=p;}});await pending;
   assert.equal(clicked,true);assert.equal(opened,'https://example.test/?orders=1');
+  for (const url of ['https://evil.test/','javascript:alert(1)','//evil.test/']) {
+    clickHandler({notification:{data:{url},close(){}},waitUntil:p=>{pending=p;}});await pending;
+    assert.equal(opened,'https://example.test/');
+  }
+  clickHandler({notification:{data:{url:'/catalog?test=1'},close(){}},waitUntil:p=>{pending=p;}});await pending;
+  assert.equal(opened,'https://example.test/catalog?test=1');
   console.log('PASS: explicit opt-in, per-user isolation, hidden-page updates, duplicate suppression, cleanup and safe notification click. No real notifications sent.');
 })().catch(e=>{console.error(e);process.exitCode=1;});

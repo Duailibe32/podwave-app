@@ -1569,7 +1569,7 @@ function toDeterministicUuid(input: string): string {
 async function ensureCustomerProfileForOrder(
   client: any,
   ownerId: string,
-  order: CustomerOrderHistoryItem
+  order: Pick<CustomerOrderHistoryItem, 'customerName' | 'customerEmail' | 'customerPhone'>
 ): Promise<boolean> {
   if (!client || !ownerId) return false;
   try {
@@ -1601,7 +1601,7 @@ async function ensureCustomerProfileForOrder(
       id: ownerId,
       email: guestEmail,
       full_name: fullName,
-      phone: safePhone || null,
+      phone: safePhone,
       updated_at: nowIso,
     };
 
@@ -1881,64 +1881,8 @@ export async function saveCustomerOrderToSupabase(
     if (!existing) {
       let { data, error, finalPayload } = await executeAdaptiveInsert(payload);
 
-      // Se falhar por RLS (42501) porque o customer_id difere do auth.uid() da sessão ativa, alinha com authUserId
-      if (error && error.code === '42501' && authUserId && finalPayload.customer_id !== authUserId) {
-        await ensureCustomerProfileForOrder(client, authUserId, enrichedOrder);
-        finalPayload.customer_id = authUserId;
-        if ('delivery_info' in finalPayload) {
-          finalPayload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, authUserId);
-        }
-        const retryAuth = await executeAdaptiveInsert(finalPayload);
-        data = retryAuth.data;
-        error = retryAuth.error;
-        finalPayload = retryAuth.finalPayload;
-      }
-
-      // Se falhar por foreign key (23503), assegura perfil do authUserId
-      if (error && error.code === '23503') {
-        if (authUserId) {
-          await ensureCustomerProfileForOrder(client, authUserId, enrichedOrder);
-          finalPayload.customer_id = authUserId;
-          if ('delivery_info' in finalPayload) {
-            finalPayload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, authUserId);
-          }
-          const retryFkAuth = await executeAdaptiveInsert(finalPayload);
-          data = retryFkAuth.data;
-          error = retryFkAuth.error;
-          finalPayload = retryFkAuth.finalPayload;
-        }
-        // Apenas se ainda falhar por FK (ex: trigger bloqueando criação de perfil em customer_profiles)
-        if (error && error.code === '23503') {
-          const { data: firstProf } = await client
-            .from('customer_profiles')
-            .select('id')
-            .limit(1)
-            .maybeSingle();
-
-          if (firstProf && firstProf.id) {
-            finalPayload.customer_id = firstProf.id;
-            if ('delivery_info' in finalPayload) {
-              finalPayload.delivery_info = buildOrderDeliveryInfoPayload(enrichedOrder, ownerId);
-            }
-            const retry = await executeAdaptiveInsert(finalPayload);
-            data = retry.data;
-            error = retry.error;
-            finalPayload = retry.finalPayload;
-          }
-        }
-      }
-
-      // Se o registro já existia (23505 duplicate key), faz update
-      if (error && error.code === '23505') {
-        const { id, created_at, customer_id, order_code, reference_id, ...updateFields } = finalPayload;
-        const retryUpd = await client
-          .from(targetTable)
-          .update(updateFields)
-          .eq('id', String(finalPayload.id || order.id))
-          .select('id');
-        data = retryUpd.data;
-        error = retryUpd.error;
-      }
+      // Uma recusa nunca troca o proprietário nem atualiza uma revisão desconhecida.
+      // Um INSERT concorrente deve ser relido antes de uma nova tentativa.
 
       if (error) {
         const code = String((error as any).code || '');
@@ -1969,49 +1913,31 @@ export async function saveCustomerOrderToSupabase(
       const ok = Array.isArray(data) && data.some((row) => String(row.id) === targetId);
       lastSupabaseOrderDiagnostic = ok
         ? { category: 'ok', message: 'OK' }
-        : { category: 'ok', message: 'Pedido gravado no banco.' };
-      return true;
+        : { category: 'permission_denied', message: 'O banco não confirmou a linha inserida.' };
+      return ok;
     }
 
-    // Se já existe, atualiza os campos do pedido de forma limpa e direta
-    const { id, created_at, customer_id, order_code, reference_id, ...updateFields } = payload;
-    let { error: updateError } = await client
-      .from(targetTable)
-      .update(updateFields)
-      .eq('id', order.id)
-      .select('id');
-
-    for (let step = 0; step < 6 && updateError && isMissingColumnError(updateError); step++) {
-      const missingCol = extractMissingColumnFromError(updateError);
-      if (missingCol && missingCol in updateFields) {
-        delete (updateFields as Record<string, unknown>)[missingCol];
-      } else {
-        break;
-      }
-      const retryUpd = await client
-        .from(targetTable)
-        .update(updateFields)
-        .eq('id', order.id)
-        .select('id');
-      updateError = retryUpd.error;
-    }
-
-    if (updateError) {
-      const code = String((updateError as any).code || '');
-      lastSupabaseOrderDiagnostic = {
-        code,
-        category: isMissingColumnError(updateError)
-          ? 'missing_column'
-          : code === '42501'
-          ? 'permission_denied'
-          : 'error',
-        message: updateError.message || 'O banco recusou a atualização do pedido.',
-      };
+    // A versão enviada é a próxima versão, nunca a relida do servidor.
+    if (!hasDeliveryInfoCol || !Number.isInteger(order.version) || (order.version || 0) < 2) {
+      lastSupabaseOrderDiagnostic = { category: 'error', message: 'Recarregue o pedido: revisão persistida ausente.' };
       return false;
     }
-
-    lastSupabaseOrderDiagnostic = { category: 'ok', message: 'OK' };
-    return true;
+    const { id, created_at, customer_id, order_code, reference_id, ...updateFields } = payload;
+    const expectedVersion = (order.version || 1) - 1;
+    const updateQuery = client.from(targetTable).update(updateFields).eq('id', order.id);
+    const hasLegacyRevision = existing.delivery_info?.version == null && expectedVersion === 1;
+    const { data: updatedRows, error: updateError } = await (hasLegacyRevision
+      ? updateQuery.is('delivery_info->>version', null)
+      : updateQuery.eq('delivery_info->>version', String(expectedVersion))).select('id');
+    if (updateError) {
+      lastSupabaseOrderDiagnostic = { code: String(updateError.code || ''), category: 'error', message: updateError.message };
+      return false;
+    }
+    const confirmed = Array.isArray(updatedRows) && updatedRows.some((row) => String(row.id) === order.id);
+    lastSupabaseOrderDiagnostic = confirmed
+      ? { category: 'ok', message: 'OK' }
+      : { category: 'error', message: 'Pedido alterado em outro aparelho ou acesso negado. Recarregue os dados.' };
+    return confirmed;
   } catch (err: any) {
     lastSupabaseOrderDiagnostic = {
       category: 'error',
@@ -2053,15 +1979,9 @@ export async function deleteCustomerOrderFromSupabase(
  * Retorna a data/hora em que um pedido foi cancelado (a partir do statusHistory, updatedAt ou createdAt)
  */
 export function getCancelledOrderTimestampMs(order: CustomerOrderHistoryItem): number {
-  if (Array.isArray(order.statusHistory) && order.statusHistory.length > 0) {
-    const cancelEntry = [...order.statusHistory]
-      .reverse()
-      .find((h) => h.toStatus === 'cancelado');
-    if (cancelEntry?.changedAt) {
-      const parsed = new Date(cancelEntry.changedAt).getTime();
-      if (!Number.isNaN(parsed)) return parsed;
-    }
-  }
+  const cancellations = (order.statusHistory || [])
+    .filter((h) => h.toStatus === 'cancelado').map((h) => Date.parse(h.changedAt)).filter(Number.isFinite);
+  if (cancellations.length > 0) return Math.max(...cancellations);
   const fallbackIso = order.updatedAt || order.createdAt;
   const parsedFallback = fallbackIso ? new Date(fallbackIso).getTime() : Date.now();
   return Number.isNaN(parsedFallback) ? Date.now() : parsedFallback;
@@ -2503,7 +2423,7 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
   });
 
   // 3. Testar Acessibilidade e Leitura RLS (SELECT) na tabela 'orders' e 'customer_orders'
-  const inspectTableSelect = async (tableName: 'orders' | 'customer_orders') => {
+  const inspectTableSelect = async <T extends 'orders' | 'customer_orders'>(tableName: T) => {
     try {
       const { data, error } = await client
         .from(tableName)
@@ -2627,8 +2547,8 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
     } else {
       // Limpa imediatamente o registro de sonda para não poluir a base
       try {
-        const { error: delErr } = await client.from(target).delete().eq('id', probeId);
-        report.rlsWriteTest.cleanupDeleted = !delErr;
+        const { data: deleted, error: delErr } = await client.from(target).delete().eq('id', probeId).select('id');
+        report.rlsWriteTest.cleanupDeleted = !delErr && Array.isArray(deleted) && deleted.some((row) => row.id === probeId);
       } catch {
         report.rlsWriteTest.cleanupDeleted = false;
       }
@@ -2775,6 +2695,7 @@ export interface SupabaseAuthResponse {
   message: string;
   user?: UserProfile;
   isOwner: boolean;
+  requiresEmailConfirmation?: boolean;
 }
 
 /**
@@ -2922,6 +2843,17 @@ export async function supabaseSignUp(
       };
     }
 
+    // An Auth user without a session is a pending registration, not a signed-in customer.
+    // The auth trigger creates the initial profile; client writes require a valid session.
+    if (!data.session) {
+      return {
+        success: true,
+        message: 'Cadastro recebido! Confirme seu e-mail pelo link enviado e depois entre com sua senha.',
+        requiresEmailConfirmation: true,
+        isOwner: false,
+      };
+    }
+
     // Salva perfil persistente na tabela customer_profiles associado ao UUID real do Auth
     const newProfile: UserProfile = {
       id: data.user.id,
@@ -2936,14 +2868,9 @@ export async function supabaseSignUp(
 
     await upsertCustomerProfileToSupabase(newProfile);
 
-    // Se o Supabase exigir confirmação de e-mail e não retornar sessão imediata:
-    const requiresConfirmation = !data.session;
-
     return {
       success: true,
-      message: requiresConfirmation
-        ? 'Cadastro realizado! Se a confirmação de e-mail estiver ativa no seu projeto Supabase, verifique sua caixa de entrada.'
-        : 'Cadastro realizado com sucesso via Supabase Auth!',
+      message: 'Cadastro realizado com sucesso via Supabase Auth!',
       user: newProfile,
       isOwner: false,
     };
@@ -3631,9 +3558,9 @@ function readFinancialNotes(value: unknown): { notes?: string; fields: Financial
   return { notes: value || undefined, fields: {} };
 }
 
-export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]> {
+export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[] | null> {
   const client = getSupabaseClient();
-  if (!client) return [];
+  if (!client) return null;
 
   try {
     const { data, error } = await client
@@ -3642,12 +3569,11 @@ export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]>
       .order('date', { ascending: false });
 
     if (error) {
-      if (isMissingTableError(error)) return [];
       console.warn('[Supabase] Falha ao carregar vendas manuais:', error.message);
-      return [];
+      return null;
     }
 
-    if (!data || !Array.isArray(data)) return [];
+    if (!Array.isArray(data)) return null;
 
     return data.map((row) => ({
       id: row.id,
@@ -3675,16 +3601,11 @@ export async function fetchManualSalesFromSupabase(): Promise<ManualSaleEntry[]>
       createdAt: row.created_at,
     }));
   } catch (err) {
-    if (isMissingTableError(err)) return [];
-    return [];
+    return null;
   }
 }
 
-export async function saveSaleWithStock(sale: ManualSaleEntry): Promise<{ success: boolean; error?: string; stockRevision?: number; stockManaged?: boolean }> {
-  const client = getSupabaseClient();
-  if (!client) return { success: false, error: 'Conecte o Supabase para conferir e reservar o estoque. A venda não foi registrada.' };
-
-  try {
+function buildSaleRpcPayload(sale: ManualSaleEntry) {
     const basePayload = {
       id: sale.id,
       date: sale.saleDate || new Date().toISOString(),
@@ -3707,11 +3628,20 @@ export async function saveSaleWithStock(sale: ManualSaleEntry): Promise<{ succes
       updated_at: new Date().toISOString(),
     };
 
-    const payload = {
+    return {
       ...basePayload,
       order_status: sale.orderStatus,
       stock_managed: sale.stockManaged === true,
     };
+
+}
+
+export async function saveSaleWithStock(sale: ManualSaleEntry): Promise<{ success: boolean; error?: string; stockRevision?: number; stockManaged?: boolean }> {
+  const client = getSupabaseClient();
+  if (!client) return { success: false, error: 'Conecte o Supabase para conferir e reservar o estoque. A venda não foi registrada.' };
+
+  try {
+    const payload = buildSaleRpcPayload(sale);
 
     const { data, error } = await client.rpc('save_sale_with_stock', {
       p_sale: payload,
@@ -3728,65 +3658,37 @@ export async function saveSaleWithStock(sale: ManualSaleEntry): Promise<{ succes
       };
     }
 
-    // Fallback caso a RPC save_sale_with_stock ainda não exista no banco (PGRST202 / 42883)
-    const isMissingRpc =
-      error?.code === 'PGRST202' ||
-      error?.code === '42883' ||
-      error?.message?.toLowerCase().includes('save_sale_with_stock');
-
-    if (isMissingRpc || !data?.sale) {
-      const { error: upsertErr } = await client
-        .from('manual_sales')
-        .upsert(basePayload, { onConflict: 'id' });
-
-      if (upsertErr && !isMissingTableError(upsertErr)) {
-        console.warn('[Supabase] Falha no fallback de manual_sales:', upsertErr.message);
-        return { success: false, error: upsertErr.message };
-      }
-
-      // Baixa ou estorno direto em flavor_variants quando stockManaged está ativo
-      if (sale.stockManaged && Array.isArray(sale.items) && sale.items.length > 0) {
-        const isCancelled = sale.orderStatus === 'cancelado';
-        for (const item of sale.items) {
-          const flavorId = item.flavorId;
-          const qty = Number(item.quantity) || 0;
-          if (!flavorId || qty <= 0) continue;
-          const { data: fv } = await client
-            .from('flavor_variants')
-            .select('id, demo_quantity, in_stock')
-            .eq('id', flavorId)
-            .maybeSingle();
-          if (fv && typeof fv.demo_quantity === 'number') {
-            const nextQty = isCancelled
-              ? fv.demo_quantity + qty
-              : Math.max(0, fv.demo_quantity - qty);
-            await client
-              .from('flavor_variants')
-              .update({
-                demo_quantity: nextQty,
-                in_stock: nextQty > 0,
-                updated_at: new Date().toISOString(),
-              })
-              .eq('id', flavorId);
-          }
-        }
-      }
-
-      return {
-        success: true,
-        stockRevision: (sale.stockRevision ?? 0) + 1,
-        stockManaged: Boolean(sale.stockManaged),
-      };
-    }
-
     if (error) {
-      console.warn('[Supabase] Falha ao salvar venda manual:', error.message);
-      return { success: false, error: error.message };
+      return { success: false, error: error.code === 'PGRST202'
+        ? 'Instale a operação transacional de estoque antes de registrar vendas.'
+        : error.message || 'O banco recusou a venda. Nenhuma gravação alternativa foi realizada.' };
     }
-    return { success: true, stockRevision: (sale.stockRevision ?? 0) + 1, stockManaged: Boolean(sale.stockManaged) };
+    return { success: false, error: 'O banco não confirmou a venda. Recarregue os dados antes de tentar novamente.' };
   } catch (err) {
     return { success: false, error: 'Não foi possível confirmar a operação. Os dados foram mantidos; recarregue as vendas antes de tentar novamente.' };
   }
+}
+
+/** A single database transaction owns the order revision, sale and stock changes. */
+export async function saveCatalogOrderMutation(order: CustomerOrderHistoryItem, sale?: ManualSaleEntry): Promise<{
+  success: boolean; updatedOrder?: CustomerOrderHistoryItem; stockRevision?: number; stockManaged?: boolean; error?: string;
+}> {
+  const client = getSupabaseClient();
+  if (!client || !Number.isInteger(order.version) || (order.version || 0) < 2) return { success:false,error:'Conecte o banco e recarregue a revisão do pedido.' };
+  try {
+    const { data, error } = await client.rpc('save_order_with_sale', {
+      p_order_id:order.id, p_expected_version:(order.version || 1)-1, p_status:order.status,
+      p_delivery_info:buildOrderDeliveryInfoPayload(order,order.customerId),
+      p_sale:sale ? buildSaleRpcPayload(sale) : null,
+      p_expected_sale_revision:sale?.stockRevision ?? 0,
+      p_request_id:sale?.stockRequestId || crypto.randomUUID(),
+    });
+    if (error || !data?.order || String(data.order.id)!==order.id || data.order.delivery_info?.version!==order.version
+      || (sale && (!data.sale || String(data.sale.id)!==sale.id || !Number.isInteger(data.sale.stock_revision)))) return { success:false,
+      error:error?.code==='PGRST202' ? 'Instale a operação transacional de pedidos antes de continuar.' : error?.message || 'O banco não confirmou a operação. Recarregue antes de tentar novamente.' };
+    const mapped=mapSupabaseRowToCustomerOrder(data.order);
+    return { success:true,updatedOrder:{...order,...mapped,stockDeducted:data.order.delivery_info?.stockDeducted === true},stockRevision:data.sale?.stock_revision,stockManaged:data.sale?.stock_managed };
+  } catch { return { success:false,error:'Não foi possível confirmar a operação. Recarregue pedidos e vendas antes de tentar novamente.' }; }
 }
 
 export async function saveManualSaleToSupabase(sale: ManualSaleEntry): Promise<boolean> {
@@ -3801,74 +3703,16 @@ export async function upsertManualSaleDirectToSupabase(_sale: ManualSaleEntry): 
 export async function deleteManualSaleFromSupabase(saleId: string): Promise<boolean> {
   const client = getSupabaseClient();
   if (!client) return false;
-
   try {
-    const { data: sale, error: readError } = await client
-      .from('manual_sales')
-      .select('*')
-      .eq('id', saleId)
-      .maybeSingle();
-
-    // Se a venda não existe na tabela remota (ex.: estava apenas no cache local ou já foi removida), confirma imediatamente
-    if (!readError && !sale) {
-      return true;
-    }
-
-    if (!readError && sale) {
-      const revision = Number(sale.stock_revision) || 0;
-      const { error } = await client.rpc('save_sale_with_stock', {
-        p_sale: { id: saleId },
-        p_expected_revision: revision,
-        p_request_id: crypto.randomUUID(),
-        p_delete: true,
-      });
-      if (!error) return true;
-
-      // Se a revisão mudou em outra aba/dispositivo, lê a revisão atualizada e tenta novamente
-      if (/outro dispositivo|revis/i.test(error.message || '')) {
-        const { data: latestSale } = await client
-          .from('manual_sales')
-          .select('stock_revision')
-          .eq('id', saleId)
-          .maybeSingle();
-        if (!latestSale) return true;
-        const retryRev = await client.rpc('save_sale_with_stock', {
-          p_sale: { id: saleId },
-          p_expected_revision: Number(latestSale.stock_revision) || 0,
-          p_request_id: crypto.randomUUID(),
-          p_delete: true,
-        });
-        if (!retryRev.error) return true;
-      }
-
-      // Se algum sabor alocado estiver com demo_quantity NULL impedindo a devolução, inicializa em 0 e repete a exclusão
-      if (/Defina o estoque|sabor vinculado/i.test(error.message || '')) {
-        const allocation =
-          sale.stock_allocation && typeof sale.stock_allocation === 'object'
-            ? (sale.stock_allocation as Record<string, unknown>)
-            : {};
-        for (const flavorId of Object.keys(allocation)) {
-          await client
-            .from('flavor_variants')
-            .update({ demo_quantity: 0, in_stock: false, updated_at: new Date().toISOString() })
-            .eq('id', flavorId)
-            .is('demo_quantity', null);
-        }
-        const retryNullStock = await client.rpc('save_sale_with_stock', {
-          p_sale: { id: saleId },
-          p_expected_revision: revision,
-          p_request_id: crypto.randomUUID(),
-          p_delete: true,
-        });
-        if (!retryNullStock.error) return true;
-      }
-    }
-
-    const fallbackDel = await executeConfirmedSupabaseDelete('manual_sales', saleId);
-    return fallbackDel.success || !fallbackDel.rlsBlocked;
-  } catch {
-    return false;
-  }
+    const { data: sale, error: readError } = await client.from('manual_sales').select('stock_revision').eq('id', saleId).maybeSingle();
+    if (readError) return false;
+    if (!sale) return true;
+    const { data, error } = await client.rpc('save_sale_with_stock', {
+      p_sale: { id: saleId }, p_expected_revision: sale.stock_revision ?? 0,
+      p_request_id: crypto.randomUUID(), p_delete: true,
+    });
+    return !error && data?.deleted === true;
+  } catch { return false; }
 }
 
 // -------------------------------------------------------------

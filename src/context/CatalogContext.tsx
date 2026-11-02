@@ -92,6 +92,7 @@ import {
   fetchManualSalesFromSupabase,
   saveManualSaleToSupabase,
   saveSaleWithStock,
+  saveCatalogOrderMutation,
   fetchStockAvailability,
   deleteCommitmentConfirmed,
   deleteManualSaleFromSupabase,
@@ -202,7 +203,7 @@ interface CatalogContextType {
   openProfileModal: () => void;
   closeProfileModal: () => void;
   loginUser: (email: string, password?: string) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
-  registerUser: (data: { email: string; fullName: string; phoneWhatsapp?: string; password?: string; address?: CustomerAddress }) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
+  registerUser: (data: { email: string; fullName: string; phoneWhatsapp?: string; password?: string; address?: CustomerAddress }) => Promise<{ success: boolean; message: string; isOwner: boolean; requiresEmailConfirmation?: boolean }>;
   signInWithGoogle: () => Promise<{ success: boolean; message: string }>;
   sendOtpCode: (email: string) => Promise<{ success: boolean; message: string }>;
   verifyOtpCode: (email: string, token: string) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
@@ -908,7 +909,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     phoneWhatsapp?: string;
     password?: string;
     address?: CustomerAddress;
-  }): Promise<{ success: boolean; message: string; isOwner: boolean }> => {
+  }): Promise<{ success: boolean; message: string; isOwner: boolean; requiresEmailConfirmation?: boolean }> => {
     const cleanEmail = data.email.trim().toLowerCase();
     if (!cleanEmail) {
       return { success: false, message: 'Por favor, informe um e-mail válido.', isOwner: false };
@@ -933,6 +934,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       address: data.address,
     });
     setIsAuthChecking(false);
+
+    if (res.success && res.requiresEmailConfirmation) {
+      toast.info('Confirme seu e-mail', res.message);
+      return { success: true, message: res.message, isOwner: false, requiresEmailConfirmation: true };
+    }
 
     if (res.success && res.user) {
       setCurrentUser(res.user);
@@ -1840,6 +1846,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return { success: false, error: 'Pedido não encontrado. Recarregue a lista.' };
       }
 
+      if (!supabaseCreds.isConfigured && !activeSupabaseClient) {
+        return { success: false, error: 'Conecte o banco antes de alterar o pedido.' };
+      }
+
       const actorName = currentUser.fullName || currentUser.email || 'Administrador';
       const transition = applyOrderStatusTransition(existing, {
         toStatus,
@@ -1855,141 +1865,33 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       const nowIso = new Date().toISOString();
-      let stockDeductedFlag = existing.stockDeducted === true;
-      let stockDeductedAtIso = existing.stockDeductedAt;
-      let linkedFinancialSaleId = existing.financialSaleId;
-      let linkedFinancialRecordedAt = existing.financialRecordedAt;
-      let pendingManualSaleUpdate: ((prev: ManualSaleEntry[]) => ManualSaleEntry[]) | null = null;
-      let shouldRefreshStockAfterConfirm = false;
-
-      const isConfirmingOrActiveStage =
-        toStatus === 'confirmado' ||
-        toStatus === 'em_separacao' ||
-        toStatus === 'enviado' ||
-        toStatus === 'entregue';
-
-      // Baixa automática do estoque e conexão com "Meu Negócio" sem desligar controle de estoque em caso de recusa
-      if (isConfirmingOrActiveStage) {
-        const existingSale = findExistingFinancialSaleForOrder(existing, manualSales);
-        const mappedOrderStatus: ManualSaleEntry['orderStatus'] =
-          toStatus === 'entregue' ? 'entregue' : 'confirmado';
-
-        if (!existingSale) {
-          const built = buildManualSaleFromCatalogOrder(
-            {
-              ...existing,
-              status: toStatus,
-              paymentStatus: options?.paymentStatus ?? existing.paymentStatus,
-            },
-            { stockManaged: !stockDeductedFlag }
-          );
-          if (built.success && built.sale) {
-            const rpcRes = await saveSaleWithStock(built.sale);
-            const trackedSale: ManualSaleEntry = {
-              ...built.sale,
-              orderStatus: mappedOrderStatus,
-              stockRequestId: undefined,
-              stockManaged: rpcRes.stockManaged ?? Boolean(built.sale.stockManaged),
-              stockRevision: rpcRes.stockRevision ?? 1,
-              _syncStatus: rpcRes.success ? 'synced' : 'pending_sync',
-              _syncError: rpcRes.success ? undefined : rpcRes.error,
-              _lastSyncAttempt: nowIso,
-            };
-            pendingManualSaleUpdate = (prev) => [
-              trackedSale,
-              ...prev.filter((s) => s.id !== trackedSale.id),
-            ];
-            if (trackedSale.stockManaged) {
-              shouldRefreshStockAfterConfirm = rpcRes.success;
-              stockDeductedFlag = true;
-              stockDeductedAtIso = nowIso;
-            }
-            linkedFinancialSaleId = trackedSale.id;
-            linkedFinancialRecordedAt = nowIso;
-          }
-        } else {
-          const updatedExistingSale: ManualSaleEntry = {
-            ...existingSale,
-            orderStatus: mappedOrderStatus,
-            paymentStatus:
-              (options?.paymentStatus === 'pago'
-                ? 'pago'
-                : options?.paymentStatus === 'parcial'
-                ? 'parcial'
-                : existingSale.paymentStatus) || 'pendente',
-          };
-          const rpcUpdate = await saveSaleWithStock(updatedExistingSale);
-          pendingManualSaleUpdate = (prev) =>
-            prev.map((s) =>
-              s.id === existingSale.id
-                ? {
-                    ...updatedExistingSale,
-                    stockRevision: rpcUpdate.stockRevision ?? existingSale.stockRevision,
-                    _syncStatus: rpcUpdate.success ? 'synced' : 'pending_sync',
-                  }
-                : s
-            );
-          if (existingSale.stockManaged) {
-            shouldRefreshStockAfterConfirm = rpcUpdate.success;
-            stockDeductedFlag = true;
-            stockDeductedAtIso = existing.stockDeductedAt || nowIso;
-          }
-          linkedFinancialSaleId = existingSale.id;
-          linkedFinancialRecordedAt = existing.financialRecordedAt || nowIso;
+      const existingSale = findExistingFinancialSaleForOrder(existing,manualSales);
+      let saleToSave: ManualSaleEntry | undefined;
+      const active = ['confirmado','em_separacao','enviado','entregue'].includes(toStatus);
+      if (active) {
+        if (existingSale) saleToSave={...existingSale,orderStatus:toStatus==='entregue'?'entregue':'confirmado',
+          paymentStatus:options?.paymentStatus==='pago'?'pago':options?.paymentStatus==='parcial'?'parcial':existingSale.paymentStatus};
+        else {
+          if (existing.stockDeducted) return {success:false,error:'Recarregue a venda vinculada antes de alterar um pedido com estoque já baixado.'};
+          const built=buildManualSaleFromCatalogOrder({...existing,status:toStatus,paymentStatus:options?.paymentStatus ?? existing.paymentStatus},{stockManaged:true});
+          if (!built.success || !built.sale) return {success:false,error:built.error || 'Não foi possível montar a venda.'};
+          saleToSave=built.sale;
         }
-      } else if (toStatus === 'cancelado') {
-        const existingSale = findExistingFinancialSaleForOrder(existing, manualSales);
-        if (existingSale) {
-          const cancelSale: ManualSaleEntry = {
-            ...existingSale,
-            orderStatus: 'cancelado',
-          };
-          const rpcCancel = await saveSaleWithStock(cancelSale);
-          pendingManualSaleUpdate = (prev) =>
-            prev.map((s) =>
-              s.id === existingSale.id
-                ? {
-                    ...cancelSale,
-                    stockRevision: rpcCancel.stockRevision ?? existingSale.stockRevision,
-                    _syncStatus: rpcCancel.success ? 'synced' : 'pending_sync',
-                  }
-                : s
-            );
-          if (existingSale.stockManaged) {
-            shouldRefreshStockAfterConfirm = rpcCancel.success;
-          }
-        }
-        stockDeductedFlag = false;
-        stockDeductedAtIso = undefined;
-      }
-
-      const ownerCustomerId = existing.customerId || currentUser.id;
-      const updatedOrder: CustomerOrderHistoryItem = {
-        ...transition.updatedOrder,
-        customerId: ownerCustomerId,
-        paymentStatus: options?.paymentStatus ?? transition.updatedOrder.paymentStatus,
-        amountPaid:
-          typeof options?.amountPaid === 'number'
-            ? options.amountPaid
-            : options?.paymentStatus === 'pago'
-            ? transition.updatedOrder.total
-            : transition.updatedOrder.amountPaid,
-        stockDeducted: stockDeductedFlag,
-        stockDeductedAt: stockDeductedAtIso,
-        financialSaleId: linkedFinancialSaleId,
-        financialRecordedAt: linkedFinancialRecordedAt,
-      };
-
-      try {
-        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-      } catch (e) {
-        console.warn('[Catalog] Aviso ao sincronizar status do pedido com o banco:', e);
-      }
-
-      if (pendingManualSaleUpdate) {
-        setManualSales(pendingManualSaleUpdate);
-      }
-      if (shouldRefreshStockAfterConfirm && typeof refreshSaleStock === 'function') {
+      } else if (toStatus==='cancelado' && existingSale) saleToSave={...existingSale,orderStatus:'cancelado'};
+      else if (toStatus==='cancelado' && existing.stockDeducted) return {success:false,error:'Recarregue a venda vinculada para confirmar o estorno.'};
+      const candidate: CustomerOrderHistoryItem={...transition.updatedOrder,
+        customerId:existing.customerId || currentUser.id,
+        paymentStatus:options?.paymentStatus ?? transition.updatedOrder.paymentStatus,
+        amountPaid:typeof options?.amountPaid==='number'?options.amountPaid:options?.paymentStatus==='pago'?existing.total:existing.amountPaid};
+      const result=await saveCatalogOrderMutation(candidate,saleToSave);
+      if (!result.success || !result.updatedOrder) return {success:false,error:result.error};
+      const updatedOrder=result.updatedOrder;
+      const ownerCustomerId=updatedOrder.customerId;
+      const stockDeductedFlag=updatedOrder.stockDeducted===true;
+      if (saleToSave) {
+        const tracked: ManualSaleEntry={...saleToSave,stockRevision:result.stockRevision,stockManaged:result.stockManaged,
+          stockRequestId:undefined,_syncStatus:'synced',_syncError:undefined,_lastSyncAttempt:nowIso};
+        setManualSales(prev=>[tracked,...prev.filter(item=>item.id!==tracked.id)]);
         await refreshSaleStock();
       }
 
@@ -2107,7 +2009,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       };
 
       const ownerCustomerId = existing.customerId || currentUser.id;
-      const updatedOrder: CustomerOrderHistoryItem = {
+      let updatedOrder: CustomerOrderHistoryItem = {
         ...existing,
         customerId: ownerCustomerId,
         paymentStatus,
@@ -2118,68 +2020,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         version: (existing.version || 1) + 1,
       };
 
-      // Sincroniza ou cria o lançamento correspondente em "Meu Negócio" exigindo confirmação remota
-      const linkedSale = findExistingFinancialSaleForOrder(existing, manualSales);
-      const mappedSalePayStatus: 'pago' | 'parcial' | 'pendente' =
-        paymentStatus === 'pago'
-          ? 'pago'
-          : paymentStatus === 'parcial'
-          ? 'parcial'
-          : 'pendente';
-
-      let pendingManualSaleUpdate: ((prev: ManualSaleEntry[]) => ManualSaleEntry[]) | null = null;
-
-      if (linkedSale) {
-        const updatedSale: ManualSaleEntry = {
-          ...linkedSale,
-          paymentStatus: mappedSalePayStatus,
-          amountReceived: resolvedAmountPaid,
-          amountPending: Math.max(0, Number((linkedSale.netTotal - resolvedAmountPaid).toFixed(2))),
-          receivedDate:
-            paymentStatus === 'pago'
-              ? linkedSale.receivedDate || nowIso.split('T')[0]
-              : linkedSale.receivedDate,
-        };
-        const savedSale = await saveSaleWithStock(updatedSale);
-        if (savedSale.stockRevision !== undefined) {
-          updatedSale.stockRevision = savedSale.stockRevision;
-        }
-        updatedSale._syncStatus = savedSale.success ? 'synced' : 'pending_sync';
-        pendingManualSaleUpdate = (prev) =>
-          prev.map((s) => (s.id === linkedSale.id ? updatedSale : s));
-      } else if (existing.status !== 'cancelado') {
-        const built = buildManualSaleFromCatalogOrder(updatedOrder, {
-          paymentStatusOverride: mappedSalePayStatus,
-          amountReceivedOverride: resolvedAmountPaid,
-          stockManaged: false,
-        });
-        if (built.success && built.sale) {
-          const savedSale = await saveSaleWithStock(built.sale);
-          const trackedSale: ManualSaleEntry = {
-            ...built.sale,
-            stockManaged: savedSale.stockManaged ?? false,
-            stockRevision: savedSale.stockRevision ?? 1,
-            _syncStatus: savedSale.success ? 'synced' : 'pending_sync',
-            _lastSyncAttempt: nowIso,
-          };
-          pendingManualSaleUpdate = (prev) => [
-            trackedSale,
-            ...prev.filter((s) => s.id !== trackedSale.id),
-          ];
-          updatedOrder.financialSaleId = trackedSale.id;
-          updatedOrder.financialRecordedAt = nowIso;
-        }
-      }
-
-      try {
-        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-      } catch (e) {
-        console.warn('[Catalog] Aviso ao sincronizar pagamento do pedido com o banco:', e);
-      }
-
-      if (pendingManualSaleUpdate) {
-        setManualSales(pendingManualSaleUpdate);
-      }
+      const linkedSale=findExistingFinancialSaleForOrder(existing,manualSales);
+      const saleToSave: ManualSaleEntry | undefined=linkedSale ? {...linkedSale,
+        paymentStatus:paymentStatus==='pago'?'pago':paymentStatus==='parcial'?'parcial':'pendente',
+        amountReceived:resolvedAmountPaid,amountPending:Math.max(0,Number((linkedSale.netTotal-resolvedAmountPaid).toFixed(2))),
+        receivedDate:paymentStatus==='pago' ? linkedSale.receivedDate || nowIso.split('T')[0] : linkedSale.receivedDate} : undefined;
+      const result=await saveCatalogOrderMutation(updatedOrder,saleToSave);
+      if (!result.success || !result.updatedOrder) return {success:false,error:result.error};
+      updatedOrder=result.updatedOrder;
+      if (saleToSave) setManualSales(prev=>prev.map(item=>item.id===saleToSave.id
+        ? {...saleToSave,stockRevision:result.stockRevision,stockManaged:result.stockManaged,_syncStatus:'synced'} : item));
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
@@ -2482,47 +2332,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       }
 
       const nowIso = new Date().toISOString();
-      const rpcRes = await saveSaleWithStock(built.sale);
-      if (!rpcRes.success) {
-        return {
-          success: false,
-          error:
-            rpcRes.error ||
-            'O banco recusou o registro da venda ou a baixa de estoque para este pedido.',
-        };
-      }
-
-      const trackedSale: ManualSaleEntry = {
-        ...built.sale,
-        stockRequestId: undefined,
-        stockManaged: rpcRes.stockManaged ?? Boolean(built.sale.stockManaged),
-        stockRevision: rpcRes.stockRevision ?? 1,
-        _syncStatus: 'synced',
-        _syncError: undefined,
-        _lastSyncAttempt: nowIso,
-      };
-
-      const ownerCustomerId = order.customerId || currentUser.id;
-      const updatedOrder: CustomerOrderHistoryItem = {
-        ...order,
-        customerId: ownerCustomerId,
-        financialSaleId: trackedSale.id,
-        financialRecordedAt: nowIso,
-        paymentStatus: trackedSale.paymentStatus,
-        amountPaid: trackedSale.amountReceived,
-        updatedAt: nowIso,
-        updatedBy: currentUser.fullName || currentUser.email || 'Administrador',
-        version: (order.version || 1) + 1,
-      };
-
-      const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-      if (!confirmed) {
-        // Do not rebase a stale mutation onto a newer server revision or report local success.
-        return {
-          success: false,
-          error: 'A atualização não foi confirmada pelo banco. Recarregue os dados para conferir o estado atual antes de tentar novamente.',
-        };
-      }
+      const candidate: CustomerOrderHistoryItem={...order,customerId:order.customerId || currentUser.id,
+        financialSaleId:built.sale.id,financialRecordedAt:nowIso,paymentStatus:built.sale.paymentStatus,
+        amountPaid:built.sale.amountReceived,updatedAt:nowIso,updatedBy:currentUser.fullName || currentUser.email || 'Administrador',
+        version:(order.version || 1)+1};
+      const result=await saveCatalogOrderMutation(candidate,built.sale);
+      if (!result.success || !result.updatedOrder) return {success:false,error:result.error};
+      const updatedOrder=result.updatedOrder;
+      const trackedSale: ManualSaleEntry={...built.sale,stockRequestId:undefined,
+        stockManaged:result.stockManaged,stockRevision:result.stockRevision,_syncStatus:'synced',_syncError:undefined,_lastSyncAttempt:nowIso};
 
       setManualSales((prev) => {
         const idx = prev.findIndex((s) => s.id === trackedSale.id);
@@ -4602,12 +4420,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Helper de mesclagem resiliente: preserva dados remotos, não ressuscita itens deletados (tombstones) e resolve conflitos por timestamp
   const mergeFinancialRecords = <T extends { id: string; updatedAt?: string; _syncStatus?: SyncStatus }>(
     remoteItems: T[] | null,
-    currentLocalItems: T[]
+    currentLocalItems: T[],
+    clearSyncedOnEmpty = false
   ): T[] => {
     const tombstones = getTombstones().map((t) => t.id);
     const tombstoneSet = new Set(tombstones);
 
-    if (!remoteItems || remoteItems.length === 0) {
+    if (remoteItems === null || (remoteItems.length === 0 && !clearSyncedOnEmpty)) {
       // Se não há dados remotos ou a tabela ainda não foi criada, preserva os locais (exceto deletados) marcando como pendentes
       return currentLocalItems
         .filter((item) => !tombstoneSet.has(item.id))
@@ -4679,7 +4498,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       const identity = authenticatedIdentityRef.current;
       if (!identity || identity.id !== requestedIdentity || !['owner','admin'].includes(identity.role) || getSupabaseCredentials().url !== requestedProject) return;
-      setManualSales((prev) => mergeFinancialRecords(sales, prev));
+      setManualSales((prev) => mergeFinancialRecords(sales, prev, true));
       setManualExpenses((prev) => mergeFinancialRecords(expenses, prev));
       setMerchandisePurchases((prev) => mergeFinancialRecords(purchases, prev));
       setCashMovements((prev) => mergeFinancialRecords(movements, prev));
@@ -4750,6 +4569,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     addTombstone(id, 'sales');
 
     const ok = await deleteManualSaleFromSupabase(id);
+
+    if (!ok) {
+      removeTombstone(id);
+      return { success: false, error: 'O banco não confirmou a exclusão e o estorno. A venda foi mantida; recarregue os dados antes de tentar novamente.' };
+    }
 
     // Atualiza o estado em memória e o cache local imediatamente para que a venda desapareça da tela
     setManualSales((prev) => {
