@@ -2939,12 +2939,54 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return INITIAL_BANNERS;
   });
 
+  const normalizeLoadedPromotionsInSettings = (raw: StoreSettings): StoreSettings => {
+    const next: StoreSettings = { ...raw };
+    if (next.progressiveDiscountConfig) {
+      const p = { ...next.progressiveDiscountConfig };
+      if (p.tier2DiscountPercent === undefined || p.tier2Label === 'Frete Grátis ✓') {
+        p.tier2DiscountPercent = 5;
+        p.tier2DiscountType = p.tier2DiscountType || 'percent';
+        p.tier2Label = '5% OFF ✓';
+        p.tier2FreeShipping = false;
+      }
+      if (p.minOrderForLoyaltyStamp === undefined) {
+        p.minOrderForLoyaltyStamp = p.freeShippingGoalValue || 100;
+      }
+      next.progressiveDiscountConfig = p;
+    } else {
+      next.progressiveDiscountConfig = DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG;
+    }
+
+    if (Array.isArray(next.complementaryAddons) && next.complementaryAddons.length > 0) {
+      next.complementaryAddons = next.complementaryAddons.map((addon, idx) => {
+        if (
+          (addon.id === SILICONE_COVER_ADDON.id || idx === 2) &&
+          (addon.name === 'Protetor Higiênico de Bocal' ||
+            addon.name === 'Capinha de Silicone Protetora')
+        ) {
+          return {
+            ...addon,
+            name: SILICONE_COVER_ADDON.name,
+            description: SILICONE_COVER_ADDON.description,
+            price: addon.price === 8 ? SILICONE_COVER_ADDON.price : addon.price,
+            icon: SILICONE_COVER_ADDON.icon,
+            emoji: SILICONE_COVER_ADDON.emoji,
+          };
+        }
+        return addon;
+      });
+    } else {
+      next.complementaryAddons = DEFAULT_COMPLEMENTARY_ADDONS;
+    }
+    return next;
+  };
+
   const [settings, setSettings] = useState<StoreSettings>(() => {
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.settings) return parsed.settings;
+        if (parsed.settings) return normalizeLoadedPromotionsInSettings(parsed.settings);
       }
     } catch {
       // fallback
@@ -3224,25 +3266,38 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const addonsPrice = cablePrice + lanyardPrice + siliconeCoverPrice;
   const rawTotal = cartSubtotal + addonsPrice;
 
-  // Progressive Discounts (Regras de Combos configuráveis pelo painel Admin):
+  // Progressive Discounts (Regras de Combos configuráveis pelo painel Admin: Nível 2 = 5% OFF, Nível 3 = 10% OFF):
   const progCfg = {
     ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
     ...(settings.progressiveDiscountConfig || {}),
   };
   const tier2Min = Math.max(1, Number(progCfg.tier2MinUnits) || 2);
+  const tier2Percent = Math.max(0, Number(progCfg.tier2DiscountPercent ?? 5));
   const tier3Min = Math.max(tier2Min, Number(progCfg.tier3MinUnits) || 3);
   const tier3Percent = Math.max(0, Number(progCfg.tier3DiscountPercent) || 10);
 
   const isProgressiveFreeShipping =
-    progCfg.enabled !== false && progCfg.tier2FreeShipping !== false && totalPodUnits >= tier2Min;
-  const progressiveDiscountRate =
-    progCfg.enabled !== false && totalPodUnits >= tier3Min ? tier3Percent : 0;
-  const progressiveDiscountAmount =
-    progCfg.enabled !== false && totalPodUnits >= tier3Min
-      ? progCfg.tier3DiscountType === 'fixed'
-        ? Math.min(cartSubtotal, tier3Percent)
-        : (cartSubtotal * progressiveDiscountRate) / 100
-      : 0;
+    progCfg.enabled !== false && progCfg.tier2FreeShipping === true && totalPodUnits >= tier2Min;
+
+  const isTier3Reached = progCfg.enabled !== false && totalPodUnits >= tier3Min;
+  const isTier2Reached =
+    progCfg.enabled !== false && totalPodUnits >= tier2Min && totalPodUnits < tier3Min;
+
+  const progressiveDiscountRate = isTier3Reached
+    ? tier3Percent
+    : isTier2Reached
+    ? tier2Percent
+    : 0;
+
+  const progressiveDiscountAmount = isTier3Reached
+    ? progCfg.tier3DiscountType === 'fixed'
+      ? Math.min(cartSubtotal, tier3Percent)
+      : (cartSubtotal * tier3Percent) / 100
+    : isTier2Reached
+    ? progCfg.tier2DiscountType === 'fixed'
+      ? Math.min(cartSubtotal, tier2Percent)
+      : (cartSubtotal * tier2Percent) / 100
+    : 0;
 
   // Coupon application logic with specific model restriction and maximum uses limit
   const applyCoupon = (codeOrCoupon: string | Coupon) => {
@@ -3357,9 +3412,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const discountAmount = Math.min(couponDiscountAmount + vipDiscountAmount + progressiveDiscountAmount, rawTotal);
   const cartTotal = Math.max(0, rawTotal - discountAmount);
 
-  // Free shipping goal: configurável no painel Admin (padrão R$ 250,00) ou liberado automaticamente ao atingir o nível de Frete Grátis
-  const freeShippingGoal = Math.max(0, Number(progCfg.freeShippingGoalValue) || 250.0);
-  const freeShippingRemaining = isProgressiveFreeShipping ? 0 : Math.max(0, freeShippingGoal - rawTotal);
+  // Compra Mínima para Pontuar 1 Selo no Cartão Fidelidade (editável na aba Promoções, usando freeShippingGoal para compatibilidade)
+  const freeShippingGoal = Math.max(
+    0,
+    Number(progCfg.minOrderForLoyaltyStamp ?? progCfg.freeShippingGoalValue) || 100.0
+  );
+  const freeShippingRemaining = Math.max(0, freeShippingGoal - cartTotal);
 
   // Reference implementation for WhatsApp sharing with exact Unicode string
   const submitOrderViaWhatsapp = async (form: OrderForm, customMessage?: string): Promise<boolean> => {

@@ -571,11 +571,12 @@ export const LANYARD_ADDON: ComplementaryAddonItem = {
 
 export const SILICONE_COVER_ADDON: ComplementaryAddonItem = {
   id: 'addon-silicone-cover',
-  name: 'Protetor Higiênico de Bocal',
-  description: 'silicone anti-poeira para saída de vapor',
-  price: 8.00,
-  icon: '🛡️',
-  emoji: '🧼',
+  name: 'Carregador Portátil Chaveiro 1500mAh (Type-C / Lightning)',
+  description:
+    'Carregador ANJGG Portátil Chaveiro 1500mAh – Type-C & Type Lightning. Nunca mais fique na mão quando seu celular ou pod estiver com pouca bateria! Super leve e portátil, ideal para emergências, carregue sem precisar de cabos extras com design moderno e prático.',
+  price: 35.00,
+  icon: '🔋',
+  emoji: '⚡',
   active: true,
   themeColor: 'emerald',
 };
@@ -593,12 +594,16 @@ export const DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG: ProgressiveDiscountConfig = {
   title: 'Desconto Progressivo • Leve Mais, Pague Menos',
   tier1Label: 'Catálogo',
   tier2MinUnits: 2,
-  tier2Label: 'Frete Grátis ✓',
-  tier2FreeShipping: true,
+  tier2DiscountType: 'percent',
+  tier2DiscountPercent: 5,
+  tier2Label: '5% OFF ✓',
+  tier2FreeShipping: false,
   tier3MinUnits: 3,
+  tier3DiscountType: 'percent',
   tier3DiscountPercent: 10,
   tier3Label: '10% OFF Total 🔥',
-  freeShippingGoalValue: 250,
+  freeShippingGoalValue: 100,
+  minOrderForLoyaltyStamp: 100,
 };
 
 export const AVAILABLE_COUPONS: Coupon[] = [

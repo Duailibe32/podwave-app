@@ -60,6 +60,11 @@ export const CartDrawer: React.FC = () => {
     ...(settings.progressiveDiscountConfig || {}),
   };
   const tier2Min = Math.max(1, Number(progCfg.tier2MinUnits) || 2);
+  const tier2Percent = Math.max(0, Number(progCfg.tier2DiscountPercent ?? 5));
+  const formattedTier2Discount =
+    progCfg.tier2DiscountType === 'fixed'
+      ? `R$ ${tier2Percent.toFixed(2).replace('.', ',')} OFF`
+      : `${tier2Percent}% OFF`;
   const tier3Min = Math.max(tier2Min, Number(progCfg.tier3MinUnits) || 3);
   const tier3Percent = Math.max(0, Number(progCfg.tier3DiscountPercent) || 10);
   const formattedTier3Discount =
@@ -273,7 +278,7 @@ export const CartDrawer: React.FC = () => {
                       </div>
                       <div className={`p-2 rounded-xl border transition-all ${totalPodUnits >= tier2Min ? 'bg-emerald-500/15 border-emerald-400 text-emerald-300 font-bold shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-white/5 border-white/10 text-gray-400'}`}>
                         <span className="block font-mono text-[9px] text-emerald-400">{tier2Min} PODS</span>
-                        <span>{progCfg.tier2Label || 'Frete Grátis ✓'}</span>
+                        <span>{progCfg.tier2Label || `${formattedTier2Discount} ✓`}</span>
                       </div>
                       <div className={`p-2 rounded-xl border transition-all ${totalPodUnits >= tier3Min ? 'bg-amber-400/20 border-amber-300 text-amber-200 font-bold shadow-[0_0_12px_rgba(251,191,36,0.25)]' : 'bg-white/5 border-white/10 text-gray-400'}`}>
                         <span className="block font-mono text-[9px] text-amber-300">{tier3Min}+ PODS</span>
@@ -284,14 +289,14 @@ export const CartDrawer: React.FC = () => {
                     {/* Dynamic Alert Banner */}
                     <div className="text-[11px] leading-snug">
                       {totalPodUnits === 0 && (
-                        <p className="text-gray-300">Adicione pods ao carrinho para desbloquear frete grátis e descontos automáticos.</p>
+                        <p className="text-gray-300">Adicione pods ao carrinho para desbloquear descontos progressivos automáticos (5% e 10% OFF).</p>
                       )}
                       {totalPodUnits > 0 && totalPodUnits < tier2Min && (
                         <p className="text-cyan-200 font-medium flex items-center gap-1.5">
-                          <Truck className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
+                          <Sparkles className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
                           <span>
                             Falta{tier2Min - totalPodUnits > 1 ? 'm' : ''}{' '}
-                            <strong>apenas {tier2Min - totalPodUnits} pod{tier2Min - totalPodUnits > 1 ? 's' : ''}</strong> para você destravar <strong>{progCfg.tier2Label || 'Frete Grátis'}</strong> na sua entrega!
+                            <strong>apenas {tier2Min - totalPodUnits} pod{tier2Min - totalPodUnits > 1 ? 's' : ''}</strong> para você destravar <strong>{progCfg.tier2Label || formattedTier2Discount}</strong> em todos os pods!
                           </span>
                         </p>
                       )}
@@ -299,7 +304,7 @@ export const CartDrawer: React.FC = () => {
                         <p className="text-emerald-300 font-medium flex items-center gap-1.5">
                           <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                           <span>
-                            <strong>{progCfg.tier2Label || 'Frete Grátis ativado!'}</strong> Adicione +{tier3Min - totalPodUnits} pod{tier3Min - totalPodUnits > 1 ? 's' : ''} de qualquer marca para ganhar <strong>{formattedTier3Discount} em todos os pods</strong>!
+                            <strong>{progCfg.tier2Label || `${formattedTier2Discount} ativado!`}</strong> Adicione +{tier3Min - totalPodUnits} pod{tier3Min - totalPodUnits > 1 ? 's' : ''} de qualquer marca para subir para <strong>{formattedTier3Discount} em todos os pods</strong>!
                           </span>
                         </p>
                       )}
@@ -307,7 +312,7 @@ export const CartDrawer: React.FC = () => {
                         <p className="text-amber-300 font-bold flex items-center gap-1.5">
                           <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                           <span>
-                            Super Combo {tier3Min}+ Ativado: <strong>{progCfg.tier2FreeShipping !== false ? 'Frete Grátis + ' : ''}{formattedTier3Discount} automático</strong> garantidos!
+                            Super Combo {tier3Min}+ Ativado: <strong>{formattedTier3Discount} automático</strong> garantido em todos os pods!
                           </span>
                         </p>
                       )}
@@ -434,14 +439,14 @@ export const CartDrawer: React.FC = () => {
                             </div>
                             <div className="text-xs min-w-0">
                               <div className="flex items-center gap-1.5 flex-wrap">
-                                <p className="font-bold text-white truncate">{siliconeAddon.name}</p>
+                                <p className="font-bold text-white leading-snug">{siliconeAddon.name}</p>
                                 {siliconeMatch.matchedModelName && (
                                   <span className="px-1.5 py-0.2 rounded bg-emerald-500/15 border border-emerald-400/40 text-[9px] font-bold text-emerald-300">
                                     Ideal p/ {siliconeMatch.matchedModelName}
                                   </span>
                                 )}
                               </div>
-                              <p className="text-[10px] text-[#A5A5B8] truncate">{siliconeAddon.description}</p>
+                              <p className="text-[10px] text-[#A5A5B8] line-clamp-2 leading-relaxed mt-0.5">{siliconeAddon.description}</p>
                               <p className="font-heading font-black text-emerald-300 mt-0.5">
                                 R$ {Number(siliconeAddon.price || 0).toFixed(2).replace('.', ',')}
                               </p>
@@ -479,17 +484,17 @@ export const CartDrawer: React.FC = () => {
                   <span>Adicionar um novo produto</span>
                 </button>
 
-                {/* FREE SHIPPING PROGRESS BAR */}
+                {/* COMPRA MÍNIMA PARA PONTUAR SELO FIDELIDADE PROGRESS BAR */}
                 <div className="p-3.5 rounded-2xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/20 space-y-2">
                   <div className="flex items-center gap-2 text-xs">
-                    <Truck className="w-4 h-4 text-[#00DFFF] flex-shrink-0" />
+                    <Sparkles className="w-4 h-4 text-[#00DFFF] flex-shrink-0" />
                     {freeShippingRemaining > 0 ? (
                       <p className="text-gray-300 light:text-slate-700">
-                        Faltam <strong className="text-[#00DFFF]">R$ {freeShippingRemaining.toFixed(2).replace('.', ',')}</strong> para o frete grátis{progCfg.enabled !== false && progCfg.tier2FreeShipping !== false ? ` (ou leve ${tier2Min} pods)` : ''}
+                        Faltam <strong className="text-[#00DFFF]">R$ {freeShippingRemaining.toFixed(2).replace('.', ',')}</strong> para atingir a compra mínima (R$ {freeShippingGoal.toFixed(2).replace('.', ',')}) e <strong>pontuar +1 Selo Fidelidade</strong>
                       </p>
                     ) : (
                       <p className="text-emerald-400 font-bold flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Parabéns! Você atingiu Frete Grátis
+                        <CheckCircle2 className="w-3.5 h-3.5" /> Parabéns! Sua compra já garante +1 Selo no Cartão Fidelidade 🎁
                       </p>
                     )}
                   </div>
@@ -497,7 +502,7 @@ export const CartDrawer: React.FC = () => {
                   <div className="w-full h-2 rounded-full bg-[#0D1022] light:bg-slate-200 overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-[#007BFF] via-[#00DFFF] to-emerald-400 rounded-full transition-all duration-500"
-                      style={{ width: `${isProgressiveFreeShipping ? 100 : freeShippingProgress}%` }}
+                      style={{ width: `${freeShippingProgress}%` }}
                     />
                   </div>
                 </div>
@@ -589,7 +594,9 @@ export const CartDrawer: React.FC = () => {
                   <div className="flex justify-between text-amber-300 font-bold bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/25">
                     <span className="flex items-center gap-1">
                       <Flame className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
-                      <span>Combo {tier3Min}+ Pods ({progressiveDiscountRate}% OFF):</span>
+                      <span>
+                        Combo {totalPodUnits >= tier3Min ? `${tier3Min}+` : `${tier2Min}`} Pods ({progressiveDiscountRate > 0 ? `${progressiveDiscountRate}% OFF` : totalPodUnits >= tier3Min ? formattedTier3Discount : formattedTier2Discount}):
+                      </span>
                     </span>
                     <span className="font-mono">-R$ {progressiveDiscountAmount.toFixed(2).replace('.', ',')}</span>
                   </div>

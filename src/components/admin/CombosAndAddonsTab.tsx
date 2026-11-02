@@ -32,30 +32,44 @@ interface CombosAndAddonsTabProps {
 export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify }) => {
   const { settings, updateSettings, models, addActivityLog } = useCatalog();
 
-  const [progForm, setProgForm] = useState<ProgressiveDiscountConfig>(() => ({
-    ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
-    tier3DiscountType: 'percent',
-    ...(settings.progressiveDiscountConfig || {}),
-  }));
+  const [progForm, setProgForm] = useState<ProgressiveDiscountConfig>(() => {
+    const base: ProgressiveDiscountConfig = {
+      ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
+      tier2DiscountType: 'percent',
+      tier2DiscountPercent: 5,
+      tier3DiscountType: 'percent',
+      tier3DiscountPercent: 10,
+      ...(settings.progressiveDiscountConfig || {}),
+    };
+    if (base.tier2DiscountPercent === undefined || base.tier2Label === 'Frete Grátis ✓') {
+      base.tier2DiscountPercent = 5;
+      base.tier2Label = '5% OFF ✓';
+      base.tier2FreeShipping = false;
+    }
+    return base;
+  });
 
   const [addonsForm, setAddonsForm] = useState<ComplementaryAddonItem[]>(() => {
     const existing = settings.complementaryAddons;
     if (Array.isArray(existing) && existing.length > 0) {
       return DEFAULT_COMPLEMENTARY_ADDONS.map((def, idx) => {
         const found = existing.find((item) => item.id === def.id) || existing[idx];
-        return found
-          ? {
-              ...def,
-              ...found,
-              applicableModelId: found.applicableModelId || 'all',
-              applicableModelIds:
-                Array.isArray(found.applicableModelIds) && found.applicableModelIds.length > 0
-                  ? found.applicableModelIds
-                  : found.applicableModelId && found.applicableModelId !== 'all'
-                  ? [found.applicableModelId]
-                  : ['all'],
-            }
-          : { ...def, applicableModelId: 'all', applicableModelIds: ['all'] };
+        const isLegacyThird =
+          idx === 2 &&
+          found &&
+          (found.name === 'Protetor Higiênico de Bocal' ||
+            found.name === 'Capinha de Silicone Protetora');
+        const merged = found && !isLegacyThird ? { ...def, ...found } : { ...def };
+        return {
+          ...merged,
+          applicableModelId: merged.applicableModelId || 'all',
+          applicableModelIds:
+            Array.isArray(merged.applicableModelIds) && merged.applicableModelIds.length > 0
+              ? merged.applicableModelIds
+              : merged.applicableModelId && merged.applicableModelId !== 'all'
+              ? [merged.applicableModelId]
+              : ['all'],
+        };
       });
     }
     return DEFAULT_COMPLEMENTARY_ADDONS.map((item) => ({
@@ -71,11 +85,20 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
 
   useEffect(() => {
     if (settings.progressiveDiscountConfig) {
-      setProgForm({
+      const nextProg: ProgressiveDiscountConfig = {
         ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
+        tier2DiscountType: 'percent',
+        tier2DiscountPercent: 5,
         tier3DiscountType: 'percent',
+        tier3DiscountPercent: 10,
         ...settings.progressiveDiscountConfig,
-      });
+      };
+      if (nextProg.tier2DiscountPercent === undefined || nextProg.tier2Label === 'Frete Grátis ✓') {
+        nextProg.tier2DiscountPercent = 5;
+        nextProg.tier2Label = '5% OFF ✓';
+        nextProg.tier2FreeShipping = false;
+      }
+      setProgForm(nextProg);
     }
     if (Array.isArray(settings.complementaryAddons) && settings.complementaryAddons.length > 0) {
       setAddonsForm(
@@ -83,19 +106,22 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
           const found =
             settings.complementaryAddons!.find((item) => item.id === def.id) ||
             settings.complementaryAddons![idx];
-          return found
-            ? {
-                ...def,
-                ...found,
-                applicableModelId: found.applicableModelId || 'all',
-                applicableModelIds:
-                  Array.isArray(found.applicableModelIds) && found.applicableModelIds.length > 0
-                    ? found.applicableModelIds
-                    : found.applicableModelId && found.applicableModelId !== 'all'
-                    ? [found.applicableModelId]
-                    : ['all'],
-              }
-            : { ...def, applicableModelId: 'all', applicableModelIds: ['all'] };
+          const isLegacyThird =
+            idx === 2 &&
+            found &&
+            (found.name === 'Protetor Higiênico de Bocal' ||
+              found.name === 'Capinha de Silicone Protetora');
+          const merged = found && !isLegacyThird ? { ...def, ...found } : { ...def };
+          return {
+            ...merged,
+            applicableModelId: merged.applicableModelId || 'all',
+            applicableModelIds:
+              Array.isArray(merged.applicableModelIds) && merged.applicableModelIds.length > 0
+                ? merged.applicableModelIds
+                : merged.applicableModelId && merged.applicableModelId !== 'all'
+                ? [merged.applicableModelId]
+                : ['all'],
+          };
         })
       );
     }
@@ -159,19 +185,29 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
     e.preventDefault();
     setIsSavingSupabase(true);
 
+    const tier2Type = progForm.tier2DiscountType === 'fixed' ? 'fixed' : 'percent';
+    const tier2MaxVal = tier2Type === 'percent' ? 90 : 500;
     const discountType = progForm.tier3DiscountType === 'fixed' ? 'fixed' : 'percent';
     const maxVal = discountType === 'percent' ? 90 : 500;
+    const minOrderStamp = Math.max(
+      0,
+      Number(progForm.minOrderForLoyaltyStamp ?? progForm.freeShippingGoalValue) || 100
+    );
 
     const normalizedProg: ProgressiveDiscountConfig = {
       ...progForm,
       tier2MinUnits: Math.max(1, Number(progForm.tier2MinUnits) || 2),
+      tier2DiscountType: tier2Type,
+      tier2DiscountPercent: Math.max(0, Math.min(tier2MaxVal, Number(progForm.tier2DiscountPercent ?? 5))),
+      tier2FreeShipping: false,
       tier3MinUnits: Math.max(
         Math.max(1, Number(progForm.tier2MinUnits) || 2),
         Number(progForm.tier3MinUnits) || 3
       ),
       tier3DiscountType: discountType,
       tier3DiscountPercent: Math.max(0, Math.min(maxVal, Number(progForm.tier3DiscountPercent) || 0)),
-      freeShippingGoalValue: Math.max(0, Number(progForm.freeShippingGoalValue) || 250),
+      freeShippingGoalValue: minOrderStamp,
+      minOrderForLoyaltyStamp: minOrderStamp,
     };
 
     const normalizedAddons: ComplementaryAddonItem[] = addonsForm.map((a) => {
@@ -213,13 +249,15 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       actionLabel: 'Promoções Atualizadas (Desconto Progressivo & Compre Junto)',
       entity: 'store_settings',
       entityName: 'Aba Promoções',
-      details: `Desconto Progressivo: ${normalizedProg.tier2MinUnits} un. (Frete) / ${
-        normalizedProg.tier3MinUnits
-      }+ un. (${
+      details: `Desconto Progressivo: Nível 2 (${normalizedProg.tier2MinUnits} un. = ${
+        normalizedProg.tier2DiscountType === 'fixed'
+          ? `R$ ${(normalizedProg.tier2DiscountPercent || 5).toFixed(2)}`
+          : `${normalizedProg.tier2DiscountPercent ?? 5}%`
+      } OFF) / Nível 3 (${normalizedProg.tier3MinUnits}+ un. = ${
         normalizedProg.tier3DiscountType === 'fixed'
           ? `R$ ${normalizedProg.tier3DiscountPercent.toFixed(2)}`
           : `${normalizedProg.tier3DiscountPercent}%`
-      } OFF). Compre Junto: ${normalizedAddons
+      } OFF) | Compra Mínima Selo: R$ ${minOrderStamp.toFixed(2)}. Compre Junto: ${normalizedAddons
         .map((a) => `${a.name} (${a.applicableModelName || 'Todos'})`)
         .join(' | ')}.`,
       status: 'sucesso',
@@ -232,7 +270,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
     );
 
     const msg = dbRes.success
-      ? 'Regras de "Desconto Progressivo" e vínculos do "Compre Junto" salvos no banco de dados Supabase e aplicados ao catálogo!'
+      ? 'Regras de "Desconto Progressivo" (Nível 2: 5%, Nível 3: 10%, Compra Mínima Selo) e "Compre Junto" salvos no Supabase!'
       : 'Configurações de "Desconto Progressivo" e "Compre Junto" salvas e aplicadas ao catálogo!';
     setSavedBanner(msg);
     if (onNotify) onNotify(msg);
@@ -242,7 +280,10 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
   const handleRestoreDefaults = async () => {
     const defProg: ProgressiveDiscountConfig = {
       ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
+      tier2DiscountType: 'percent',
+      tier2DiscountPercent: 5,
       tier3DiscountType: 'percent',
+      tier3DiscountPercent: 10,
     };
     const defAddons: ComplementaryAddonItem[] = DEFAULT_COMPLEMENTARY_ADDONS.map((item) => ({
       ...item,
@@ -257,13 +298,19 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       complementaryAddons: defAddons,
     });
     await savePromotionsConfigToSupabase(defProg, defAddons);
-    const msg = 'Valores padrão de Desconto Progressivo e Compre Junto restaurados no banco de dados!';
+    const msg = 'Valores padrão de Desconto Progressivo (5% / 10%) e Compre Junto (Powerbank Chaveiro) restaurados!';
     setSavedBanner(msg);
     if (onNotify) onNotify(msg);
     setTimeout(() => setSavedBanner(null), 4000);
   };
 
   const tier2Min = Math.max(1, Number(progForm.tier2MinUnits) || 2);
+  const tier2Val = Math.max(0, Number(progForm.tier2DiscountPercent ?? 5));
+  const isTier2Fixed = progForm.tier2DiscountType === 'fixed';
+  const formattedTier2Discount = isTier2Fixed
+    ? `R$ ${tier2Val.toFixed(2).replace('.', ',')} OFF`
+    : `${tier2Val}% OFF`;
+
   const tier3Min = Math.max(tier2Min, Number(progForm.tier3MinUnits) || 3);
   const tier3Val = Math.max(0, Number(progForm.tier3DiscountPercent) || 10);
   const isFixedDiscount = progForm.tier3DiscountType === 'fixed';
@@ -375,19 +422,21 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
 
                 <div>
                   <label className="block font-bold text-gray-200 mb-1">
-                    Meta Frete Grátis Avulso (R$)
+                    Compra Mínima p/ Pontuar 1 Selo (R$)
                   </label>
                   <input
                     type="number"
                     min="0"
                     step="5"
-                    value={progForm.freeShippingGoalValue}
-                    onChange={(e) =>
+                    value={progForm.minOrderForLoyaltyStamp ?? progForm.freeShippingGoalValue}
+                    onChange={(e) => {
+                      const val = parseFloat(e.target.value) || 0;
                       setProgForm({
                         ...progForm,
-                        freeShippingGoalValue: parseFloat(e.target.value) || 0,
-                      })
-                    }
+                        freeShippingGoalValue: val,
+                        minOrderForLoyaltyStamp: val,
+                      });
+                    }}
                     className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/35 text-[#00DFFF] font-mono font-black focus:outline-none focus:border-[#00DFFF]"
                   />
                 </div>
@@ -416,42 +465,95 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                   </div>
                 </div>
 
-                {/* Nível 2 */}
+                {/* Nível 2 (Desconto 5%) */}
                 <div className="p-3.5 rounded-2xl bg-[#141838] border border-emerald-400/35 space-y-2.5">
                   <div className="flex items-center justify-between">
                     <span className="text-[10px] font-mono font-black uppercase px-2 py-0.5 rounded bg-emerald-500/20 text-emerald-300">
-                      Nível 2 (Frete)
+                      Nível 2 (Desconto)
                     </span>
-                    <label className="flex items-center gap-1 text-[10px] text-emerald-300 font-bold cursor-pointer">
-                      <input
-                        type="checkbox"
-                        checked={progForm.tier2FreeShipping !== false}
-                        onChange={(e) =>
-                          setProgForm({ ...progForm, tier2FreeShipping: e.target.checked })
-                        }
-                        className="w-3.5 h-3.5 rounded accent-emerald-400"
-                      />
-                      <span>Frete Grátis</span>
-                    </label>
+                    <div className="flex items-center gap-1 bg-[#0D1022] p-0.5 rounded-lg border border-white/10">
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const val = progForm.tier2DiscountPercent ?? 5;
+                          setProgForm({
+                            ...progForm,
+                            tier2DiscountType: 'percent',
+                            tier2Label: `${val}% OFF ✓`,
+                          });
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-black cursor-pointer ${
+                          progForm.tier2DiscountType !== 'fixed'
+                            ? 'bg-emerald-400 text-[#080811]'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        %
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          const val = progForm.tier2DiscountPercent ?? 5;
+                          setProgForm({
+                            ...progForm,
+                            tier2DiscountType: 'fixed',
+                            tier2Label: `R$ ${val} OFF ✓`,
+                          });
+                        }}
+                        className={`px-1.5 py-0.5 rounded text-[9px] font-black cursor-pointer ${
+                          progForm.tier2DiscountType === 'fixed'
+                            ? 'bg-emerald-400 text-[#080811]'
+                            : 'text-gray-400 hover:text-white'
+                        }`}
+                      >
+                        R$
+                      </button>
+                    </div>
                   </div>
 
-                  <div>
-                    <label className="block text-[11px] text-gray-300 font-semibold mb-1">
-                      Qtd. Mínima (Unidades)
-                    </label>
-                    <input
-                      type="number"
-                      min="1"
-                      max="20"
-                      value={progForm.tier2MinUnits}
-                      onChange={(e) =>
-                        setProgForm({
-                          ...progForm,
-                          tier2MinUnits: Math.max(1, parseInt(e.target.value, 10) || 2),
-                        })
-                      }
-                      className="w-full p-2 rounded-xl bg-[#0D1022] border border-white/10 text-emerald-300 font-mono font-black text-xs focus:outline-none focus:border-emerald-400"
-                    />
+                  <div className="grid grid-cols-2 gap-2">
+                    <div>
+                      <label className="block text-[10px] text-gray-300 font-semibold mb-1">
+                        Qtd. Mínima
+                      </label>
+                      <input
+                        type="number"
+                        min="1"
+                        max="20"
+                        value={progForm.tier2MinUnits}
+                        onChange={(e) =>
+                          setProgForm({
+                            ...progForm,
+                            tier2MinUnits: Math.max(1, parseInt(e.target.value, 10) || 2),
+                          })
+                        }
+                        className="w-full p-2 rounded-xl bg-[#0D1022] border border-white/10 text-emerald-300 font-mono font-black text-xs focus:outline-none focus:border-emerald-400"
+                      />
+                    </div>
+
+                    <div>
+                      <label className="block text-[10px] text-gray-300 font-semibold mb-1">
+                        {isTier2Fixed ? 'Valor (R$)' : 'Desconto (%)'}
+                      </label>
+                      <input
+                        type="number"
+                        min="0"
+                        max={isTier2Fixed ? 500 : 90}
+                        step={isTier2Fixed ? '0.5' : '1'}
+                        value={progForm.tier2DiscountPercent ?? 5}
+                        onChange={(e) => {
+                          const val = Math.max(0, parseFloat(e.target.value) || 0);
+                          setProgForm({
+                            ...progForm,
+                            tier2DiscountPercent: val,
+                            tier2Label: isTier2Fixed
+                              ? `R$ ${val} OFF ✓`
+                              : `${val}% OFF ✓`,
+                          });
+                        }}
+                        className="w-full p-2 rounded-xl bg-[#0D1022] border border-white/10 text-emerald-300 font-mono font-black text-xs focus:outline-none focus:border-emerald-400"
+                      />
+                    </div>
                   </div>
 
                   <div>
@@ -462,7 +564,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                       type="text"
                       value={progForm.tier2Label}
                       onChange={(e) => setProgForm({ ...progForm, tier2Label: e.target.value })}
-                      placeholder="Frete Grátis ✓"
+                      placeholder="5% OFF ✓"
                       className="w-full p-2 rounded-xl bg-[#0D1022] border border-white/10 text-white text-xs font-bold focus:outline-none focus:border-emerald-400"
                     />
                   </div>
@@ -632,7 +734,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                     <span className="block font-mono text-[9px] text-emerald-400">
                       {tier2Min} PODS
                     </span>
-                    <span>{progForm.tier2Label || 'Frete Grátis ✓'}</span>
+                    <span>{progForm.tier2Label || `${formattedTier2Discount} ✓`}</span>
                   </div>
                   <div
                     className={`p-2 rounded-xl border transition-all ${
@@ -651,14 +753,14 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                 <div className="text-[11px] leading-snug">
                   {previewPodsCount < tier2Min && (
                     <p className="text-cyan-200 font-medium flex items-center gap-1.5">
-                      <Truck className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
+                      <Zap className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
                       <span>
                         Falta{tier2Min - previewPodsCount > 1 ? 'm' : ''}{' '}
                         <strong>
                           apenas {tier2Min - previewPodsCount} pod
                           {tier2Min - previewPodsCount > 1 ? 's' : ''}
                         </strong>{' '}
-                        para você destravar <strong>{progForm.tier2Label || 'Frete Grátis'}</strong>!
+                        para você destravar <strong>{progForm.tier2Label || `${formattedTier2Discount} ✓`}</strong>!
                       </span>
                     </p>
                   )}
@@ -666,7 +768,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                     <p className="text-emerald-300 font-medium flex items-center gap-1.5">
                       <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
                       <span>
-                        <strong>{progForm.tier2Label || 'Frete Grátis ativado!'}</strong> Adicione +
+                        <strong>{progForm.tier2Label || `${formattedTier2Discount} ativado!`}</strong> Adicione +
                         {tier3Min - previewPodsCount} pod para ganhar{' '}
                         <strong>{formattedTier3Discount} em todos os pods</strong>!
                       </span>
@@ -678,13 +780,19 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                       <span>
                         Super Combo {tier3Min}+ Ativado:{' '}
                         <strong>
-                          {progForm.tier2FreeShipping !== false ? 'Frete Grátis + ' : ''}
                           {formattedTier3Discount} automático
                         </strong>{' '}
-                        garantidos!
+                        garantido em todos os pods!
                       </span>
                     </p>
                   )}
+                </div>
+
+                <div className="pt-2 border-t border-white/10 flex items-center justify-between text-[10px] text-emerald-300">
+                  <span>🎁 Compra Mínima p/ Pontuar 1 Selo:</span>
+                  <span className="font-mono font-black text-[#00DFFF]">
+                    R$ {Number(progForm.minOrderForLoyaltyStamp ?? progForm.freeShippingGoalValue ?? 100).toFixed(2).replace('.', ',')}
+                  </span>
                 </div>
               </div>
             </div>
@@ -808,14 +916,14 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
 
                     <div>
                       <label className="block font-bold text-gray-200 mb-1">
-                        Descrição Curta / Subtítulo
+                        Descrição / Especificações do Acessório
                       </label>
-                      <input
-                        type="text"
+                      <textarea
+                        rows={3}
                         value={addon.description}
                         onChange={(e) => handleAddonChange(idx, 'description', e.target.value)}
-                        placeholder="Ex: para carregar seu pod com rapidez"
-                        className="w-full p-2.5 rounded-xl bg-[#0D1022] border border-white/15 text-gray-200 focus:outline-none focus:border-[#00DFFF]"
+                        placeholder="Ex: Carregador ANJGG Portátil Chaveiro 1500mAh – Type-C & Type Lightning..."
+                        className="w-full p-2.5 rounded-xl bg-[#0D1022] border border-white/15 text-gray-200 text-xs focus:outline-none focus:border-[#00DFFF] resize-y"
                       />
                     </div>
 

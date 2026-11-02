@@ -112,13 +112,16 @@ export interface ProgressiveDiscountConfig {
   title: string;
   tier1Label: string; // ex: 'Catálogo'
   tier2MinUnits: number; // padrão: 2
-  tier2Label: string; // ex: 'Frete Grátis ✓'
-  tier2FreeShipping: boolean; // padrão: true
+  tier2DiscountType?: 'percent' | 'fixed'; // padrão: 'percent'
+  tier2DiscountPercent?: number; // padrão: 5 (5% OFF no Nível 2)
+  tier2Label: string; // ex: '5% OFF ✓'
+  tier2FreeShipping: boolean; // legado / opcional
   tier3MinUnits: number; // padrão: 3
   tier3DiscountType?: 'percent' | 'fixed'; // padrão: 'percent'
-  tier3DiscountPercent: number; // padrão: 10 (ou valor em R$ quando tier3DiscountType === 'fixed')
+  tier3DiscountPercent: number; // padrão: 10 (10% OFF no Nível 3)
   tier3Label: string; // ex: '10% OFF Total 🔥'
-  freeShippingGoalValue: number; // padrão: 250
+  freeShippingGoalValue: number; // usado como Compra Mínima para Pontuar 1 Selo (R$)
+  minOrderForLoyaltyStamp?: number; // Compra Mínima para Pontuar 1 Selo no Cartão Fidelidade (R$)
 }
 
 export interface ComplementaryAddonItem {
