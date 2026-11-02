@@ -296,12 +296,12 @@ export const CatalogSection: React.FC = () => {
               transition={{ duration: 0.2 }}
               className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6"
             >
-              {filteredModels.map((product) => (
+              {filteredModels.map((product, index) => (
                 <div
                   key={product.id}
                   className="h-full flex flex-col animate-card-fade-slide-up"
                 >
-                  <ProductCard product={product} />
+                  <ProductCard product={product} priority={index < 2} />
                 </div>
               ))}
             </motion.div>

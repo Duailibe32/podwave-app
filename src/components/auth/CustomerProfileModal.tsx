@@ -47,6 +47,7 @@ import {
   KeyRound,
   Check,
 } from 'lucide-react';
+import { isPendingOrderDraft, markOrderCacheSynced, reconcileOrderSnapshot } from '../../utils/orderSync';
 import { PasskeyBiometricLoading } from './PasskeyBiometricLoading';
 
 export const CustomerProfileModal: React.FC = () => {
@@ -98,28 +99,14 @@ export const CustomerProfileModal: React.FC = () => {
   const [feedbackMsg, setFeedbackMsg] = useState<string | null>(null);
   const [isLoadingCustomerOrders, setIsLoadingCustomerOrders] = useState(false);
   const [customerOrdersError, setCustomerOrdersError] = useState<string | null>(null);
-  const [remoteOrders, setRemoteOrders] = useState(currentUser?.orderHistory || []);
+  const [remoteOrders, setRemoteOrders] = useState((currentUser?.orderHistory || []).filter(order => order._syncStatus === 'synced'));
   const activeOrdersReqRef = React.useRef(0);
+  const [retryingOrderId, setRetryingOrderId] = useState<string | null>(null);
 
   const matchesCurrentUserOrder = React.useCallback(
     (o: NonNullable<typeof currentUser>['orderHistory'] extends (infer U)[] | undefined ? U : never) => {
       if (!currentUser || !o) return false;
-      if (o.customerId && o.customerId === currentUser.id) return true;
-      const userEmail = (currentUser.email || '').trim().toLowerCase();
-      if (userEmail && o.customerEmail && o.customerEmail.trim().toLowerCase() === userEmail) {
-        return true;
-      }
-      const userPhone = (currentUser.phoneWhatsapp || '').replace(/\D/g, '');
-      if (userPhone && userPhone.length >= 8 && o.customerPhone) {
-        const ordPhone = o.customerPhone.replace(/\D/g, '');
-        if (ordPhone && (ordPhone === userPhone || ordPhone.endsWith(userPhone.slice(-8)))) {
-          return true;
-        }
-      }
-      if (!o.customerId || o.customerId.startsWith('guest-')) {
-        return true;
-      }
-      return false;
+      return o.customerId === currentUser.id;
     },
     [currentUser]
   );
@@ -137,9 +124,6 @@ export const CustomerProfileModal: React.FC = () => {
       }
     };
 
-    for (const o of currentUser.orderHistory || []) addIfMatch(o);
-    for (const o of allCatalogOrders || []) addIfMatch(o);
-
     if (typeof window !== 'undefined') {
       try {
         const raw = localStorage.getItem('podwave_shared_catalog_orders_v2');
@@ -151,6 +135,9 @@ export const CustomerProfileModal: React.FC = () => {
         // ignore storage parse error
       }
     }
+
+    for (const o of currentUser.orderHistory || []) addIfMatch(o);
+    for (const o of allCatalogOrders || []) addIfMatch(o);
 
     return results;
   }, [currentUser, allCatalogOrders, matchesCurrentUserOrder]);
@@ -172,49 +159,12 @@ export const CustomerProfileModal: React.FC = () => {
       );
       if (reqId !== activeOrdersReqRef.current) return;
 
-      const remoteIds = new Set((fetched || []).map((r) => r.id));
-      const remoteRefs = new Set((fetched || []).map((r) => r.referenceId));
-
-      // Se houver pedidos feitos localmente neste navegador que ainda não estão em customer_orders no Supabase, envia agora
-      let syncWarning: string | null = null;
-      for (const loc of localOrders) {
-        if (!remoteIds.has(loc.id) && !remoteRefs.has(loc.referenceId)) {
-          const ok = await saveCustomerOrderToSupabase(
-            {
-              ...loc,
-              customerId: targetUserId,
-              customerEmail: loc.customerEmail || targetEmail,
-              customerPhone: loc.customerPhone || targetPhone,
-              customerName: loc.customerName || currentUser.fullName,
-            },
-            targetUserId
-          );
-          if (!ok) {
-            const diag = getLastSupabaseOrderDiagnostic();
-            if (diag?.message) {
-              syncWarning = `Pedido salvo neste aparelho, mas pendente de envio ao servidor (${diag.code || diag.category}): ${diag.message}`;
-            }
-          }
-        }
+      if (fetched === null) {
+        setCustomerOrdersError('Não foi possível consultar o servidor. O histórico anterior foi mantido; tente atualizar novamente.');
+        return;
       }
-
-      const mergedMap = new Map<string, typeof localOrders[number]>();
-      for (const loc of localOrders) {
-        mergedMap.set(loc.id, loc);
-      }
-      for (const rem of fetched || []) {
-        const existing = mergedMap.get(rem.id);
-        if (!existing || (rem.version || 1) >= (existing.version || 1)) {
-          mergedMap.set(rem.id, rem);
-        }
-      }
-      const mergedList = Array.from(mergedMap.values()).sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-      setRemoteOrders(mergedList);
-      if (syncWarning) {
-        setCustomerOrdersError(syncWarning);
-      }
+      // Reading history never submits or recreates an order.
+      setRemoteOrders(reconcileOrderSnapshot(fetched, localOrders, targetUserId));
     } catch {
       if (reqId !== activeOrdersReqRef.current) return;
       setCustomerOrdersError(
@@ -238,6 +188,21 @@ export const CustomerProfileModal: React.FC = () => {
       loadAuthenticatedOrders();
     }
   }, [isProfileModalOpen, activeTab, currentUser?.id, loadAuthenticatedOrders]);
+
+  const retryPendingOrder = async (order: NonNullable<NonNullable<typeof currentUser>['orderHistory']>[number]) => {
+    if (!currentUser || retryingOrderId || !isPendingOrderDraft(order, currentUser.id)) return;
+    setRetryingOrderId(order.id);
+    try {
+      const saved = await saveCustomerOrderToSupabase(order, currentUser.id);
+      if (saved) {
+        markOrderCacheSynced(order.id);
+        setRemoteOrders(previous => reconcileOrderSnapshot([...previous, {...order, _syncStatus: 'synced'}], [], currentUser.id));
+        await loadAuthenticatedOrders();
+      } else {
+        setCustomerOrdersError(getLastSupabaseOrderDiagnostic()?.message || 'O servidor não confirmou o envio. Atualize o histórico antes de tentar novamente.');
+      }
+    } finally { setRetryingOrderId(null); }
+  };
 
   // Passkey / WebAuthn States & Handlers
   const [passkeys, setPasskeys] = useState<PasskeyItem[]>([]);
@@ -358,23 +323,7 @@ export const CustomerProfileModal: React.FC = () => {
 
   const orders = React.useMemo(() => {
     if (!currentUser) return [];
-    const localMatching = getLocalMatchingOrders();
-    const map = new Map<string, (typeof localMatching)[number]>();
-
-    for (const o of localMatching) {
-      map.set(o.id, o);
-    }
-    for (const o of remoteOrders) {
-      if (matchesCurrentUserOrder(o)) {
-        const existing = map.get(o.id);
-        if (!existing || (o.version || 1) >= (existing.version || 1)) {
-          map.set(o.id, o);
-        }
-      }
-    }
-    return Array.from(map.values()).sort(
-      (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-    );
+    return reconcileOrderSnapshot(remoteOrders, getLocalMatchingOrders(), currentUser.id);
   }, [currentUser, remoteOrders, getLocalMatchingOrders, matchesCurrentUserOrder]);
 
   const { isSearchingCep, cepMessage, handleLookupCep } = useCepLookup(cep, (found) => {
@@ -1079,6 +1028,17 @@ type="text"
                             R$ {order.total.toFixed(2).replace('.', ',')}
                           </span>
                         </div>
+
+                        {isPendingOrderDraft(order, currentUser.id) && (
+                          <div className="p-3 rounded-xl border border-amber-400/40 bg-amber-400/10 text-xs text-amber-100 space-y-2">
+                            <p>Salvo somente neste aparelho. O servidor ainda não confirmou este pedido.</p>
+                            <button type="button" disabled={retryingOrderId !== null}
+                              onClick={() => void retryPendingOrder(order)}
+                              className="px-3 py-2 rounded-lg bg-amber-400/20 font-bold cursor-pointer disabled:opacity-50">
+                              {retryingOrderId === order.id ? 'Enviando...' : 'Enviar pedido ao servidor'}
+                            </button>
+                          </div>
+                        )}
 
                         <OrderStatusTimeline
                           status={order.status}

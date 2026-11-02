@@ -3,13 +3,17 @@ import { ProductModel, FlavorVariant } from '../types/catalog';
 import { useCatalog } from '../context/CatalogContext';
 import { Zap, Plus, CheckCircle2 } from 'lucide-react';
 import { calculateVariantAvailability } from '../utils/availability';
+import { productCardImage } from '../utils/productImage';
 
 interface ProductCardProps {
   product: ProductModel;
+  priority?: boolean;
 }
 
-export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
+export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = false }) => {
   const { setActiveModalProduct, setActiveSelectedFlavor, addToCart } = useCatalog();
+  const originalImage = product.imageUrl || '/assets/images/logo.png';
+  const cardImage = productCardImage(originalImage);
 
   const handleCardClick = () => {
     setActiveModalProduct(product);
@@ -76,10 +80,22 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product }) => {
         {/* Clean Centered White Product Container */}
         <div className="relative w-full aspect-square rounded-2xl bg-white p-3 sm:p-4 flex items-center justify-center overflow-hidden shadow-inner group-hover:shadow-md transition-shadow">
           <img
-            src={product.imageUrl || '/assets/images/logo.png'}
+            src={cardImage.src}
+            srcSet={cardImage.srcSet}
+            sizes="(min-width: 1280px) 280px, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
             alt={`${product.brandName} ${product.modelName}`}
             className="w-full h-full object-contain transform transition-transform duration-500 group-hover:scale-105"
-            loading="lazy"
+            loading={priority ? 'eager' : 'lazy'}
+            fetchPriority={priority ? 'high' : 'auto'}
+            decoding="async"
+            onError={event => {
+              const image = event.currentTarget;
+              if (cardImage.src !== originalImage && image.dataset.originalFallback !== originalImage) {
+                image.dataset.originalFallback = originalImage;
+                image.srcset = '';
+                image.src = originalImage;
+              }
+            }}
             referrerPolicy="no-referrer"
           />
 

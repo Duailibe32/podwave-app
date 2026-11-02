@@ -36,6 +36,7 @@ import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from
 import { openWhatsAppShare } from '../utils/whatsappShare';
 import { calculateVariantAvailability } from '../utils/availability';
 import { cartStockError } from '../utils/stock';
+import { archiveUnconfirmedOrderCache, isPendingOrderDraft, reconcileOrderSnapshot } from '../utils/orderSync';
 import {
   applyLoyaltyMutation,
   getUserLoyaltyCard,
@@ -1178,27 +1179,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         } catch {}
       }
 
-      // 2. Recuperação inteligente: varre chaves de sessões anteriores/legadas para resgatar pedidos
-      for (let i = 0; i < localStorage.length; i++) {
-        const k = localStorage.key(i);
-        if (
-          k &&
-          k !== SHARED_CATALOG_ORDERS_KEY &&
-          (k.includes('catalog_orders') || k.includes('customer_orders') || k.includes('orderHistory'))
-        ) {
-          try {
-            const rawVal = localStorage.getItem(k);
-            if (rawVal) {
-              const legacyItems = JSON.parse(rawVal);
-              if (Array.isArray(legacyItems)) {
-                legacyItems.forEach(addUniqueOrder);
-              } else if (legacyItems && typeof legacyItems === 'object' && Array.isArray(legacyItems.orderHistory)) {
-                legacyItems.orderHistory.forEach(addUniqueOrder);
-              }
-            }
-          } catch {}
-        }
-      }
+      // Legacy storage keys remain available for manual review; reads must not resurrect old orders.
 
       return orders.sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
@@ -1211,6 +1192,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const persistSharedCatalogOrders = (orders: CustomerOrderHistoryItem[]) => {
     if (typeof window === 'undefined') return;
     try {
+      const deletedIds = getDeletedOrderIds();
+      archiveUnconfirmedOrderCache(loadSharedCatalogOrders().filter(order => !deletedIds.has(order.id)), orders);
       localStorage.setItem(SHARED_CATALOG_ORDERS_KEY, JSON.stringify(orders.slice(0, 500)));
     } catch {
       // ignore quota errors
@@ -1218,7 +1201,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const [allCatalogOrders, setAllCatalogOrders] = useState<CustomerOrderHistoryItem[]>(() =>
-    loadSharedCatalogOrders()
+    loadSharedCatalogOrders().filter(order => order._syncStatus === 'synced' || isPendingOrderDraft(order))
   );
   const [isLoadingCatalogOrders, setIsLoadingCatalogOrders] = useState<boolean>(false);
   const [catalogOrdersError, setCatalogOrdersError] = useState<string | null>(null);
@@ -1282,7 +1265,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const requestedProject = getSupabaseCredentials().url;
     const deletedIds = getDeletedOrderIds();
     if (!isAdmin) {
-      setAllCatalogOrders(loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id)));
+      setAllCatalogOrders(loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id) && (o._syncStatus === 'synced' || isPendingOrderDraft(o))));
       setCatalogOrdersError(null);
       return;
     }
@@ -1299,200 +1282,52 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const profilesToUse =
         remoteProfiles && remoteProfiles.length > 0 ? remoteProfiles : allUsers;
 
-      if (ordersResult.error && ordersResult.errorKind !== 'missing_table') {
+      if (ordersResult.error) {
         setCatalogOrdersError(ordersResult.error);
+        return;
       }
-
-      const mapById = new Map<string, CustomerOrderHistoryItem>();
-
-      // 1. Adiciona pedidos remotos do Supabase
-      for (const ord of ordersResult.orders) {
-        if (deletedIds.has(ord.id)) continue;
-        mapById.set(ord.id, enrichOrderWithProfile(ord, profilesToUse));
-      }
-
-      // 2. Mescla com pedidos locais compartilhados para não perder pedidos recém-criados ou feitos como visitante
-      const localOrders = loadSharedCatalogOrders();
-      for (const locOrd of localOrders) {
-        if (deletedIds.has(locOrd.id)) continue;
-        if (!mapById.has(locOrd.id)) {
-          const hasRefConflict = Array.from(mapById.values()).some(
-            (o) => o.referenceId && locOrd.referenceId && o.referenceId === locOrd.referenceId
-          );
-          if (!hasRefConflict) {
-            const enrichedLocal = enrichOrderWithProfile(locOrd, profilesToUse);
-            mapById.set(locOrd.id, enrichedLocal);
-            // Sincroniza silenciosamente pedidos locais ainda ausentes no banco usando a sessão Admin
-            if (ordersResult.errorKind !== 'missing_table') {
-              void saveCustomerOrderToSupabase(
-                enrichedLocal,
-                enrichedLocal.customerId || currentUser?.id || `guest-${enrichedLocal.referenceId}`
-              );
-            }
-          }
-        }
-      }
-
-      const sorted = Array.from(mapById.values()).sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-
-      // Auto-exclusão de pedidos cancelados há mais de 24 horas do banco de dados e do cache local
-      const autoCleanupRes = await cleanupExpiredCancelledOrdersInSupabase(sorted, 24);
-      if (autoCleanupRes.deletedIds.length > 0) {
-        const purgedSet = new Set(autoCleanupRes.deletedIds);
-        for (const id of autoCleanupRes.deletedIds) {
-          markOrderDeletedLocally(id);
-        }
-        const cleanedList = sorted.filter((o) => !purgedSet.has(o.id));
-        setAllCatalogOrders(cleanedList);
-        persistSharedCatalogOrders(cleanedList);
-      } else {
-        setAllCatalogOrders(sorted);
-        persistSharedCatalogOrders(sorted);
-      }
+      const localOrders = loadSharedCatalogOrders().filter(order => !deletedIds.has(order.id));
+      const remoteOrders = ordersResult.orders.filter(order => !deletedIds.has(order.id))
+        .map(order => enrichOrderWithProfile(order, profilesToUse));
+      const sorted = reconcileOrderSnapshot(remoteOrders, localOrders);
+      archiveUnconfirmedOrderCache(localOrders, sorted);
+      setAllCatalogOrders(sorted);
+      persistSharedCatalogOrders(sorted);
     } catch {
-      // Fallback seguro: mantém pedidos locais intactos
-      const localOrders = loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id));
-      setAllCatalogOrders(localOrders);
-      setCatalogOrdersError(
-        'Não foi possível consultar os pedidos remotos no banco. Exibindo pedidos salvos localmente.'
-      );
+      // Keep the last known list. A failed read never recreates orders or runs cleanup.
+      setCatalogOrdersError('Não foi possível consultar os pedidos remotos. A lista anterior foi mantida.');
     } finally {
       setIsLoadingCatalogOrders(false);
     }
-  }, [isAdmin, allUsers, currentUser, enrichOrderWithProfile]);
+  }, [isAdmin, allUsers, enrichOrderWithProfile]);
 
-  // Helper para identificar se um pedido pertence ao usuário autenticado atual (por ID, e-mail, WhatsApp ou pedido guest feito neste aparelho)
+  // Customer UUID is authoritative; guest records and phone suffixes are not account ownership.
   const doesOrderBelongToUser = React.useCallback(
-    (order: CustomerOrderHistoryItem, user: UserProfile | null): boolean => {
-      if (!user) return false;
-      if (order.customerId && order.customerId === user.id) return true;
-      const userEmail = (user.email || '').trim().toLowerCase();
-      if (userEmail && order.customerEmail && order.customerEmail.trim().toLowerCase() === userEmail) {
-        return true;
-      }
-      const userPhone = (user.phoneWhatsapp || '').replace(/\D/g, '');
-      if (userPhone && userPhone.length >= 8 && order.customerPhone) {
-        const ordPhone = order.customerPhone.replace(/\D/g, '');
-        if (ordPhone && (ordPhone === userPhone || ordPhone.endsWith(userPhone.slice(-8)))) {
-          return true;
-        }
-      }
-      if (!order.customerId || order.customerId.startsWith('guest-')) {
-        return true;
-      }
-      return false;
-    },
+    (order: CustomerOrderHistoryItem, user: UserProfile | null): boolean => Boolean(user && order.customerId === user.id),
     []
   );
 
-  // Sincroniza e mescla pedidos do cliente (Supabase + Local) sempre que o usuário logar ou a conexão ativar
+  // History refresh is read-only. Only explicitly tracked unsent checkout drafts survive an empty snapshot.
   useEffect(() => {
-    if (!currentUser?.id) return;
+    if (!currentUser?.id || !(supabaseCreds.isConfigured || activeSupabaseClient)) return;
+    let cancelled = false;
     const requestedId = currentUser.id;
-    const requestedEmail = currentUser.email;
-    const requestedPhone = currentUser.phoneWhatsapp;
     const deletedIds = getDeletedOrderIds();
-
-    const localMatching = loadSharedCatalogOrders().filter(
-      (o) => !deletedIds.has(o.id) && doesOrderBelongToUser(o, currentUser)
-    );
-
-    // Garante imediatamente que os pedidos locais apareçam no perfil sem esperar a rede
-    if (localMatching.length > 0) {
-      setCurrentUser((prev) => {
-        if (!prev || prev.id !== requestedId) return prev;
-        const map = new Map<string, CustomerOrderHistoryItem>();
-        for (const o of prev.orderHistory || []) {
-          if (!deletedIds.has(o.id)) map.set(o.id, o);
-        }
-        for (const o of localMatching) {
-          const existing = map.get(o.id);
-          if (!existing || (o.version || 1) >= (existing.version || 1)) {
-            map.set(o.id, {
-              ...o,
-              customerId: requestedId,
-              customerEmail: o.customerEmail || requestedEmail,
-              customerPhone: o.customerPhone || requestedPhone,
-            });
-          }
-        }
-        const merged = Array.from(map.values()).sort(
-          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-        );
-        return { ...prev, orderHistory: merged };
-      });
-    }
-
-    if (supabaseCreds.isConfigured || activeSupabaseClient) {
-      void fetchCustomerOrdersFromSupabase(requestedId, requestedEmail, requestedPhone).then(
-        (remoteOrders) => {
-          const remoteIds = new Set((remoteOrders || []).map((r) => r.id));
-          const remoteRefs = new Set((remoteOrders || []).map((r) => r.referenceId));
-
-          // Sincroniza automaticamente pedidos locais do cliente que ainda não subiram para customer_orders no Supabase
-          for (const locOrd of localMatching) {
-            if (!remoteIds.has(locOrd.id) && !remoteRefs.has(locOrd.referenceId)) {
-              const enrichedForSync: CustomerOrderHistoryItem = {
-                ...locOrd,
-                customerId: requestedId,
-                customerEmail: locOrd.customerEmail || requestedEmail,
-                customerPhone: locOrd.customerPhone || requestedPhone,
-                customerName: locOrd.customerName || currentUser.fullName,
-              };
-              void saveCustomerOrderToSupabase(enrichedForSync, requestedId);
-            }
-          }
-
-          setCurrentUser((prev) => {
-            if (!prev || prev.id !== requestedId) return prev;
-            const map = new Map<string, CustomerOrderHistoryItem>();
-            for (const o of localMatching) {
-              if (!deletedIds.has(o.id)) {
-                map.set(o.id, {
-                  ...o,
-                  customerId: requestedId,
-                  customerEmail: o.customerEmail || requestedEmail,
-                  customerPhone: o.customerPhone || requestedPhone,
-                });
-              }
-            }
-            for (const r of remoteOrders || []) {
-              if (!deletedIds.has(r.id)) {
-                const existing = map.get(r.id);
-                if (!existing || (r.version || 1) >= (existing.version || 1)) {
-                  map.set(r.id, r);
-                }
-              }
-            }
-            const merged = Array.from(map.values()).sort(
-              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-            );
-            return {
-              ...prev,
-              orderHistory: merged,
-            };
-          });
-        }
-      );
-    }
-  }, [
-    currentUser?.id,
-    currentUser?.email,
-    currentUser?.phoneWhatsapp,
-    supabaseStatus,
-    supabaseCreds.isConfigured,
-    activeSupabaseClient,
-    doesOrderBelongToUser,
-  ]);
+    void fetchCustomerOrdersFromSupabase(requestedId).then(remote => {
+      if (cancelled || remote === null) return;
+      const local = loadSharedCatalogOrders().filter(order => !deletedIds.has(order.id) && order.customerId === requestedId);
+      const orders = reconcileOrderSnapshot(remote.filter(order => !deletedIds.has(order.id)), local, requestedId);
+      setCurrentUser(previous => previous?.id === requestedId ? {...previous, orderHistory: orders} : previous);
+    });
+    return () => { cancelled = true; };
+  }, [currentUser?.id, supabaseStatus, supabaseCreds.isConfigured, activeSupabaseClient]);
 
   useEffect(() => {
     if (isAdmin) {
       void fetchAllCatalogOrders();
     } else {
       const deletedIds = getDeletedOrderIds();
-      setAllCatalogOrders(loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id)));
+      setAllCatalogOrders(loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id) && (o._syncStatus === 'synced' || isPendingOrderDraft(o))));
       setCatalogOrdersError(null);
     }
   }, [isAdmin, supabaseStatus, fetchAllCatalogOrders]);
@@ -1734,6 +1569,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       loyaltyEligible: true,
       loyaltyStampGranted: false,
       version: 1,
+      _syncStatus: 'pending_sync',
     };
 
     // 1. Sempre salva localmente primeiro (Garantia de que o pedido nunca se perde!)
@@ -1791,6 +1627,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     // 4. Tenta persistir no Supabase (se conectado) sem travar a experiência do usuário caso falhe
     try {
       const savedRemotely = await saveCustomerOrderToSupabase(orderItem, customerId);
+      if (savedRemotely) {
+        orderItem._syncStatus = 'synced';
+        const markSynced = (items: CustomerOrderHistoryItem[]) => items.map(item => item.id === orderItem.id ? {...item, _syncStatus: 'synced' as const} : item);
+        persistSharedCatalogOrders(markSynced(loadSharedCatalogOrders()));
+        setAllCatalogOrders(markSynced);
+        setCurrentUser(previous => previous?.id === customerId ? {...previous, orderHistory: markSynced(previous.orderHistory || [])} : previous);
+      }
       if (!savedRemotely) {
         const diag = getLastSupabaseOrderDiagnostic();
         console.warn('[Catalog] Pedido mantido localmente; falha ao gravar em customer_orders:', diag);
@@ -4040,7 +3883,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     hasRemoteCatalogRef.current = false;
     try {
       const result = await fetchCatalogFromSupabase();
-      if (!result) return false;
+      if (!result) {
+        setSupabaseStatus('error');
+        setSupabaseStatusMessage('Não foi possível carregar o catálogo. Verifique sua conexão e tente novamente.');
+        return false;
+      }
 
       if (!result.tablesExist) {
         setSupabaseStatus('pending_migration');
@@ -4098,28 +3945,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
-  // Carregar dados remotos do Supabase na inicialização caso configurado e validado
+  // Loading the catalog already verifies access; a separate probe delays mobile startup.
   useEffect(() => {
     if (supabaseCreds.isConfigured) {
-      testSupabaseConnection().then((res) => {
-        if (res.success) {
-          if (!res.tablesExist) {
-            setSupabaseStatus('pending_migration');
-            setSupabaseStatusMessage(res.message);
-            isInitialLoadDoneRef.current = true;
-          } else {
-            setSupabaseStatus('connected');
-            setSupabaseStatusMessage(res.message);
-            loadFromSupabase().finally(() => {
-              isInitialLoadDoneRef.current = true;
-            });
-          }
-        } else {
-          setSupabaseStatus('error');
-          setSupabaseStatusMessage(res.message);
-          isInitialLoadDoneRef.current = true;
-        }
-      });
+      void loadFromSupabase().finally(() => { isInitialLoadDoneRef.current = true; });
     } else {
       isInitialLoadDoneRef.current = true;
     }
