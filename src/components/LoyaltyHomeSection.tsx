@@ -1,7 +1,7 @@
 import React from 'react';
-import { Gift, Sparkles, CheckCircle2, Trophy, ShieldCheck, ArrowRight, UserCheck, Crown } from 'lucide-react';
+import { Gift, Sparkles, CheckCircle2, Trophy, ShieldCheck, ArrowRight, UserCheck } from 'lucide-react';
 import { useCatalog } from '../context/CatalogContext';
-import { getUserLoyaltyCard, normalizeLoyaltyCard, LOYALTY_TIERS } from '../utils/loyaltyCard';
+import { getUserLoyaltyCard, normalizeLoyaltyCard } from '../utils/loyaltyCard';
 import { DigitalLoyaltyCard } from './ui/DigitalLoyaltyCard';
 
 export const LoyaltyHomeSection: React.FC = () => {
@@ -46,13 +46,13 @@ export const LoyaltyHomeSection: React.FC = () => {
       step: '02',
       title: 'Receba selos validados pela equipe',
       description:
-        'A cada compra concluída ou visita confirmada, nossa administração credita manualmente +1 selo digital no seu perfil.',
+        'A cada compra concluída ou visita confirmada, nossa administração credita +1 selo digital no seu perfil.',
     },
     {
       step: '03',
-      title: `Complete ${defaultGoal} selos e suba de nível`,
+      title: `Complete ${defaultGoal} selos e resgate seu brinde`,
       description:
-        'Resgate sua recompensa a cada ciclo fechado e acumule selos para evoluir pelos níveis Bronze, Prata e Ouro.',
+        'A cada ciclo fechado, você escolhe seu brinde especial ou desconto exclusivo na sua próxima compra.',
     },
   ];
 
@@ -77,16 +77,16 @@ export const LoyaltyHomeSection: React.FC = () => {
 
             <div className="space-y-3">
               <h2 className="font-heading text-3xl sm:text-4xl lg:text-5xl font-black text-white tracking-tight leading-[1.12]">
-                Sua parceria vale{' '}
+                Sua fidelidade vale{' '}
                 <span className="text-transparent bg-clip-text bg-gradient-to-r from-[#00DFFF] via-[#8423DA] to-[#E53CF3]">
-                  Selos, Níveis e Prêmios
+                  Prêmios e Brindes
                 </span>{' '}
                 na PodWave
               </h2>
               <p className="text-sm sm:text-base text-[#A5A5B8] leading-relaxed max-w-2xl">
                 Criamos o <strong className="text-white">Cartão de Fidelidade Digital PodWave</strong> para
                 valorizar quem está sempre com a gente. Sem papel para perder e sem burocracia: seus selos
-                ficam salvos diretamente no seu perfil da loja, destravando marcos premiados e evoluindo seu status entre os níveis <strong className="text-amber-300">Bronze</strong>, <strong className="text-cyan-200">Prata</strong> e <strong className="text-yellow-300">Ouro</strong>.
+                ficam salvos diretamente no seu perfil da loja, destravando recompensas exclusivas a cada {defaultGoal} selos completados.
               </p>
             </div>
 
@@ -107,31 +107,6 @@ export const LoyaltyHomeSection: React.FC = () => {
                     {item.title}
                   </h3>
                   <p className="text-xs text-[#A5A5B8] leading-relaxed">{item.description}</p>
-                </div>
-              ))}
-            </div>
-
-            {/* Tiers Preview Strip (Bronze, Prata, Ouro) */}
-            <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-              {LOYALTY_TIERS.map((tier) => (
-                <div
-                  key={tier.id}
-                  className={`p-3.5 rounded-2xl border ${tier.cardBorderClass} space-y-1.5`}
-                >
-                  <div className="flex items-center justify-between gap-1.5">
-                    <span
-                      className={`inline-flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${tier.badgeClass}`}
-                    >
-                      <Crown className="w-3 h-3" />
-                      {tier.name}
-                    </span>
-                    <span className="text-[10px] font-mono text-[#A5A5B8]">
-                      {tier.minStamps === 0 ? '0–9 selos' : tier.maxStamps ? `${tier.minStamps}–${tier.maxStamps} selos` : `${tier.minStamps}+ selos`}
-                    </span>
-                  </div>
-                  <p className="text-[11px] text-gray-200 font-semibold leading-snug">
-                    {tier.benefits[1] || tier.benefits[0]}
-                  </p>
                 </div>
               ))}
             </div>

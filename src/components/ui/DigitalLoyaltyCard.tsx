@@ -2,9 +2,8 @@ import React, { useEffect, useRef, useState } from 'react';
 import { LoyaltyCardData } from '../../types/catalog';
 import {
   getLoyaltyMilestoneInfo,
-  getLoyaltyTierProgress,
 } from '../../utils/loyaltyCard';
-import { Gift, Sparkles, Check, Trophy, Zap, Clock, Crown, Flame, Award } from 'lucide-react';
+import { Gift, Sparkles, Check, Trophy, Zap, Clock, Flame } from 'lucide-react';
 
 interface DigitalLoyaltyCardProps {
   customerName: string;
@@ -29,31 +28,26 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
   const remaining = Math.max(0, goal - stamps);
   const progressPercent = Math.min(100, Math.round((stamps / goal) * 100));
 
-  const tierProgress = getLoyaltyTierProgress(card);
   const milestoneInfo = getLoyaltyMilestoneInfo(card);
 
   // Detect stamp gain or milestone transitions to trigger heightened glow/pulse celebration
-  const prevTotalStampsRef = useRef<number>(tierProgress.totalStamps);
   const prevStampsRef = useRef<number>(stamps);
   const [isCelebratingGain, setIsCelebratingGain] = useState(false);
 
   useEffect(() => {
-    const prevTotal = prevTotalStampsRef.current;
     const prevStamps = prevStampsRef.current;
 
-    if (tierProgress.totalStamps > prevTotal || stamps > prevStamps) {
+    if (stamps > prevStamps) {
       setIsCelebratingGain(true);
       const timer = setTimeout(() => {
         setIsCelebratingGain(false);
       }, 3600);
-      prevTotalStampsRef.current = tierProgress.totalStamps;
       prevStampsRef.current = stamps;
       return () => clearTimeout(timer);
     }
 
-    prevTotalStampsRef.current = tierProgress.totalStamps;
     prevStampsRef.current = stamps;
-  }, [tierProgress.totalStamps, stamps]);
+  }, [stamps]);
 
   const showMilestoneGlow = milestoneInfo.isMilestone || isCelebratingGain;
   const slots = Array.from({ length: goal }, (_, idx) => idx + 1);
@@ -102,17 +96,8 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
             <div className="flex flex-wrap items-center gap-1.5">
               <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#8423DA]/25 border border-[#8423DA]/50 text-[#00DFFF] text-[10px] font-black uppercase tracking-widest">
                 <Zap className="w-3 h-3 text-[#00DFFF]" />
-                <span>PodWave Club • Cartão Fidelidade</span>
+                <span>Cartão Fidelidade PodWave</span>
               </div>
-
-              {/* Tier Badge */}
-              <span
-                className={`inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full border text-[10px] font-black uppercase tracking-wider ${tierProgress.currentTier.badgeClass}`}
-                title={`${tierProgress.currentTier.name} (${tierProgress.totalStamps} selos acumulados no total)`}
-              >
-                <Crown className="w-3 h-3" />
-                <span>{tierProgress.currentTier.name}</span>
-              </span>
             </div>
 
             <h4 className="font-heading text-base sm:text-lg font-black text-white mt-1.5">
@@ -140,14 +125,8 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
             </div>
 
             <div className="flex flex-wrap items-center justify-end gap-1.5">
-              <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-white/5 border border-white/10 text-gray-300 text-[10px] font-mono font-bold">
-                <Award className="w-3 h-3 text-[#00DFFF]" />
-                {tierProgress.totalStamps}{' '}
-                {tierProgress.totalStamps === 1 ? 'selo total' : 'selos no total'}
-              </span>
-
               {card.completedCards > 0 && (
-                <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[10px] font-bold">
+                <span className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full bg-amber-400/15 border border-amber-400/40 text-amber-300 text-[10px] font-bold">
                   <Trophy className="w-3 h-3 text-amber-400" />
                   {card.completedCards}{' '}
                   {card.completedCards === 1 ? 'cartão concluído' : 'cartões concluídos'}
