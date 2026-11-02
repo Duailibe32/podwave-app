@@ -10,7 +10,10 @@ import {
   getRedeemedRewardsHistory,
 } from '../../utils/loyaltyCard';
 import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
-import { fetchCustomerOrdersFromSupabase } from '../../services/supabase';
+import {
+  fetchCustomerOrdersFromSupabase,
+  saveCustomerOrderToSupabase,
+} from '../../services/supabase';
 import {
   X,
   User,
@@ -62,6 +65,7 @@ export const CustomerProfileModal: React.FC = () => {
     updatePasskeyName,
     deletePasskey,
     checkPasskeySupport,
+    allCatalogOrders,
   } = useCatalog();
 
   const [activeTab, setActiveTab] = useState<'profile' | 'loyalty' | 'orders' | 'security'>('profile');
@@ -96,19 +100,100 @@ export const CustomerProfileModal: React.FC = () => {
   const [remoteOrders, setRemoteOrders] = useState(currentUser?.orderHistory || []);
   const activeOrdersReqRef = React.useRef(0);
 
+  const matchesCurrentUserOrder = React.useCallback(
+    (o: NonNullable<typeof currentUser>['orderHistory'] extends (infer U)[] | undefined ? U : never) => {
+      if (!currentUser || !o) return false;
+      if (o.customerId && o.customerId === currentUser.id) return true;
+      const userEmail = (currentUser.email || '').trim().toLowerCase();
+      if (userEmail && o.customerEmail && o.customerEmail.trim().toLowerCase() === userEmail) {
+        return true;
+      }
+      const userPhone = (currentUser.phoneWhatsapp || '').replace(/\D/g, '');
+      if (userPhone && userPhone.length >= 8 && o.customerPhone) {
+        const ordPhone = o.customerPhone.replace(/\D/g, '');
+        if (ordPhone && (ordPhone === userPhone || ordPhone.endsWith(userPhone.slice(-8)))) {
+          return true;
+        }
+      }
+      if (!o.customerId || o.customerId.startsWith('guest-')) {
+        return true;
+      }
+      return false;
+    },
+    [currentUser]
+  );
+
+  const getLocalMatchingOrders = React.useCallback(() => {
+    if (!currentUser) return [];
+    const results: NonNullable<typeof currentUser.orderHistory> = [];
+    const seen = new Set<string>();
+
+    const addIfMatch = (item: any) => {
+      if (!item || typeof item !== 'object' || !item.id || seen.has(item.id)) return;
+      if (matchesCurrentUserOrder(item)) {
+        seen.add(item.id);
+        results.push(item);
+      }
+    };
+
+    for (const o of currentUser.orderHistory || []) addIfMatch(o);
+    for (const o of allCatalogOrders || []) addIfMatch(o);
+
+    if (typeof window !== 'undefined') {
+      try {
+        const raw = localStorage.getItem('podwave_shared_catalog_orders_v2');
+        if (raw) {
+          const parsed = JSON.parse(raw);
+          if (Array.isArray(parsed)) parsed.forEach(addIfMatch);
+        }
+      } catch {
+        // ignore storage parse error
+      }
+    }
+
+    return results;
+  }, [currentUser, allCatalogOrders, matchesCurrentUserOrder]);
+
   const loadAuthenticatedOrders = React.useCallback(async () => {
     if (!currentUser?.id) return;
     const reqId = ++activeOrdersReqRef.current;
     const targetUserId = currentUser.id;
+    const targetEmail = currentUser.email;
+    const targetPhone = currentUser.phoneWhatsapp;
     setIsLoadingCustomerOrders(true);
     setCustomerOrdersError(null);
     try {
-      const fetched = await fetchCustomerOrdersFromSupabase(targetUserId);
+      const localOrders = getLocalMatchingOrders();
+      const fetched = await fetchCustomerOrdersFromSupabase(
+        targetUserId,
+        targetEmail,
+        targetPhone
+      );
       if (reqId !== activeOrdersReqRef.current) return;
+
+      const remoteIds = new Set((fetched || []).map((r) => r.id));
+      const remoteRefs = new Set((fetched || []).map((r) => r.referenceId));
+
+      // Se houver pedidos feitos localmente neste navegador que ainda não estão em customer_orders no Supabase, envia agora
+      for (const loc of localOrders) {
+        if (!remoteIds.has(loc.id) && !remoteRefs.has(loc.referenceId)) {
+          void saveCustomerOrderToSupabase(
+            {
+              ...loc,
+              customerId: targetUserId,
+              customerEmail: loc.customerEmail || targetEmail,
+              customerPhone: loc.customerPhone || targetPhone,
+              customerName: loc.customerName || currentUser.fullName,
+            },
+            targetUserId
+          );
+        }
+      }
+
       if (fetched && fetched.length > 0) {
         setRemoteOrders(fetched);
       } else {
-        setRemoteOrders(currentUser.orderHistory || []);
+        setRemoteOrders(localOrders);
       }
     } catch {
       if (reqId !== activeOrdersReqRef.current) return;
@@ -120,10 +205,16 @@ export const CustomerProfileModal: React.FC = () => {
         setIsLoadingCustomerOrders(false);
       }
     }
-  }, [currentUser?.id, currentUser?.orderHistory]);
+  }, [
+    currentUser?.id,
+    currentUser?.email,
+    currentUser?.phoneWhatsapp,
+    currentUser?.fullName,
+    getLocalMatchingOrders,
+  ]);
 
   React.useEffect(() => {
-    if (isProfileModalOpen && activeTab === 'orders' && currentUser?.id) {
+    if (isProfileModalOpen && currentUser?.id) {
       loadAuthenticatedOrders();
     }
   }, [isProfileModalOpen, activeTab, currentUser?.id, loadAuthenticatedOrders]);
@@ -247,15 +338,14 @@ export const CustomerProfileModal: React.FC = () => {
 
   const orders = React.useMemo(() => {
     if (!currentUser) return [];
-    const base = currentUser.orderHistory || [];
-    const map = new Map<string, (typeof base)[number]>();
-    for (const o of remoteOrders) {
-      if (!o.customerId || o.customerId === currentUser.id) {
-        map.set(o.id, o);
-      }
+    const localMatching = getLocalMatchingOrders();
+    const map = new Map<string, (typeof localMatching)[number]>();
+
+    for (const o of localMatching) {
+      map.set(o.id, o);
     }
-    for (const o of base) {
-      if (!o.customerId || o.customerId === currentUser.id) {
+    for (const o of remoteOrders) {
+      if (matchesCurrentUserOrder(o)) {
         const existing = map.get(o.id);
         if (!existing || (o.version || 1) >= (existing.version || 1)) {
           map.set(o.id, o);
@@ -265,7 +355,7 @@ export const CustomerProfileModal: React.FC = () => {
     return Array.from(map.values()).sort(
       (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
     );
-  }, [currentUser, remoteOrders]);
+  }, [currentUser, remoteOrders, getLocalMatchingOrders, matchesCurrentUserOrder]);
 
   const { isSearchingCep, cepMessage, handleLookupCep } = useCepLookup(cep, (found) => {
     setStreet((current) => current === street ? found.street || current : current);

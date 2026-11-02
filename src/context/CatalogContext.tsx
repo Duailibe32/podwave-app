@@ -851,23 +851,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [supabaseCreds.url, supabaseCreds.anonKey, supabaseCreds.isConfigured]);
 
-  // Carregar histórico de pedidos do Supabase caso o cliente esteja conectado
-  useEffect(() => {
-    if (currentUser?.id && supabaseCreds.isConfigured && supabaseStatus === 'connected') {
-      const requestedId = currentUser.id;
-      fetchCustomerOrdersFromSupabase(requestedId).then((remoteOrders) => {
-        if (remoteOrders && remoteOrders.length > 0) {
-          setCurrentUser((prev) => {
-            if (!prev || prev.id !== requestedId) return prev;
-            return {
-              ...prev,
-              orderHistory: remoteOrders,
-            };
-          });
-        }
-      });
-    }
-  }, [currentUser?.id, supabaseStatus]);
+  // O carregamento e sincronização do histórico de pedidos do cliente com o Supabase + armazenamento local ocorre após a definição de loadSharedCatalogOrders abaixo.
 
   // LOGIN: Estritamente via Supabase Auth (e-mail e senha)
   const loginUser = async (
@@ -1354,14 +1338,139 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [isAdmin, allUsers, currentUser, enrichOrderWithProfile]);
 
+  // Helper para identificar se um pedido pertence ao usuário autenticado atual (por ID, e-mail, WhatsApp ou pedido guest feito neste aparelho)
+  const doesOrderBelongToUser = React.useCallback(
+    (order: CustomerOrderHistoryItem, user: UserProfile | null): boolean => {
+      if (!user) return false;
+      if (order.customerId && order.customerId === user.id) return true;
+      const userEmail = (user.email || '').trim().toLowerCase();
+      if (userEmail && order.customerEmail && order.customerEmail.trim().toLowerCase() === userEmail) {
+        return true;
+      }
+      const userPhone = (user.phoneWhatsapp || '').replace(/\D/g, '');
+      if (userPhone && userPhone.length >= 8 && order.customerPhone) {
+        const ordPhone = order.customerPhone.replace(/\D/g, '');
+        if (ordPhone && (ordPhone === userPhone || ordPhone.endsWith(userPhone.slice(-8)))) {
+          return true;
+        }
+      }
+      if (!order.customerId || order.customerId.startsWith('guest-')) {
+        return true;
+      }
+      return false;
+    },
+    []
+  );
+
+  // Sincroniza e mescla pedidos do cliente (Supabase + Local) sempre que o usuário logar ou a conexão ativar
+  useEffect(() => {
+    if (!currentUser?.id) return;
+    const requestedId = currentUser.id;
+    const requestedEmail = currentUser.email;
+    const requestedPhone = currentUser.phoneWhatsapp;
+    const deletedIds = getDeletedOrderIds();
+
+    const localMatching = loadSharedCatalogOrders().filter(
+      (o) => !deletedIds.has(o.id) && doesOrderBelongToUser(o, currentUser)
+    );
+
+    // Garante imediatamente que os pedidos locais apareçam no perfil sem esperar a rede
+    if (localMatching.length > 0) {
+      setCurrentUser((prev) => {
+        if (!prev || prev.id !== requestedId) return prev;
+        const map = new Map<string, CustomerOrderHistoryItem>();
+        for (const o of prev.orderHistory || []) {
+          if (!deletedIds.has(o.id)) map.set(o.id, o);
+        }
+        for (const o of localMatching) {
+          const existing = map.get(o.id);
+          if (!existing || (o.version || 1) >= (existing.version || 1)) {
+            map.set(o.id, {
+              ...o,
+              customerId: requestedId,
+              customerEmail: o.customerEmail || requestedEmail,
+              customerPhone: o.customerPhone || requestedPhone,
+            });
+          }
+        }
+        const merged = Array.from(map.values()).sort(
+          (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+        );
+        return { ...prev, orderHistory: merged };
+      });
+    }
+
+    if (supabaseCreds.isConfigured || activeSupabaseClient) {
+      void fetchCustomerOrdersFromSupabase(requestedId, requestedEmail, requestedPhone).then(
+        (remoteOrders) => {
+          const remoteIds = new Set((remoteOrders || []).map((r) => r.id));
+          const remoteRefs = new Set((remoteOrders || []).map((r) => r.referenceId));
+
+          // Sincroniza automaticamente pedidos locais do cliente que ainda não subiram para customer_orders no Supabase
+          for (const locOrd of localMatching) {
+            if (!remoteIds.has(locOrd.id) && !remoteRefs.has(locOrd.referenceId)) {
+              const enrichedForSync: CustomerOrderHistoryItem = {
+                ...locOrd,
+                customerId: requestedId,
+                customerEmail: locOrd.customerEmail || requestedEmail,
+                customerPhone: locOrd.customerPhone || requestedPhone,
+                customerName: locOrd.customerName || currentUser.fullName,
+              };
+              void saveCustomerOrderToSupabase(enrichedForSync, requestedId);
+            }
+          }
+
+          setCurrentUser((prev) => {
+            if (!prev || prev.id !== requestedId) return prev;
+            const map = new Map<string, CustomerOrderHistoryItem>();
+            for (const o of localMatching) {
+              if (!deletedIds.has(o.id)) {
+                map.set(o.id, {
+                  ...o,
+                  customerId: requestedId,
+                  customerEmail: o.customerEmail || requestedEmail,
+                  customerPhone: o.customerPhone || requestedPhone,
+                });
+              }
+            }
+            for (const r of remoteOrders || []) {
+              if (!deletedIds.has(r.id)) {
+                const existing = map.get(r.id);
+                if (!existing || (r.version || 1) >= (existing.version || 1)) {
+                  map.set(r.id, r);
+                }
+              }
+            }
+            const merged = Array.from(map.values()).sort(
+              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
+            return {
+              ...prev,
+              orderHistory: merged,
+            };
+          });
+        }
+      );
+    }
+  }, [
+    currentUser?.id,
+    currentUser?.email,
+    currentUser?.phoneWhatsapp,
+    supabaseStatus,
+    supabaseCreds.isConfigured,
+    activeSupabaseClient,
+    doesOrderBelongToUser,
+  ]);
+
   useEffect(() => {
     if (isAdmin) {
       void fetchAllCatalogOrders();
     } else {
-      setAllCatalogOrders([]);
+      const deletedIds = getDeletedOrderIds();
+      setAllCatalogOrders(loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id)));
       setCatalogOrdersError(null);
     }
-  }, [isAdmin, supabaseStatus]);
+  }, [isAdmin, supabaseStatus, fetchAllCatalogOrders]);
 
   // Supabase Realtime para atualização imediata da Central de Pedidos (Admin) e Meus Pedidos (Cliente)
   useEffect(() => {
@@ -1371,11 +1480,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const channelName = isAdmin
       ? `orders-center-admin:${currentUser?.id || 'admin'}`
       : `orders-customer:${currentUser?.id}`;
-
-    const changeFilter =
-      !isAdmin && currentUser?.id && /^[a-zA-Z0-9_-]+$/.test(currentUser.id)
-        ? `customer_id=eq.${currentUser.id}`
-        : undefined;
 
     const handleRealtimeOrderPayload = (payload: any) => {
       if (payload.eventType === 'DELETE' && payload.old && typeof payload.old === 'object') {
@@ -1427,13 +1531,19 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
             return sorted;
           });
 
-          if (currentUser?.id && mapped.customerId === currentUser.id) {
+          if (currentUser && doesOrderBelongToUser(mapped, currentUser)) {
             setCurrentUser((prev) => {
               if (!prev) return null;
               const prevHist = prev.orderHistory || [];
-              const exists = prevHist.some((o) => o.id === mapped.id);
+              const exists = prevHist.some(
+                (o) => o.id === mapped.id || (o.referenceId && o.referenceId === mapped.referenceId)
+              );
               const nextHist = exists
-                ? prevHist.map((o) => (o.id === mapped.id ? mapped : o))
+                ? prevHist.map((o) =>
+                    o.id === mapped.id || (o.referenceId && o.referenceId === mapped.referenceId)
+                      ? mapped
+                      : o
+                  )
                 : [mapped, ...prevHist];
               return { ...prev, orderHistory: nextHist };
             });
@@ -1443,17 +1553,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       if (isAdmin) {
         void fetchAllCatalogOrders();
-      }
-      if (currentUser?.id) {
-        void fetchCustomerOrdersFromSupabase(currentUser.id).then((remoteOrders) => {
-          if (remoteOrders && remoteOrders.length > 0) {
-            setCurrentUser((prev) =>
-              prev && prev.id === currentUser.id
-                ? { ...prev, orderHistory: remoteOrders }
-                : prev
-            );
-          }
-        });
       }
     };
 
@@ -1465,7 +1564,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           event: '*',
           schema: 'public',
           table: 'customer_orders',
-          ...(changeFilter ? { filter: changeFilter } : {}),
         },
         handleRealtimeOrderPayload
       )
@@ -1475,7 +1573,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           event: '*',
           schema: 'public',
           table: 'orders',
-          ...(changeFilter ? { filter: changeFilter } : {}),
         },
         handleRealtimeOrderPayload
       )
@@ -1484,7 +1581,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return () => {
       void client.removeChannel(channel);
     };
-  }, [isAdmin, currentUser?.id, activeSupabaseClient, fetchAllCatalogOrders, allUsers, enrichOrderWithProfile]);
+  }, [
+    isAdmin,
+    currentUser,
+    activeSupabaseClient,
+    fetchAllCatalogOrders,
+    allUsers,
+    enrichOrderWithProfile,
+    doesOrderBelongToUser,
+  ]);
 
   // Supabase Realtime para sincronização de estoque e disponibilidade de sabores (flavor_variants)
   useEffect(() => {
