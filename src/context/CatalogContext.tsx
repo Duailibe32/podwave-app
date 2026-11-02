@@ -60,9 +60,12 @@ import {
   saveCustomerOrderToSupabase,
   getLastSupabaseOrderDiagnostic,
   deleteCustomerOrderFromSupabase,
+  cleanupExpiredCancelledOrdersInSupabase,
   mapSupabaseRowToCustomerOrder,
   fetchCustomerOrdersFromSupabase,
   fetchAllCustomerOrdersFromSupabase,
+  diagnoseSupabaseOrdersConnectionAndRLS,
+  SupabaseOrdersRLSDiagnosticReport,
   getSupabaseClient,
   isMissingTableError,
   supabaseSignInWithPassword,
@@ -273,6 +276,8 @@ interface CatalogContextType {
     error?: string;
   }>;
   deleteCatalogOrder: (orderId: string) => Promise<{ success: boolean; error?: string }>;
+  cleanupCancelledOrders: (retentionHours?: number) => Promise<{ deletedCount: number; error?: string }>;
+  diagnoseOrdersConnection: (runWriteProbe?: boolean) => Promise<SupabaseOrdersRLSDiagnosticReport>;
   isAuthChecking: boolean;
   authErrorMessage: string | null;
   configuredOwnerUid: string;
@@ -1325,8 +1330,21 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const sorted = Array.from(mapById.values()).sort(
         (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
       );
-      setAllCatalogOrders(sorted);
-      persistSharedCatalogOrders(sorted);
+
+      // Auto-exclusão de pedidos cancelados há mais de 24 horas do banco de dados e do cache local
+      const autoCleanupRes = await cleanupExpiredCancelledOrdersInSupabase(sorted, 24);
+      if (autoCleanupRes.deletedIds.length > 0) {
+        const purgedSet = new Set(autoCleanupRes.deletedIds);
+        for (const id of autoCleanupRes.deletedIds) {
+          markOrderDeletedLocally(id);
+        }
+        const cleanedList = sorted.filter((o) => !purgedSet.has(o.id));
+        setAllCatalogOrders(cleanedList);
+        persistSharedCatalogOrders(cleanedList);
+      } else {
+        setAllCatalogOrders(sorted);
+        persistSharedCatalogOrders(sorted);
+      }
     } catch {
       // Fallback seguro: mantém pedidos locais intactos
       const localOrders = loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id));
@@ -2611,6 +2629,81 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       releaseOrderActionLock(lockKey);
     }
   };
+
+  // LIMPEZA AUTOMÁTICA OU MANUAL DE PEDIDOS CANCELADOS NO BANCO DE DADOS
+  const cleanupCancelledOrders = React.useCallback(
+    async (retentionHours = 0): Promise<{ deletedCount: number; error?: string }> => {
+      if (!isAdmin) {
+        return {
+          deletedCount: 0,
+          error: 'Apenas administradores podem limpar pedidos cancelados.',
+        };
+      }
+      const res = await cleanupExpiredCancelledOrdersInSupabase(allCatalogOrders, retentionHours);
+      if (res.deletedIds.length > 0) {
+        const purgedSet = new Set(res.deletedIds);
+        for (const id of res.deletedIds) {
+          markOrderDeletedLocally(id);
+        }
+        setAllCatalogOrders((prev) => {
+          const next = prev.filter((o) => !purgedSet.has(o.id));
+          persistSharedCatalogOrders(next);
+          return next;
+        });
+        addActivityLog({
+          action: 'PEDIDO_ATUALIZADO',
+          actionLabel: 'Limpeza de Pedidos Cancelados',
+          entity: 'customer_orders',
+          entityName: `${res.deletedIds.length} pedido(s)`,
+          details: `${res.deletedIds.length} pedido(s) cancelado(s) excluído(s) definitivamente do banco de dados.`,
+          status: 'alerta',
+        });
+      }
+      return {
+        deletedCount: res.deletedIds.length,
+        error: res.errors.length > 0 ? res.errors.join(' | ') : undefined,
+      };
+    },
+    [isAdmin, allCatalogOrders]
+  );
+
+  // DIAGNÓSTICO COMPLETO DE CONEXÃO E RLS (TABELAS 'orders' E 'customer_orders') + AUTO-RECONCILIAÇÃO
+  const diagnoseOrdersConnection = React.useCallback(
+    async (runWriteProbe = true): Promise<SupabaseOrdersRLSDiagnosticReport> => {
+      const localOrders = loadSharedCatalogOrders();
+      const report = await diagnoseSupabaseOrdersConnectionAndRLS({
+        localOrdersToReconcile: localOrders,
+        runWriteProbe,
+      });
+      if ((report.reconciledLocalOrders?.syncedNow || 0) > 0) {
+        await fetchAllCatalogOrders();
+      }
+      return report;
+    },
+    [fetchAllCatalogOrders]
+  );
+
+  const hasRunAutoOrderDiagRef = useRef<string | null>(null);
+  useEffect(() => {
+    const uid = currentUser?.id || (isAdmin ? 'admin-session' : null);
+    if (!uid) return;
+    if (hasRunAutoOrderDiagRef.current === uid) return;
+    hasRunAutoOrderDiagRef.current = uid;
+
+    // Executa diagnóstico automático em segundo plano e exibe o relatório detalhado no console
+    const timer = setTimeout(() => {
+      void diagnoseSupabaseOrdersConnectionAndRLS({
+        localOrdersToReconcile: loadSharedCatalogOrders(),
+        runWriteProbe: true,
+      }).then((report) => {
+        if ((report.reconciledLocalOrders?.syncedNow || 0) > 0) {
+          void fetchAllCatalogOrders();
+        }
+      });
+    }, 1200);
+
+    return () => clearTimeout(timer);
+  }, [currentUser?.id, isAdmin, fetchAllCatalogOrders]);
 
   // Autenticação Administrativa Segura (Supabase Auth com verificação de role: admin ou owner)
   const adminLogin = async (username: string, pass: string): Promise<boolean> => {
@@ -5148,6 +5241,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         grantLoyaltyStampForOrder,
         recordOrderInFinancialSales,
         deleteCatalogOrder,
+        cleanupCancelledOrders,
+        diagnoseOrdersConnection,
         isAuthChecking,
         authErrorMessage,
         configuredOwnerUid,

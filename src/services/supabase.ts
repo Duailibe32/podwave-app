@@ -1596,13 +1596,12 @@ async function ensureCustomerProfileForOrder(
     const safePhone = (order.customerPhone || cleanPhone || '').trim();
     const nowIso = new Date().toISOString();
 
-    // 1. Esquema oficial verificado de customer_profiles (usa string vazia em phone para respeitar tanto NULL quanto NOT NULL)
+    // 1. Esquema oficial real verificado de customer_profiles (id, email, full_name, phone, updated_at)
     const activeProfilePayload: Record<string, unknown> = {
       id: ownerId,
       email: guestEmail,
       full_name: fullName,
-      phone: safePhone,
-      address_street: order.addressSummary || null,
+      phone: safePhone || null,
       updated_at: nowIso,
     };
 
@@ -1614,7 +1613,7 @@ async function ensureCustomerProfileForOrder(
       return true;
     }
 
-    // Adaptação dinâmica para colunas ausentes ou NOT NULL em customer_profiles
+    // Adaptação dinâmica caso alguma coluna tenha nome diferente
     for (let attempt = 0; attempt < 5 && insertErr; attempt++) {
       if (insertErr.code === '23505') return true;
 
@@ -1624,9 +1623,9 @@ async function ensureCustomerProfileForOrder(
           delete activeProfilePayload[missingCol];
           if (missingCol === 'full_name') {
             activeProfilePayload.name = fullName;
+          } else if (missingCol === 'name') {
+            activeProfilePayload.full_name = fullName;
           }
-        } else if ('address_street' in activeProfilePayload) {
-          delete activeProfilePayload.address_street;
         } else if ('full_name' in activeProfilePayload) {
           delete activeProfilePayload.full_name;
           activeProfilePayload.name = fullName;
@@ -2051,6 +2050,79 @@ export async function deleteCustomerOrderFromSupabase(
 }
 
 /**
+ * Retorna a data/hora em que um pedido foi cancelado (a partir do statusHistory, updatedAt ou createdAt)
+ */
+export function getCancelledOrderTimestampMs(order: CustomerOrderHistoryItem): number {
+  if (Array.isArray(order.statusHistory) && order.statusHistory.length > 0) {
+    const cancelEntry = [...order.statusHistory]
+      .reverse()
+      .find((h) => h.toStatus === 'cancelado');
+    if (cancelEntry?.changedAt) {
+      const parsed = new Date(cancelEntry.changedAt).getTime();
+      if (!Number.isNaN(parsed)) return parsed;
+    }
+  }
+  const fallbackIso = order.updatedAt || order.createdAt;
+  const parsedFallback = fallbackIso ? new Date(fallbackIso).getTime() : Date.now();
+  return Number.isNaN(parsedFallback) ? Date.now() : parsedFallback;
+}
+
+/**
+ * Exclui automaticamente do Supabase (customer_orders / orders) os pedidos com status 'cancelado'
+ * que já ultrapassaram o tempo de retenção (padrão: 24 horas; se retentionHours <= 0, exclui todos os cancelados).
+ */
+export async function cleanupExpiredCancelledOrdersInSupabase(
+  ordersList: CustomerOrderHistoryItem[],
+  retentionHours = 24
+): Promise<{ deletedIds: string[]; errors: string[] }> {
+  const client = getSupabaseClient();
+  const deletedIds: string[] = [];
+  const errors: string[] = [];
+
+  const nowMs = Date.now();
+  const thresholdMs = Math.max(0, retentionHours) * 60 * 60 * 1000;
+
+  const expiredCancelledOrders = (ordersList || []).filter((ord) => {
+    if (ord.status !== 'cancelado') return false;
+    if (retentionHours <= 0) return true;
+    const cancelledAtMs = getCancelledOrderTimestampMs(ord);
+    return nowMs - cancelledAtMs >= thresholdMs;
+  });
+
+  if (client) {
+    // 1. Dispara também a função SQL de limpeza automática se estiver instalada no banco
+    try {
+      await client.rpc('cleanup_cancelled_orders', {
+        p_hours: Math.max(0, Math.floor(retentionHours)),
+      });
+    } catch {
+      // Ignora silenciosamente se a RPC ainda não tiver sido criada no SQL Editor
+    }
+  }
+
+  for (const ord of expiredCancelledOrders) {
+    if (client) {
+      const res = await deleteCustomerOrderFromSupabase(ord.id);
+      if (res.success) {
+        deletedIds.push(ord.id);
+      } else if (res.error) {
+        errors.push(`${ord.referenceId}: ${res.error}`);
+      }
+    } else {
+      deletedIds.push(ord.id);
+    }
+  }
+
+  if (deletedIds.length > 0) {
+    console.info(
+      `🧹 [PodWave Auto-Cleanup] ${deletedIds.length} pedido(s) cancelado(s) removido(s) automaticamente do banco de dados (retenção: ${retentionHours}h).`
+    );
+  }
+
+  return { deletedIds, errors };
+}
+
+/**
  * Busca histórico de pedidos de um cliente específico no Supabase.
  * Além de filtrar por `customer_id`, também recupera pedidos visíveis na sessão cujo
  * `delivery_info` contenha o mesmo `customerId`, `customerEmail` ou `customerPhone`.
@@ -2080,6 +2152,12 @@ export async function fetchCustomerOrdersFromSupabase(
     return false;
   };
 
+  const isDiagnosticProbeRow = (row: Record<string, unknown>): boolean => {
+    const idStr = String(row.id || '');
+    const codeStr = String(row.order_code || row.reference_id || '');
+    return idStr.startsWith('diag-rls-probe-') || codeStr.startsWith('DIAG-RLS-');
+  };
+
   try {
     const { data, error } = await client
       .from('customer_orders')
@@ -2087,31 +2165,50 @@ export async function fetchCustomerOrdersFromSupabase(
       .order('created_at', { ascending: false })
       .limit(200);
 
-    if (error) {
-      if (isMissingTableError(error)) {
-        const { data: fallbackData } = await client
-          .from('orders')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(200);
-        if (Array.isArray(fallbackData)) {
-          return fallbackData
-            .map((row) => mapSupabaseRowToCustomerOrder(row))
-            .filter(matchesCustomerIdentity);
-        }
-        return [];
+    const combinedRows: Record<string, unknown>[] = [];
+    const seenIds = new Set<string>();
+
+    if (!error && Array.isArray(data)) {
+      if (data.length > 0) {
+        customerOrdersSupportedColumnsCache = new Set(Object.keys(data[0]));
       }
+      for (const row of data) {
+        if (!row || isDiagnosticProbeRow(row)) continue;
+        const idKey = String(row.id || '');
+        if (idKey && !seenIds.has(idKey)) {
+          seenIds.add(idKey);
+          combinedRows.push(row);
+        }
+      }
+    }
+
+    // Consulta complementar em 'orders' (caso exista como tabela ou view separada)
+    try {
+      const { data: ordersData, error: ordersErr } = await client
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(200);
+      if (!ordersErr && Array.isArray(ordersData)) {
+        for (const row of ordersData) {
+          if (!row || isDiagnosticProbeRow(row)) continue;
+          const idKey = String(row.id || '');
+          if (idKey && !seenIds.has(idKey)) {
+            seenIds.add(idKey);
+            combinedRows.push(row);
+          }
+        }
+      }
+    } catch {
+      // ignora se a tabela 'orders' não existir
+    }
+
+    if (error && combinedRows.length === 0 && !isMissingTableError(error)) {
       console.warn('[Supabase] Aviso ao buscar pedidos do cliente:', error.message);
       return [];
     }
 
-    if (!data || !Array.isArray(data)) return [];
-
-    if (data.length > 0) {
-      customerOrdersSupportedColumnsCache = new Set(Object.keys(data[0]));
-    }
-
-    return data
+    return combinedRows
       .map((row) => mapSupabaseRowToCustomerOrder(row))
       .filter(matchesCustomerIdentity);
   } catch (err) {
@@ -2121,7 +2218,7 @@ export async function fetchCustomerOrdersFromSupabase(
 }
 
 /**
- * Busca todos os pedidos registrados em `customer_orders` (ou `orders` em fallback) para a Central de Pedidos Administrativa
+ * Busca todos os pedidos registrados em `customer_orders` e `orders` para a Central de Pedidos Administrativa
  */
 export async function fetchAllCustomerOrdersFromSupabase(): Promise<{
   orders: CustomerOrderHistoryItem[];
@@ -2133,6 +2230,12 @@ export async function fetchAllCustomerOrdersFromSupabase(): Promise<{
     return { orders: [] };
   }
 
+  const isDiagnosticProbeRow = (row: Record<string, unknown>): boolean => {
+    const idStr = String(row.id || '');
+    const codeStr = String(row.order_code || row.reference_id || '');
+    return idStr.startsWith('diag-rls-probe-') || codeStr.startsWith('DIAG-RLS-');
+  };
+
   try {
     const { data, error } = await client
       .from('customer_orders')
@@ -2140,21 +2243,51 @@ export async function fetchAllCustomerOrdersFromSupabase(): Promise<{
       .order('created_at', { ascending: false })
       .limit(500);
 
-    if (error) {
-      if (isMissingTableError(error)) {
-        const { data: fallbackOrders, error: fallbackErr } = await client
-          .from('orders')
-          .select('*')
-          .order('created_at', { ascending: false })
-          .limit(500);
-        if (!fallbackErr && Array.isArray(fallbackOrders)) {
-          return {
-            orders: fallbackOrders.map((row) => mapSupabaseRowToCustomerOrder(row)),
-          };
+    const combinedRows: Record<string, unknown>[] = [];
+    const seenIds = new Set<string>();
+
+    if (!error && Array.isArray(data)) {
+      if (data.length > 0) {
+        customerOrdersSupportedColumnsCache = new Set(Object.keys(data[0]));
+      }
+      for (const row of data) {
+        if (!row || isDiagnosticProbeRow(row)) continue;
+        const idKey = String(row.id || '');
+        if (idKey && !seenIds.has(idKey)) {
+          seenIds.add(idKey);
+          combinedRows.push(row);
         }
+      }
+    }
+
+    // Consulta complementar na tabela/view 'orders' para unificar registros
+    let ordersFallbackWorked = false;
+    try {
+      const { data: fallbackOrders, error: fallbackErr } = await client
+        .from('orders')
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(500);
+      if (!fallbackErr && Array.isArray(fallbackOrders)) {
+        ordersFallbackWorked = true;
+        for (const row of fallbackOrders) {
+          if (!row || isDiagnosticProbeRow(row)) continue;
+          const idKey = String(row.id || '');
+          if (idKey && !seenIds.has(idKey)) {
+            seenIds.add(idKey);
+            combinedRows.push(row);
+          }
+        }
+      }
+    } catch {
+      // ignora se 'orders' não existir
+    }
+
+    if (error && !ordersFallbackWorked) {
+      if (isMissingTableError(error)) {
         return {
           orders: [],
-          error: 'Tabela customer_orders ainda não instalada no banco.',
+          error: 'Tabelas customer_orders e orders ainda não instaladas no banco.',
           errorKind: 'missing_table',
         };
       }
@@ -2168,14 +2301,8 @@ export async function fetchAllCustomerOrdersFromSupabase(): Promise<{
       };
     }
 
-    if (!data || !Array.isArray(data)) return { orders: [] };
-
-    if (data.length > 0) {
-      customerOrdersSupportedColumnsCache = new Set(Object.keys(data[0]));
-    }
-
     return {
-      orders: data.map((row) => mapSupabaseRowToCustomerOrder(row)),
+      orders: combinedRows.map((row) => mapSupabaseRowToCustomerOrder(row)),
     };
   } catch {
     return {
@@ -2184,6 +2311,397 @@ export async function fetchAllCustomerOrdersFromSupabase(): Promise<{
       errorKind: 'connection',
     };
   }
+}
+
+export interface SupabaseOrdersRLSDiagnosticReport {
+  timestamp: string;
+  supabaseConfigured: boolean;
+  supabaseUrl: string;
+  authenticated: boolean;
+  authUserId: string | null;
+  authUserEmail: string | null;
+  jwtRole: string | null;
+  profileExists: boolean;
+  profileRole: string | null;
+  profileAutoRepaired: boolean;
+  ordersTable: {
+    tableName: 'orders';
+    exists: boolean;
+    rlsSelectAllowed: boolean;
+    visibleRowCount: number;
+    columns: string[];
+    errorCode?: string;
+    errorMessage?: string;
+  };
+  customerOrdersTable: {
+    tableName: 'customer_orders';
+    exists: boolean;
+    rlsSelectAllowed: boolean;
+    visibleRowCount: number;
+    columns: string[];
+    errorCode?: string;
+    errorMessage?: string;
+  };
+  activeTargetTable: 'customer_orders' | 'orders' | 'none';
+  rlsWriteTest: {
+    attempted: boolean;
+    targetTable: string;
+    insertAllowed: boolean;
+    cleanupDeleted: boolean;
+    errorCode?: string;
+    errorMessage?: string;
+  };
+  reconciledLocalOrders: {
+    foundLocal: number;
+    syncedNow: number;
+    failedNow: number;
+  };
+  overallStatus: 'healthy' | 'warning' | 'error';
+  summaryMessage: string;
+  recommendations: string[];
+}
+
+/**
+ * Função de diagnóstico detalhado que investiga a conexão entre o cliente e o Supabase,
+ * verifica se as tabelas 'orders' e 'customer_orders' estão acessíveis, valida se as
+ * políticas de RLS estão permitindo leitura (SELECT) e escrita (INSERT) para usuários
+ * autenticados, repara perfis ausentes e reconcilia pedidos locais pendentes.
+ * Exibe todos os resultados em um console.log estruturado.
+ */
+export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
+  localOrdersToReconcile?: CustomerOrderHistoryItem[];
+  runWriteProbe?: boolean;
+}): Promise<SupabaseOrdersRLSDiagnosticReport> {
+  const timestamp = new Date().toISOString();
+  const creds = getSupabaseCredentials();
+  const client = getSupabaseClient();
+  const recommendations: string[] = [];
+
+  const report: SupabaseOrdersRLSDiagnosticReport = {
+    timestamp,
+    supabaseConfigured: Boolean(creds.isConfigured && client),
+    supabaseUrl: creds.url || '(não configurado)',
+    authenticated: false,
+    authUserId: null,
+    authUserEmail: null,
+    jwtRole: null,
+    profileExists: false,
+    profileRole: null,
+    profileAutoRepaired: false,
+    ordersTable: {
+      tableName: 'orders',
+      exists: false,
+      rlsSelectAllowed: false,
+      visibleRowCount: 0,
+      columns: [],
+    },
+    customerOrdersTable: {
+      tableName: 'customer_orders',
+      exists: false,
+      rlsSelectAllowed: false,
+      visibleRowCount: 0,
+      columns: [],
+    },
+    activeTargetTable: 'none',
+    rlsWriteTest: {
+      attempted: false,
+      targetTable: 'customer_orders',
+      insertAllowed: false,
+      cleanupDeleted: false,
+    },
+    reconciledLocalOrders: {
+      foundLocal: 0,
+      syncedNow: 0,
+      failedNow: 0,
+    },
+    overallStatus: 'healthy',
+    summaryMessage: '',
+    recommendations,
+  };
+
+  console.group('🔍 [PodWave Supabase Orders & RLS Diagnostic]');
+  console.log('⏱️ Início do diagnóstico:', timestamp);
+  console.log('🌐 Endpoint Supabase:', report.supabaseUrl, '| Configurado:', report.supabaseConfigured);
+
+  if (!client || !creds.isConfigured) {
+    report.overallStatus = 'error';
+    report.summaryMessage = 'Cliente Supabase não inicializado. Configure VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY.';
+    recommendations.push('Defina VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY nas variáveis de ambiente.');
+    console.error('❌ [1/5] Cliente Supabase não configurado:', report);
+    console.groupEnd();
+    return report;
+  }
+
+  // 1. Verificar Sessão Autenticada (Supabase Auth)
+  try {
+    const { data: sessionData, error: sessionErr } = await client.auth.getSession();
+    const user = sessionData?.session?.user || null;
+    if (sessionErr) {
+      console.warn('⚠️ [2/5] Aviso ao ler sessão Supabase Auth:', sessionErr.message);
+    }
+    if (user) {
+      report.authenticated = true;
+      report.authUserId = user.id;
+      report.authUserEmail = user.email || null;
+      report.jwtRole = user.role || 'authenticated';
+    }
+  } catch (e: any) {
+    console.warn('⚠️ [2/5] Exceção ao inspecionar sessão Auth:', e?.message || e);
+  }
+
+  console.log('👤 [2/5] Sessão Supabase Auth:', {
+    authenticated: report.authenticated,
+    authUserId: report.authUserId,
+    authUserEmail: report.authUserEmail,
+    jwtRole: report.jwtRole,
+  });
+
+  if (!report.authenticated || !report.authUserId) {
+    recommendations.push(
+      'Faça login em uma conta autenticada (Cliente ou Admin) para testar políticas RLS de INSERT/SELECT vinculadas a auth.uid().'
+    );
+  }
+
+  // 2. Verificar Perfil em public.customer_profiles (exigido pela Foreign Key de pedidos)
+  if (report.authUserId) {
+    try {
+      const { data: profData, error: profErr } = await client
+        .from('customer_profiles')
+        .select('*')
+        .eq('id', report.authUserId)
+        .maybeSingle();
+
+      if (!profErr && profData) {
+        report.profileExists = true;
+        report.profileRole = String(profData.role || 'customer');
+      } else {
+        // Tenta auto-reparar criando o perfil do usuário autenticado
+        const repaired = await ensureCustomerProfileForOrder(client, report.authUserId, {
+          customerName: report.authUserEmail?.split('@')[0] || 'Cliente PodWave',
+          customerEmail: report.authUserEmail || undefined,
+          customerPhone: '',
+        });
+        if (repaired) {
+          report.profileExists = true;
+          report.profileAutoRepaired = true;
+          report.profileRole = 'customer';
+        } else if (profErr) {
+          recommendations.push(
+            `Perfil ausente em public.customer_profiles e bloqueado no auto-reparo (${profErr.code}: ${profErr.message}). Execute o script SQL de reparo no Supabase.`
+          );
+        }
+      }
+    } catch (e: any) {
+      console.warn('⚠️ [3/5] Erro ao verificar customer_profiles:', e?.message || e);
+    }
+  }
+
+  console.log('🪪 [3/5] Perfil em public.customer_profiles (FK de pedidos):', {
+    profileExists: report.profileExists,
+    profileRole: report.profileRole,
+    profileAutoRepaired: report.profileAutoRepaired,
+  });
+
+  // 3. Testar Acessibilidade e Leitura RLS (SELECT) na tabela 'orders' e 'customer_orders'
+  const inspectTableSelect = async (tableName: 'orders' | 'customer_orders') => {
+    try {
+      const { data, error } = await client
+        .from(tableName)
+        .select('*')
+        .order('created_at', { ascending: false })
+        .limit(25);
+
+      if (error) {
+        const missing = isMissingTableError(error);
+        const isRls = error.code === '42501' || /permission|policy|rls/i.test(error.message || '');
+        return {
+          tableName,
+          exists: !missing,
+          rlsSelectAllowed: false,
+          visibleRowCount: 0,
+          columns: [] as string[],
+          errorCode: String(error.code || ''),
+          errorMessage: error.message || (missing ? `Tabela '${tableName}' não existe.` : isRls ? 'Bloqueado por RLS.' : 'Erro de leitura.'),
+        };
+      }
+
+      const rows = Array.isArray(data) ? data : [];
+      const cols = rows.length > 0 && rows[0] && typeof rows[0] === 'object' ? Object.keys(rows[0]) : [];
+      return {
+        tableName,
+        exists: true,
+        rlsSelectAllowed: true,
+        visibleRowCount: rows.filter((r: any) => !String(r?.id || '').startsWith('diag-rls-probe-')).length,
+        columns: cols,
+      };
+    } catch (err: any) {
+      return {
+        tableName,
+        exists: false,
+        rlsSelectAllowed: false,
+        visibleRowCount: 0,
+        columns: [] as string[],
+        errorCode: 'EXCEPTION',
+        errorMessage: err?.message || 'Exceção ao consultar tabela.',
+      };
+    }
+  };
+
+  report.ordersTable = await inspectTableSelect('orders');
+  report.customerOrdersTable = await inspectTableSelect('customer_orders');
+
+  if (report.customerOrdersTable.exists && report.customerOrdersTable.rlsSelectAllowed) {
+    report.activeTargetTable = 'customer_orders';
+  } else if (report.ordersTable.exists && report.ordersTable.rlsSelectAllowed) {
+    report.activeTargetTable = 'orders';
+  } else if (report.customerOrdersTable.exists) {
+    report.activeTargetTable = 'customer_orders';
+  } else if (report.ordersTable.exists) {
+    report.activeTargetTable = 'orders';
+  }
+
+  console.log('📊 [4/5] Verificação de Tabelas e Políticas RLS de Leitura (SELECT):');
+  console.table({
+    orders: {
+      Existe: report.ordersTable.exists ? 'SIM' : 'NÃO (use VIEW SQL ou fallback)',
+      'SELECT Permitido (RLS)': report.ordersTable.rlsSelectAllowed ? '✅ SIM' : '❌ NÃO',
+      'Pedidos Visíveis': report.ordersTable.visibleRowCount,
+      Código: report.ordersTable.errorCode || 'OK',
+      Detalhe: report.ordersTable.errorMessage || 'Leitura autenticada OK',
+    },
+    customer_orders: {
+      Existe: report.customerOrdersTable.exists ? 'SIM' : 'NÃO',
+      'SELECT Permitido (RLS)': report.customerOrdersTable.rlsSelectAllowed ? '✅ SIM' : '❌ NÃO',
+      'Pedidos Visíveis': report.customerOrdersTable.visibleRowCount,
+      Código: report.customerOrdersTable.errorCode || 'OK',
+      Detalhe: report.customerOrdersTable.errorMessage || 'Leitura autenticada OK',
+    },
+  });
+
+  if (!report.ordersTable.exists && report.customerOrdersTable.exists) {
+    recommendations.push(
+      'A tabela principal ativa no banco é "public.customer_orders". Para que consultas diretas em "public.orders" também funcionem sem fallback, execute o script SQL que cria a VIEW atualizável public.orders -> public.customer_orders.'
+    );
+  }
+
+  // 4. Testar Escrita RLS (INSERT) para usuário autenticado
+  const shouldRunWriteProbe = options?.runWriteProbe !== false && report.authenticated && Boolean(report.authUserId);
+  if (shouldRunWriteProbe && report.activeTargetTable !== 'none') {
+    const target = report.activeTargetTable;
+    const probeId = `diag-rls-probe-${Date.now()}`;
+    report.rlsWriteTest.attempted = true;
+    report.rlsWriteTest.targetTable = target;
+
+    const probeOrder: CustomerOrderHistoryItem = {
+      id: probeId,
+      referenceId: `DIAG-RLS-${Date.now().toString().slice(-4)}`,
+      customerId: report.authUserId!,
+      customerName: 'Diagnóstico RLS PodWave',
+      customerEmail: report.authUserEmail || undefined,
+      customerPhone: '',
+      createdAt: timestamp,
+      updatedAt: timestamp,
+      items: [],
+      subtotal: 0,
+      discount: 0,
+      deliveryFee: 0,
+      total: 0,
+      paymentMethod: 'Diagnóstico RLS',
+      paymentStatus: 'pendente',
+      deliveryType: 'pickup',
+      status: 'recebido',
+      version: 1,
+    };
+
+    const insertOk = await saveCustomerOrderToSupabase(probeOrder, report.authUserId!);
+    const diag = getLastSupabaseOrderDiagnostic();
+    report.rlsWriteTest.insertAllowed = insertOk;
+
+    if (!insertOk) {
+      report.rlsWriteTest.errorCode = diag?.code || diag?.category || 'INSERT_FAILED';
+      report.rlsWriteTest.errorMessage =
+        diag?.message || 'A política RLS ou constraint impediu o INSERT na tabela de pedidos.';
+      recommendations.push(
+        `Falha no teste de escrita RLS em "${target}" (${report.rlsWriteTest.errorCode}): ${report.rlsWriteTest.errorMessage}. Execute o script SQL de reparo.`
+      );
+    } else {
+      // Limpa imediatamente o registro de sonda para não poluir a base
+      try {
+        const { error: delErr } = await client.from(target).delete().eq('id', probeId);
+        report.rlsWriteTest.cleanupDeleted = !delErr;
+      } catch {
+        report.rlsWriteTest.cleanupDeleted = false;
+      }
+    }
+  }
+
+  console.log('✍️ [5/5] Teste de Escrita RLS (INSERT) para Usuário Autenticado:', report.rlsWriteTest);
+
+  // 5. Reconciliar automaticamente pedidos locais pendentes para o Supabase
+  const localOrders = (options?.localOrdersToReconcile || []).filter(
+    (o) => o && o.id && !o.id.startsWith('diag-rls-probe-')
+  );
+  report.reconciledLocalOrders.foundLocal = localOrders.length;
+
+  if (report.authenticated && report.authUserId && localOrders.length > 0) {
+    const remoteCheck = await fetchAllCustomerOrdersFromSupabase();
+    const existingIds = new Set((remoteCheck.orders || []).map((o) => o.id));
+    const existingRefs = new Set((remoteCheck.orders || []).map((o) => o.referenceId));
+
+    for (const ord of localOrders) {
+      if (existingIds.has(ord.id) || (ord.referenceId && existingRefs.has(ord.referenceId))) {
+        continue;
+      }
+      const targetCustomerId =
+        !ord.customerId || ord.customerId.startsWith('guest-')
+          ? report.authUserId
+          : ord.customerId;
+      const ok = await saveCustomerOrderToSupabase(
+        { ...ord, customerId: targetCustomerId },
+        targetCustomerId
+      );
+      if (ok) {
+        report.reconciledLocalOrders.syncedNow++;
+      } else {
+        report.reconciledLocalOrders.failedNow++;
+      }
+    }
+
+    console.log('🔄 [Reconciliação Automática de Pedidos Locais -> Supabase]:', report.reconciledLocalOrders);
+  }
+
+  // 6. Status Geral
+  const selectOk = report.customerOrdersTable.rlsSelectAllowed || report.ordersTable.rlsSelectAllowed;
+  const writeOk = !report.rlsWriteTest.attempted || report.rlsWriteTest.insertAllowed;
+
+  if (!selectOk || !writeOk) {
+    report.overallStatus = 'error';
+    report.summaryMessage = !selectOk
+      ? 'Leitura bloqueada ou tabela inacessível no Supabase. Execute o script SQL de organização e RLS.'
+      : `Escrita (INSERT) recusada pelo banco (${report.rlsWriteTest.errorCode || 'RLS'}): ${report.rlsWriteTest.errorMessage}`;
+  } else if (!report.ordersTable.exists || !report.authenticated) {
+    report.overallStatus = 'warning';
+    report.summaryMessage = !report.authenticated
+      ? 'Conectado ao Supabase, mas sem usuário autenticado na sessão atual.'
+      : 'Leitura e escrita funcionando em "customer_orders"! Para habilitar também o alias direto "orders", rode o SQL de unificação.';
+  } else {
+    report.overallStatus = 'healthy';
+    report.summaryMessage =
+      'Conexão Supabase, tabelas "orders" / "customer_orders" e políticas RLS (SELECT e INSERT) 100% operacionais!';
+  }
+
+  console.log('✅ Resultado Final do Diagnóstico:', {
+    overallStatus: report.overallStatus,
+    summaryMessage: report.summaryMessage,
+    recommendations: report.recommendations,
+  });
+  console.groupEnd();
+
+  return report;
+}
+
+if (typeof window !== 'undefined') {
+  (window as any).diagnoseSupabaseOrders = diagnoseSupabaseOrdersConnectionAndRLS;
 }
 
 // ==============================================================================

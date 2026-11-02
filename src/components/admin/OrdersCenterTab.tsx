@@ -28,6 +28,10 @@ import {
   buildQuickWhatsappUrl,
 } from '../../services/orderCenterService';
 import { openWhatsAppShare } from '../../utils/whatsappShare';
+import {
+  SupabaseOrdersRLSDiagnosticReport,
+  getCancelledOrderTimestampMs,
+} from '../../services/supabase';
 import { OrderStatusTimeline } from '../OrderStatusTimeline';
 import {
   ShoppingBag,
@@ -84,6 +88,8 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
     grantLoyaltyStampForOrder,
     recordOrderInFinancialSales,
     deleteCatalogOrder,
+    cleanupCancelledOrders,
+    diagnoseOrdersConnection,
     allUsers,
     manualSales,
     settings,
@@ -130,6 +136,10 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
 
   // Busy & feedback states
   const [busyOrderId, setBusyOrderId] = useState<string | null>(null);
+  const [isCleaningCancelled, setIsCleaningCancelled] = useState<boolean>(false);
+  const [isDiagnosingRls, setIsDiagnosingRls] = useState<boolean>(false);
+  const [rlsDiagnosticReport, setRlsDiagnosticReport] =
+    useState<SupabaseOrdersRLSDiagnosticReport | null>(null);
   const [feedbackBanner, setFeedbackBanner] = useState<{
     type: 'success' | 'error' | 'info';
     text: string;
@@ -463,6 +473,54 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
     }
   };
 
+  const handleRunRlsDiagnostic = async () => {
+    setIsDiagnosingRls(true);
+    try {
+      const report = await diagnoseOrdersConnection(true);
+      setRlsDiagnosticReport(report);
+      const isOk =
+        Boolean(report?.rlsWriteTest?.insertAllowed) &&
+        Boolean(report?.customerOrdersTable?.rlsSelectAllowed);
+      showFeedback(
+        isOk ? 'success' : 'info',
+        `${report?.summaryMessage || 'Diagnóstico concluído.'} (Relatório completo exibido no Console F12)`
+      );
+    } catch (err) {
+      showFeedback('error', 'Erro ao executar o diagnóstico de conexão e RLS.');
+      console.error('[PodWave RLS Diag Error]', err);
+    } finally {
+      setIsDiagnosingRls(false);
+    }
+  };
+
+  const cancelledOrdersCount = useMemo(
+    () => allCatalogOrders.filter((o) => o.status === 'cancelado').length,
+    [allCatalogOrders]
+  );
+
+  const handleCleanupAllCancelledNow = async () => {
+    if (cancelledOrdersCount === 0) {
+      showFeedback('info', 'Não há pedidos cancelados pendentes de exclusão.');
+      return;
+    }
+    setIsCleaningCancelled(true);
+    try {
+      const res = await cleanupCancelledOrders(0);
+      if (res.deletedCount > 0) {
+        showFeedback(
+          'success',
+          `${res.deletedCount} pedido(s) cancelado(s) excluído(s) definitivamente do banco de dados!`
+        );
+      } else if (res.error) {
+        showFeedback('error', `Erro ao limpar pedidos cancelados: ${res.error}`);
+      } else {
+        showFeedback('info', 'Nenhum pedido cancelado pendente para remover.');
+      }
+    } finally {
+      setIsCleaningCancelled(false);
+    }
+  };
+
   const openWhatsappComposer = (
     order: CustomerOrderHistoryItem,
     statusContext?: CatalogOrderStatus
@@ -715,6 +773,23 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
               {statusMeta.shortLabel}
             </span>
           </div>
+
+          {order.status === 'cancelado' && (() => {
+            const cancelledMs = getCancelledOrderTimestampMs(order);
+            const expiresAtMs = cancelledMs + 24 * 60 * 60 * 1000;
+            const remainingHours = Math.max(
+              0,
+              Math.ceil((expiresAtMs - Date.now()) / (60 * 60 * 1000))
+            );
+            return (
+              <div className="px-2.5 py-1 rounded-xl bg-rose-500/10 border border-rose-500/30 text-[10px] text-rose-300 flex items-center justify-between gap-2">
+                <span>
+                  🗑️ Auto-exclusão do banco em{' '}
+                  <strong>{remainingHours > 0 ? `${remainingHours}h` : 'instantes'}</strong> (após 24h cancelado)
+                </span>
+              </div>
+            );
+          })()}
 
           {/* Customer Info */}
           <div className="flex items-start justify-between gap-2 pt-1">
@@ -1152,6 +1227,38 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
             <span>Modelos WhatsApp</span>
           </button>
 
+          {cancelledOrdersCount > 0 && (
+            <button
+              type="button"
+              disabled={isCleaningCancelled}
+              onClick={() => void handleCleanupAllCancelledNow()}
+              className="px-3.5 py-2.5 rounded-xl bg-rose-500/20 hover:bg-rose-500/35 border border-rose-400/50 text-xs font-black text-rose-200 flex items-center gap-1.5 cursor-pointer transition disabled:opacity-50"
+              title="Pedidos cancelados são excluídos automaticamente após 24h. Clique para excluir todos os cancelados do banco agora."
+            >
+              <Trash2 className="w-4 h-4 text-rose-300" />
+              <span>
+                {isCleaningCancelled
+                  ? 'Excluindo...'
+                  : `Limpar Cancelados (${cancelledOrdersCount})`}
+              </span>
+            </button>
+          )}
+
+          <button
+            type="button"
+            disabled={isDiagnosingRls}
+            onClick={() => void handleRunRlsDiagnostic()}
+            className="px-3.5 py-2.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/50 text-xs font-black text-emerald-200 flex items-center gap-1.5 cursor-pointer transition disabled:opacity-50"
+            title="Testa a conexão com o Supabase, valida políticas RLS de leitura/escrita em 'orders' e 'customer_orders' e exibe o log detalhado no Console (F12)"
+          >
+            <ShieldCheck
+              className={`w-4 h-4 text-emerald-300 ${isDiagnosingRls ? 'animate-pulse' : ''}`}
+            />
+            <span>
+              {isDiagnosingRls ? 'Diagnosticando RLS...' : 'Diagnosticar RLS & Orders'}
+            </span>
+          </button>
+
           <button
             type="button"
             disabled={isLoadingCatalogOrders}
@@ -1167,6 +1274,164 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* PAINEL DE DIAGNÓSTICO DE CONEXÃO E RLS (TABELAS 'orders' E 'customer_orders') */}
+      {rlsDiagnosticReport && (
+        <div className="p-5 rounded-3xl bg-[#0B1024] border-2 border-emerald-400/40 shadow-2xl space-y-4 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-white/10 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-emerald-500/15 border border-emerald-400/40 flex items-center justify-center text-emerald-300">
+                <ShieldCheck className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-heading text-sm sm:text-base font-black text-white flex flex-wrap items-center gap-2">
+                  <span>Diagnóstico de Conexão & Políticas RLS (Supabase)</span>
+                  <span className="px-2 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[10px] font-mono">
+                    Log detalhado enviado ao Console (F12)
+                  </span>
+                </h3>
+                <p className="text-[11px] text-[#A5A5B8]">{rlsDiagnosticReport.summaryMessage}</p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                disabled={isDiagnosingRls}
+                onClick={() => void handleRunRlsDiagnostic()}
+                className="px-3 py-1.5 rounded-xl bg-emerald-500/20 hover:bg-emerald-500/30 border border-emerald-400/40 text-[11px] font-bold text-emerald-200 cursor-pointer"
+              >
+                Re-testar Agora
+              </button>
+              <button
+                type="button"
+                onClick={() => setRlsDiagnosticReport(null)}
+                className="px-3 py-1.5 rounded-xl bg-[#141838] hover:bg-white/10 border border-white/10 text-[11px] font-bold text-gray-300 cursor-pointer"
+              >
+                Fechar
+              </button>
+            </div>
+          </div>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 text-xs">
+            <div className="p-3 rounded-2xl bg-[#141838]/90 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Sessão Autenticada & Perfil
+              </span>
+              <div className="font-bold text-white truncate">
+                {rlsDiagnosticReport.authenticated
+                  ? rlsDiagnosticReport.authUserEmail || rlsDiagnosticReport.authUserId
+                  : 'Não autenticado (anon)'}
+              </div>
+              <div className="text-[11px] text-[#A5A5B8]">
+                Perfil FK:{' '}
+                <span
+                  className={
+                    rlsDiagnosticReport.profileExists ||
+                    rlsDiagnosticReport.profileAutoRepaired
+                      ? 'text-emerald-300 font-bold'
+                      : 'text-rose-300 font-bold'
+                  }
+                >
+                  {rlsDiagnosticReport.profileExists
+                    ? `OK (${rlsDiagnosticReport.profileRole || 'customer'})`
+                    : rlsDiagnosticReport.profileAutoRepaired
+                    ? 'Auto-criado agora'
+                    : 'Ausente'}
+                </span>
+              </div>
+            </div>
+
+            <div className="p-3 rounded-2xl bg-[#141838]/90 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Tabela / View public.orders
+              </span>
+              <div
+                className={`font-black ${
+                  rlsDiagnosticReport.ordersTable?.exists &&
+                  rlsDiagnosticReport.ordersTable?.rlsSelectAllowed
+                    ? 'text-emerald-300'
+                    : 'text-amber-300'
+                }`}
+              >
+                {rlsDiagnosticReport.ordersTable?.exists
+                  ? rlsDiagnosticReport.ordersTable?.rlsSelectAllowed
+                    ? `✅ Acessível (${rlsDiagnosticReport.ordersTable?.visibleRowCount ?? 0} pedidos)`
+                    : '🚫 Bloqueada por RLS'
+                  : '⚠️ View ainda não criada no SQL'}
+              </div>
+              {rlsDiagnosticReport.ordersTable?.errorCode && (
+                <div className="text-[10px] font-mono text-amber-200/90 truncate">
+                  Código: {rlsDiagnosticReport.ordersTable.errorCode}
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 rounded-2xl bg-[#141838]/90 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Tabela public.customer_orders
+              </span>
+              <div
+                className={`font-black ${
+                  rlsDiagnosticReport.customerOrdersTable?.exists &&
+                  rlsDiagnosticReport.customerOrdersTable?.rlsSelectAllowed
+                    ? 'text-emerald-300'
+                    : 'text-rose-300'
+                }`}
+              >
+                {rlsDiagnosticReport.customerOrdersTable?.exists
+                  ? rlsDiagnosticReport.customerOrdersTable?.rlsSelectAllowed
+                    ? `✅ Acessível (${rlsDiagnosticReport.customerOrdersTable?.visibleRowCount ?? 0} pedidos)`
+                    : '🚫 Bloqueada por RLS (SELECT)'
+                  : '❌ Tabela não encontrada'}
+              </div>
+              {rlsDiagnosticReport.customerOrdersTable?.errorMessage && (
+                <div className="text-[10px] font-mono text-rose-300 truncate">
+                  {rlsDiagnosticReport.customerOrdersTable.errorMessage}
+                </div>
+              )}
+            </div>
+
+            <div className="p-3 rounded-2xl bg-[#141838]/90 border border-white/10 space-y-1">
+              <span className="text-[10px] font-bold uppercase tracking-wider text-gray-400">
+                Teste Real de Escrita RLS (INSERT)
+              </span>
+              <div
+                className={`font-black ${
+                  rlsDiagnosticReport.rlsWriteTest?.insertAllowed
+                    ? 'text-emerald-300'
+                    : 'text-rose-300'
+                }`}
+              >
+                {rlsDiagnosticReport.rlsWriteTest?.attempted
+                  ? rlsDiagnosticReport.rlsWriteTest?.insertAllowed
+                    ? `✅ Escrita Permitida (${rlsDiagnosticReport.rlsWriteTest.targetTable})`
+                    : `🚫 Bloqueado (${rlsDiagnosticReport.rlsWriteTest?.errorCode || 'RLS'})`
+                  : 'Não executado'}
+              </div>
+              <div className="text-[11px] text-[#A5A5B8]">
+                Pedidos locais sincronizados:{' '}
+                <span className="text-[#00DFFF] font-bold">
+                  {rlsDiagnosticReport.reconciledLocalOrders?.syncedNow ?? 0}
+                </span>
+              </div>
+            </div>
+          </div>
+
+          {Array.isArray(rlsDiagnosticReport.recommendations) &&
+            rlsDiagnosticReport.recommendations.length > 0 && (
+              <div className="p-3 rounded-2xl bg-amber-500/10 border border-amber-400/30 text-[11px] text-amber-200 flex items-start gap-2">
+                <AlertCircle className="w-4 h-4 text-amber-300 shrink-0 mt-0.5" />
+                <div className="space-y-1">
+                  <span className="font-bold block">Recomendações do Diagnóstico:</span>
+                  {rlsDiagnosticReport.recommendations.map((rec, idx) => (
+                    <div key={idx}>• {rec}</div>
+                  ))}
+                </div>
+              </div>
+            )}
+        </div>
+      )}
 
       {/* LOG DE AUDITORIA SIMPLES DE ALTERAÇÕES DE STATUS DE PEDIDO */}
       {isStatusAuditOpen && (
