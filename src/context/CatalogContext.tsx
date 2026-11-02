@@ -203,7 +203,7 @@ interface CatalogContextType {
   openProfileModal: () => void;
   closeProfileModal: () => void;
   loginUser: (email: string, password?: string) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
-  registerUser: (data: { email: string; fullName: string; phoneWhatsapp?: string; password?: string; address?: CustomerAddress }) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
+  registerUser: (data: { email: string; fullName: string; phoneWhatsapp?: string; password?: string; address?: CustomerAddress }) => Promise<{ success: boolean; message: string; isOwner: boolean; requiresEmailConfirmation?: boolean }>;
   signInWithGoogle: () => Promise<{ success: boolean; message: string }>;
   sendOtpCode: (email: string) => Promise<{ success: boolean; message: string }>;
   verifyOtpCode: (email: string, token: string) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
@@ -909,7 +909,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     phoneWhatsapp?: string;
     password?: string;
     address?: CustomerAddress;
-  }): Promise<{ success: boolean; message: string; isOwner: boolean }> => {
+  }): Promise<{ success: boolean; message: string; isOwner: boolean; requiresEmailConfirmation?: boolean }> => {
     const cleanEmail = data.email.trim().toLowerCase();
     if (!cleanEmail) {
       return { success: false, message: 'Por favor, informe um e-mail válido.', isOwner: false };
@@ -934,6 +934,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       address: data.address,
     });
     setIsAuthChecking(false);
+
+    if (res.success && res.requiresEmailConfirmation) {
+      toast.info('Confirme seu e-mail', res.message);
+      return { success: true, message: res.message, isOwner: false, requiresEmailConfirmation: true };
+    }
 
     if (res.success && res.user) {
       setCurrentUser(res.user);

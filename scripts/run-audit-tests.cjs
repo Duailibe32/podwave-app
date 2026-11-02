@@ -4,6 +4,7 @@ const tests=[
   'test-write-confirmations','test-order-center','test-order-placement-and-image-cache',
   'test-crud-deletion-and-quick-whatsapp','test-profile-schema-default','test-profile-grants',
   'test-profile-trigger-repair','test-order-notifications','test-webpush-and-coupons',
+  'test-signup-confirmation',
 ];
 for(const name of tests){
   const result=spawnSync(process.execPath,[`scripts/${name}.cjs`],{stdio:'inherit'});

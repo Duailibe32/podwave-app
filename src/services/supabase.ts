@@ -2695,6 +2695,7 @@ export interface SupabaseAuthResponse {
   message: string;
   user?: UserProfile;
   isOwner: boolean;
+  requiresEmailConfirmation?: boolean;
 }
 
 /**
@@ -2842,6 +2843,17 @@ export async function supabaseSignUp(
       };
     }
 
+    // An Auth user without a session is a pending registration, not a signed-in customer.
+    // The auth trigger creates the initial profile; client writes require a valid session.
+    if (!data.session) {
+      return {
+        success: true,
+        message: 'Cadastro recebido! Confirme seu e-mail pelo link enviado e depois entre com sua senha.',
+        requiresEmailConfirmation: true,
+        isOwner: false,
+      };
+    }
+
     // Salva perfil persistente na tabela customer_profiles associado ao UUID real do Auth
     const newProfile: UserProfile = {
       id: data.user.id,
@@ -2856,14 +2868,9 @@ export async function supabaseSignUp(
 
     await upsertCustomerProfileToSupabase(newProfile);
 
-    // Se o Supabase exigir confirmação de e-mail e não retornar sessão imediata:
-    const requiresConfirmation = !data.session;
-
     return {
       success: true,
-      message: requiresConfirmation
-        ? 'Cadastro realizado! Se a confirmação de e-mail estiver ativa no seu projeto Supabase, verifique sua caixa de entrada.'
-        : 'Cadastro realizado com sucesso via Supabase Auth!',
+      message: 'Cadastro realizado com sucesso via Supabase Auth!',
       user: newProfile,
       isOwner: false,
     };

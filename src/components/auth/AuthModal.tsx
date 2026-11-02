@@ -185,9 +185,14 @@ export const AuthModal: React.FC = () => {
 
     if (res.success) {
       setSuccessMsg(res.message);
-      setTimeout(() => {
-        closeAuthModal();
-      }, 1200);
+      setPassword('');
+      if (res.requiresEmailConfirmation) {
+        setMode('login');
+      } else {
+        setTimeout(() => {
+          closeAuthModal();
+        }, 1200);
+      }
     } else {
       setErrorMsg(res.message);
     }
