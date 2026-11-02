@@ -31,7 +31,7 @@ import {
   SyncStatus,
   PasskeyItem,
 } from '../types/catalog';
-import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, AVAILABLE_COUPONS } from '../data/initialData';
+import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, LANYARD_ADDON, SILICONE_COVER_ADDON, COMPLEMENTARY_ADDONS, AVAILABLE_COUPONS } from '../data/initialData';
 import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
 import { openWhatsAppShare } from '../utils/whatsappShare';
 import { calculateVariantAvailability } from '../utils/availability';
@@ -324,6 +324,16 @@ interface CatalogContextType {
   isUsbCableAdded: boolean;
   toggleUsbCable: (added?: boolean) => void;
   cablePrice: number;
+  isLanyardAdded: boolean;
+  toggleLanyard: (added?: boolean) => void;
+  lanyardPrice: number;
+  isSiliconeCoverAdded: boolean;
+  toggleSiliconeCover: (added?: boolean) => void;
+  siliconeCoverPrice: number;
+  totalPodUnits: number;
+  progressiveDiscountRate: number;
+  progressiveDiscountAmount: number;
+  isProgressiveFreeShipping: boolean;
   appliedCoupon: Coupon | null;
   applyCoupon: (codeOrCoupon: string | Coupon) => { success: boolean; message: string };
   removeCoupon: () => void;
@@ -2596,6 +2606,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isUsbCableAdded, setIsUsbCableAdded] = useState(false);
+  const [isLanyardAdded, setIsLanyardAdded] = useState(false);
+  const [isSiliconeCoverAdded, setIsSiliconeCoverAdded] = useState(false);
   const [appliedCoupon, setAppliedCoupon] = useState<Coupon | null>(null);
 
   // Save cart to localStorage
@@ -2700,7 +2712,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsUsbCableAdded((prev) => {
       const next = typeof added === 'boolean' ? added : !prev;
       if (next) {
-        toast.success('Cabo USB-C Adicionado', 'Cabo Tipo-C adicionado por +R$ 15,00.');
+        toast.success('Cabo USB-C Adicionado', 'Cabo Tipo-C turbo adicionado por +R$ 16,00.');
       } else {
         toast.info('Cabo USB-C Removido', 'Cabo Tipo-C retirado do pedido.');
       }
@@ -2708,11 +2720,47 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     });
   };
 
-  // Cart Calculations
+  const toggleLanyard = (added?: boolean) => {
+    setIsLanyardAdded((prev) => {
+      const next = typeof added === 'boolean' ? added : !prev;
+      if (next) {
+        toast.success('Cordão Anti-Queda Adicionado', 'Cordão universal adicionado por +R$ 12,00.');
+      } else {
+        toast.info('Cordão Removido', 'Cordão retirado do pedido.');
+      }
+      return next;
+    });
+  };
+
+  const toggleSiliconeCover = (added?: boolean) => {
+    setIsSiliconeCoverAdded((prev) => {
+      const next = typeof added === 'boolean' ? added : !prev;
+      if (next) {
+        toast.success('Protetor de Bocal Adicionado', 'Protetor de silicone higiênico adicionado por +R$ 8,00.');
+      } else {
+        toast.info('Protetor Removido', 'Protetor retirado do pedido.');
+      }
+      return next;
+    });
+  };
+
+  // Cart Calculations & Progressive Discounts (Compre Junto & Combos)
   const totalCartItems = cart.reduce((acc, item) => acc + item.quantity, 0);
+  const totalPodUnits = totalCartItems;
   const cartSubtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
+
   const cablePrice = isUsbCableAdded ? USB_C_ADDON.price : 0;
-  const rawTotal = cartSubtotal + cablePrice;
+  const lanyardPrice = isLanyardAdded ? LANYARD_ADDON.price : 0;
+  const siliconeCoverPrice = isSiliconeCoverAdded ? SILICONE_COVER_ADDON.price : 0;
+  const addonsPrice = cablePrice + lanyardPrice + siliconeCoverPrice;
+  const rawTotal = cartSubtotal + addonsPrice;
+
+  // Progressive Discounts (Regras de Combos):
+  // 1. A partir de 2 pods: Frete Grátis Liberado
+  // 2. A partir de 3 pods: 10% OFF automático em todos os pods
+  const isProgressiveFreeShipping = totalPodUnits >= 2;
+  const progressiveDiscountRate = totalPodUnits >= 3 ? 10 : 0;
+  const progressiveDiscountAmount = (cartSubtotal * progressiveDiscountRate) / 100;
 
   // Coupon application logic with specific model restriction and maximum uses limit
   const applyCoupon = (codeOrCoupon: string | Coupon) => {
@@ -2818,13 +2866,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }
 
-  // Total discount combined (coupon + VIP discount)
-  const discountAmount = Math.min(couponDiscountAmount + vipDiscountAmount, rawTotal);
+  // Total discount combined (coupon + VIP discount + progressive combo discount)
+  const discountAmount = Math.min(couponDiscountAmount + vipDiscountAmount + progressiveDiscountAmount, rawTotal);
   const cartTotal = Math.max(0, rawTotal - discountAmount);
 
-  // Free shipping goal: R$ 250,00
+  // Free shipping goal: R$ 250,00 (ou liberado automaticamente ao comprar 2+ pods)
   const freeShippingGoal = 250.0;
-  const freeShippingRemaining = Math.max(0, freeShippingGoal - rawTotal);
+  const freeShippingRemaining = isProgressiveFreeShipping ? 0 : Math.max(0, freeShippingGoal - rawTotal);
 
   // Reference implementation for WhatsApp sharing with exact Unicode string
   const submitOrderViaWhatsapp = async (form: OrderForm, customMessage?: string): Promise<boolean> => {
@@ -4586,6 +4634,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         isUsbCableAdded,
         toggleUsbCable,
         cablePrice,
+        isLanyardAdded,
+        toggleLanyard,
+        lanyardPrice,
+        isSiliconeCoverAdded,
+        toggleSiliconeCover,
+        siliconeCoverPrice,
+        totalPodUnits,
+        progressiveDiscountRate,
+        progressiveDiscountAmount,
+        isProgressiveFreeShipping,
         appliedCoupon,
         applyCoupon,
         removeCoupon,

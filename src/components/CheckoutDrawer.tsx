@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../context/CatalogContext';
 import { formatCep, formatBrazilianPhone } from "../utils/customerInputs";
 import { useCepLookup } from "../hooks/useCepLookup";
-import { USB_C_ADDON } from '../data/initialData';
+import { USB_C_ADDON, LANYARD_ADDON, SILICONE_COVER_ADDON } from '../data/initialData';
 import { GpsLocationSection } from './GpsLocationSection';
 import {
   X,
@@ -27,6 +27,11 @@ export const CheckoutDrawer: React.FC = () => {
   const {
     cart,
     isUsbCableAdded,
+    isLanyardAdded,
+    lanyardPrice,
+    isSiliconeCoverAdded,
+    siliconeCoverPrice,
+    progressiveDiscountAmount,
     coupons,
     appliedCoupon,
     applyCoupon,
@@ -714,6 +719,36 @@ type="text"
                   </div>
                 )}
 
+                {isLanyardAdded && (
+                  <div className="flex items-center justify-between text-xs py-1 text-[#E53CF3]">
+                    <span>1x {LANYARD_ADDON.name}</span>
+                    <span className="font-bold font-mono">
+                      +R$ {lanyardPrice.toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                )}
+
+                {isSiliconeCoverAdded && (
+                  <div className="flex items-center justify-between text-xs py-1 text-emerald-300">
+                    <span>1x {SILICONE_COVER_ADDON.name}</span>
+                    <span className="font-bold font-mono">
+                      +R$ {siliconeCoverPrice.toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                )}
+
+                {progressiveDiscountAmount > 0 && (
+                  <div className="flex items-center justify-between text-xs py-1 text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/30">
+                    <span className="flex items-center gap-1 font-bold">
+                      <Sparkles className="w-3.5 h-3.5 text-amber-400" />
+                      Combo 3+ Pods (10% OFF automático):
+                    </span>
+                    <span className="font-bold font-mono">
+                      -R$ {progressiveDiscountAmount.toFixed(2).replace('.', ',')}
+                    </span>
+                  </div>
+                )}
+
                 {isVip && vipDiscountAmount > 0 && (
                   <div className="flex items-center justify-between text-xs py-1 text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/30">
                     <span className="flex items-center gap-1 font-bold">
@@ -733,7 +768,7 @@ type="text"
                       Cupom ({appliedCoupon.code} &bull; {appliedCoupon.discountType === 'percent' ? `${appliedCoupon.value}%` : ''} OFF):
                     </span>
                     <span className="font-bold font-mono">
-                      -R$ {(discountAmount - vipDiscountAmount > 0 ? discountAmount - vipDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}
+                      -R$ {(discountAmount - vipDiscountAmount - progressiveDiscountAmount > 0 ? discountAmount - vipDiscountAmount - progressiveDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}
                     </span>
                   </div>
                 )}

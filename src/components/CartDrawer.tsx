@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useCatalog } from '../context/CatalogContext';
-import { USB_C_ADDON } from '../data/initialData';
+import { USB_C_ADDON, LANYARD_ADDON, SILICONE_COVER_ADDON } from '../data/initialData';
 import {
   X,
   Trash2,
@@ -14,6 +14,9 @@ import {
   CheckCircle2,
   ArrowRight,
   Sparkles,
+  Flame,
+  Shield,
+  Layers,
 } from 'lucide-react';
 
 export const CartDrawer: React.FC = () => {
@@ -24,6 +27,16 @@ export const CartDrawer: React.FC = () => {
     isUsbCableAdded,
     toggleUsbCable,
     cablePrice,
+    isLanyardAdded,
+    toggleLanyard,
+    lanyardPrice,
+    isSiliconeCoverAdded,
+    toggleSiliconeCover,
+    siliconeCoverPrice,
+    totalPodUnits,
+    progressiveDiscountRate,
+    progressiveDiscountAmount,
+    isProgressiveFreeShipping,
     coupons,
     appliedCoupon,
     applyCoupon,
@@ -189,40 +202,179 @@ export const CartDrawer: React.FC = () => {
                   ))}
                 </div>
 
-                {/* UPSELL: CABO USB-C 1M TURBO */}
-                <div
-                  className={`p-3.5 rounded-2xl border transition-all ${
-                    isUsbCableAdded
-                      ? 'bg-[#182048] border-[#00DFFF] shadow-[0_0_15px_rgba(0,223,255,0.25)]'
-                      : 'bg-[#111634] light:bg-slate-50 border-[#8423DA]/35 hover:border-[#00DFFF]/50'
-                  }`}
-                >
-                  <div className="flex items-center justify-between gap-3">
-                    <div className="flex items-center gap-3">
-                      <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-[#8423DA] to-[#007BFF] flex items-center justify-center text-white flex-shrink-0 shadow-sm">
-                        <Zap className="w-4 h-4 text-[#00DFFF] fill-[#00DFFF]" />
-                      </div>
-                      <div className="text-xs">
-                        <p className="font-medium text-gray-200 light:text-slate-800">
-                          Levar um <strong className="text-white light:text-slate-900">Cabo USB tipo C 1m TURBO</strong> {USB_C_ADDON.description}
-                        </p>
-                        <p className="font-heading font-bold text-white light:text-slate-900 mt-0.5">
-                          R$ {USB_C_ADDON.price.toFixed(2).replace('.', ',')}
-                        </p>
-                      </div>
-                    </div>
+                {/* COMBO & DESCONTO PROGRESSIVO */}
+                <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#121636] to-[#0D1022] border border-[#00DFFF]/35 space-y-2.5 shadow-md">
+                  <div className="flex items-center justify-between text-xs">
+                    <span className="font-extrabold flex items-center gap-1.5 text-white">
+                      <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />
+                      <span>Desconto Progressivo • Leve Mais, Pague Menos</span>
+                    </span>
+                    <span className="text-[10px] font-mono font-bold text-[#00DFFF] px-2 py-0.5 rounded-full bg-[#00DFFF]/10 border border-[#00DFFF]/30">
+                      {totalPodUnits} {totalPodUnits === 1 ? 'Pod' : 'Pods'}
+                    </span>
+                  </div>
 
-                    <button
-                      onClick={() => toggleUsbCable()}
-                      className={`w-8 h-8 rounded-full flex items-center justify-center transition-all cursor-pointer flex-shrink-0 ${
-                        isUsbCableAdded
-                          ? 'bg-emerald-500 text-white shadow-md'
-                          : 'bg-gradient-to-r from-[#007BFF] to-[#00DFFF] text-[#080811] shadow-sm hover:scale-105'
-                      }`}
-                      title={isUsbCableAdded ? 'Remover cabo turbo' : 'Adicionar cabo turbo'}
-                    >
-                      {isUsbCableAdded ? <Check className="w-4 h-4 stroke-[3]" /> : <Plus className="w-4 h-4 stroke-[3]" />}
-                    </button>
+                  {/* Stepper Visual */}
+                  <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]">
+                    <div className={`p-2 rounded-xl border transition-all ${totalPodUnits >= 1 ? 'bg-[#00DFFF]/15 border-[#00DFFF] text-white font-bold' : 'bg-white/5 border-white/10 text-gray-400'}`}>
+                      <span className="block font-mono text-[9px] text-[#00DFFF]">1 POD</span>
+                      <span>Catálogo</span>
+                    </div>
+                    <div className={`p-2 rounded-xl border transition-all ${totalPodUnits >= 2 ? 'bg-emerald-500/15 border-emerald-400 text-emerald-300 font-bold shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-white/5 border-white/10 text-gray-400'}`}>
+                      <span className="block font-mono text-[9px] text-emerald-400">2 PODS</span>
+                      <span>Frete Grátis ✓</span>
+                    </div>
+                    <div className={`p-2 rounded-xl border transition-all ${totalPodUnits >= 3 ? 'bg-amber-400/20 border-amber-300 text-amber-200 font-bold shadow-[0_0_12px_rgba(251,191,36,0.25)]' : 'bg-white/5 border-white/10 text-gray-400'}`}>
+                      <span className="block font-mono text-[9px] text-amber-300">3+ PODS</span>
+                      <span>10% OFF Total 🔥</span>
+                    </div>
+                  </div>
+
+                  {/* Dynamic Alert Banner */}
+                  <div className="text-[11px] leading-snug">
+                    {totalPodUnits === 0 && (
+                      <p className="text-gray-300">Adicione pods ao carrinho para desbloquear frete grátis e descontos automáticos.</p>
+                    )}
+                    {totalPodUnits === 1 && (
+                      <p className="text-cyan-200 font-medium flex items-center gap-1.5">
+                        <Truck className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
+                        <span>Falta <strong>apenas 1 pod</strong> para você destravar <strong>Frete Grátis</strong> na sua entrega!</span>
+                      </p>
+                    )}
+                    {totalPodUnits === 2 && (
+                      <p className="text-emerald-300 font-medium flex items-center gap-1.5">
+                        <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
+                        <span><strong>Frete Grátis ativado!</strong> Adicione +1 pod de qualquer marca para ganhar <strong>10% OFF em todos os pods</strong>!</span>
+                      </p>
+                    )}
+                    {totalPodUnits >= 3 && (
+                      <p className="text-amber-300 font-bold flex items-center gap-1.5">
+                        <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                        <span>Super Combo 3+ Ativado: <strong>Frete Grátis + 10% de Desconto automático</strong> garantidos!</span>
+                      </p>
+                    )}
+                  </div>
+                </div>
+
+                {/* COMPRE JUNTO: PRODUTOS COMPLEMENTARES */}
+                <div className="space-y-2">
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-extrabold uppercase tracking-wider text-gray-300 flex items-center gap-1.5">
+                      <Layers className="w-3.5 h-3.5 text-[#00DFFF]" />
+                      <span>Compre Junto • Acessórios Recomendados</span>
+                    </span>
+                    <span className="text-[10px] text-[#A5A5B8]">Adicione em 1 clique</span>
+                  </div>
+
+                  {/* 1. Cabo Turbo USB-C */}
+                  <div
+                    className={`p-3 rounded-2xl border transition-all ${
+                      isUsbCableAdded
+                        ? 'bg-[#182048] border-[#00DFFF] shadow-[0_0_15px_rgba(0,223,255,0.2)]'
+                        : 'bg-[#111634] border-[#8423DA]/30 hover:border-[#00DFFF]/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#8423DA] to-[#007BFF] flex items-center justify-center text-white shrink-0 shadow-sm">
+                          <Zap className="w-4 h-4 text-[#00DFFF] fill-[#00DFFF]" />
+                        </div>
+                        <div className="text-xs min-w-0">
+                          <p className="font-bold text-white truncate">{USB_C_ADDON.name}</p>
+                          <p className="text-[10px] text-[#A5A5B8] truncate">{USB_C_ADDON.description}</p>
+                          <p className="font-heading font-black text-[#00DFFF] mt-0.5">
+                            R$ {USB_C_ADDON.price.toFixed(2).replace('.', ',')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => toggleUsbCable()}
+                        className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                          isUsbCableAdded
+                            ? 'bg-emerald-500 text-white shadow-md'
+                            : 'bg-gradient-to-r from-[#007BFF] to-[#00DFFF] text-[#080811] shadow-sm hover:scale-105'
+                        }`}
+                        title={isUsbCableAdded ? 'Remover cabo turbo' : 'Adicionar cabo turbo'}
+                      >
+                        {isUsbCableAdded ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Plus className="w-3.5 h-3.5 stroke-[3]" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 2. Cordão Anti-Queda PodWave */}
+                  <div
+                    className={`p-3 rounded-2xl border transition-all ${
+                      isLanyardAdded
+                        ? 'bg-[#251538] border-[#E53CF3] shadow-[0_0_15px_rgba(229,60,243,0.2)]'
+                        : 'bg-[#111634] border-[#8423DA]/30 hover:border-[#E53CF3]/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-[#8423DA] to-[#E53CF3] flex items-center justify-center text-white shrink-0 shadow-sm text-sm">
+                          📿
+                        </div>
+                        <div className="text-xs min-w-0">
+                          <p className="font-bold text-white truncate">{LANYARD_ADDON.name}</p>
+                          <p className="text-[10px] text-[#A5A5B8] truncate">{LANYARD_ADDON.description}</p>
+                          <p className="font-heading font-black text-[#E53CF3] mt-0.5">
+                            R$ {LANYARD_ADDON.price.toFixed(2).replace('.', ',')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => toggleLanyard()}
+                        className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                          isLanyardAdded
+                            ? 'bg-emerald-500 text-white shadow-md'
+                            : 'bg-gradient-to-r from-[#8423DA] to-[#E53CF3] text-white shadow-sm hover:scale-105'
+                        }`}
+                        title={isLanyardAdded ? 'Remover cordão anti-queda' : 'Adicionar cordão anti-queda'}
+                      >
+                        {isLanyardAdded ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Plus className="w-3.5 h-3.5 stroke-[3]" />}
+                      </button>
+                    </div>
+                  </div>
+
+                  {/* 3. Protetor Higiênico de Bocal */}
+                  <div
+                    className={`p-3 rounded-2xl border transition-all ${
+                      isSiliconeCoverAdded
+                        ? 'bg-[#122825] border-emerald-400 shadow-[0_0_15px_rgba(16,185,129,0.2)]'
+                        : 'bg-[#111634] border-[#8423DA]/30 hover:border-emerald-400/40'
+                    }`}
+                  >
+                    <div className="flex items-center justify-between gap-3">
+                      <div className="flex items-center gap-2.5 min-w-0">
+                        <div className="w-8 h-8 rounded-xl bg-gradient-to-br from-emerald-600 to-teal-400 flex items-center justify-center text-white shrink-0 shadow-sm">
+                          <Shield className="w-4 h-4 text-white" />
+                        </div>
+                        <div className="text-xs min-w-0">
+                          <p className="font-bold text-white truncate">{SILICONE_COVER_ADDON.name}</p>
+                          <p className="text-[10px] text-[#A5A5B8] truncate">{SILICONE_COVER_ADDON.description}</p>
+                          <p className="font-heading font-black text-emerald-300 mt-0.5">
+                            R$ {SILICONE_COVER_ADDON.price.toFixed(2).replace('.', ',')}
+                          </p>
+                        </div>
+                      </div>
+
+                      <button
+                        type="button"
+                        onClick={() => toggleSiliconeCover()}
+                        className={`w-7 h-7 rounded-full flex items-center justify-center transition-all cursor-pointer shrink-0 ${
+                          isSiliconeCoverAdded
+                            ? 'bg-emerald-500 text-white shadow-md'
+                            : 'bg-gradient-to-r from-emerald-500 to-teal-400 text-[#080811] shadow-sm hover:scale-105'
+                        }`}
+                        title={isSiliconeCoverAdded ? 'Remover protetor' : 'Adicionar protetor'}
+                      >
+                        {isSiliconeCoverAdded ? <Check className="w-3.5 h-3.5 stroke-[3]" /> : <Plus className="w-3.5 h-3.5 stroke-[3]" />}
+                      </button>
+                    </div>
                   </div>
                 </div>
 
@@ -245,7 +397,7 @@ export const CartDrawer: React.FC = () => {
                     <Truck className="w-4 h-4 text-[#00DFFF] flex-shrink-0" />
                     {freeShippingRemaining > 0 ? (
                       <p className="text-gray-300 light:text-slate-700">
-                        Faltam <strong className="text-[#00DFFF]">R$ {freeShippingRemaining.toFixed(2).replace('.', ',')}</strong> para o frete grátis
+                        Faltam <strong className="text-[#00DFFF]">R$ {freeShippingRemaining.toFixed(2).replace('.', ',')}</strong> para o frete grátis (ou leve 2 pods)
                       </p>
                     ) : (
                       <p className="text-emerald-400 font-bold flex items-center gap-1">
@@ -257,7 +409,7 @@ export const CartDrawer: React.FC = () => {
                   <div className="w-full h-2 rounded-full bg-[#0D1022] light:bg-slate-200 overflow-hidden">
                     <div
                       className="h-full bg-gradient-to-r from-[#007BFF] via-[#00DFFF] to-emerald-400 rounded-full transition-all duration-500"
-                      style={{ width: `${freeShippingProgress}%` }}
+                      style={{ width: `${isProgressiveFreeShipping ? 100 : freeShippingProgress}%` }}
                     />
                   </div>
                 </div>
@@ -349,6 +501,30 @@ export const CartDrawer: React.FC = () => {
                   </div>
                 )}
 
+                {isLanyardAdded && (
+                  <div className="flex justify-between text-[#E53CF3]">
+                    <span>Cordão Anti-Queda:</span>
+                    <span className="font-mono">+R$ {lanyardPrice.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+
+                {isSiliconeCoverAdded && (
+                  <div className="flex justify-between text-emerald-300">
+                    <span>Protetor Higiênico de Bocal:</span>
+                    <span className="font-mono">+R$ {siliconeCoverPrice.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+
+                {progressiveDiscountAmount > 0 && (
+                  <div className="flex justify-between text-amber-300 font-bold bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/25">
+                    <span className="flex items-center gap-1">
+                      <Flame className="w-3.5 h-3.5 text-amber-400 fill-amber-400" />
+                      <span>Combo 3+ Pods (10% OFF):</span>
+                    </span>
+                    <span className="font-mono">-R$ {progressiveDiscountAmount.toFixed(2).replace('.', ',')}</span>
+                  </div>
+                )}
+
                 {isVip && vipDiscountAmount > 0 && (
                   <div className="flex justify-between text-amber-300 font-bold">
                     <span className="flex items-center gap-1">
@@ -362,7 +538,7 @@ export const CartDrawer: React.FC = () => {
                 {appliedCoupon && (
                   <div className="flex justify-between text-emerald-400">
                     <span>Cupom ({appliedCoupon.code}):</span>
-                    <span className="font-mono">-R$ {(discountAmount - vipDiscountAmount > 0 ? discountAmount - vipDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}</span>
+                    <span className="font-mono">-R$ {(discountAmount - vipDiscountAmount - progressiveDiscountAmount > 0 ? discountAmount - vipDiscountAmount - progressiveDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}</span>
                   </div>
                 )}
 

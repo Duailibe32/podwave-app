@@ -550,10 +550,35 @@ export const INITIAL_BANNERS: BannerSlide[] = [
 export const USB_C_ADDON = {
   id: 'addon-usbc-turbo',
   name: 'Cabo USB tipo C 1m TURBO',
-  description: 'para carregar',
+  description: 'para carregar seu pod com rapidez',
   price: 16.00,
   icon: '🔌',
+  emoji: '⚡',
 };
+
+export const LANYARD_ADDON = {
+  id: 'addon-lanyard',
+  name: 'Cordão Anti-Queda PodWave',
+  description: 'com anel de silicone universal',
+  price: 12.00,
+  icon: '📿',
+  emoji: '✨',
+};
+
+export const SILICONE_COVER_ADDON = {
+  id: 'addon-silicone-cover',
+  name: 'Protetor Higiênico de Bocal',
+  description: 'silicone anti-poeira para saída de vapor',
+  price: 8.00,
+  icon: '🛡️',
+  emoji: '🧼',
+};
+
+export const COMPLEMENTARY_ADDONS = [
+  USB_C_ADDON,
+  LANYARD_ADDON,
+  SILICONE_COVER_ADDON,
+];
 
 export const AVAILABLE_COUPONS: Coupon[] = [
   {
