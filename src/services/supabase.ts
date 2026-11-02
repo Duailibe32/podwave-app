@@ -2049,91 +2049,28 @@ export async function cleanupExpiredCancelledOrdersInSupabase(
  */
 export async function fetchCustomerOrdersFromSupabase(
   customerId: string,
-  customerEmail?: string,
-  customerPhone?: string
-): Promise<CustomerOrderHistoryItem[]> {
+  _customerEmail?: string,
+  _customerPhone?: string
+): Promise<CustomerOrderHistoryItem[] | null> {
   const client = getSupabaseClient();
-  if (!client || !customerId) return [];
-
-  const cleanEmail = (customerEmail || '').trim().toLowerCase();
-  const cleanPhone = (customerPhone || '').replace(/\D/g, '');
-
-  const matchesCustomerIdentity = (order: CustomerOrderHistoryItem): boolean => {
-    if (order.customerId === customerId) return true;
-    if (cleanEmail && order.customerEmail && order.customerEmail.trim().toLowerCase() === cleanEmail) {
-      return true;
-    }
-    if (cleanPhone && cleanPhone.length >= 8 && order.customerPhone) {
-      const ordPhone = order.customerPhone.replace(/\D/g, '');
-      if (ordPhone && (ordPhone === cleanPhone || ordPhone.endsWith(cleanPhone.slice(-8)))) {
-        return true;
-      }
-    }
-    return false;
-  };
-
-  const isDiagnosticProbeRow = (row: Record<string, unknown>): boolean => {
-    const idStr = String(row.id || '');
-    const codeStr = String(row.order_code || row.reference_id || '');
-    return idStr.startsWith('diag-rls-probe-') || codeStr.startsWith('DIAG-RLS-');
-  };
-
+  if (!client || !customerId) return null;
   try {
-    const { data, error } = await client
-      .from('customer_orders')
-      .select('*')
-      .order('created_at', { ascending: false })
-      .limit(200);
-
-    const combinedRows: Record<string, unknown>[] = [];
-    const seenIds = new Set<string>();
-
-    if (!error && Array.isArray(data)) {
-      if (data.length > 0) {
-        customerOrdersSupportedColumnsCache = new Set(Object.keys(data[0]));
-      }
-      for (const row of data) {
-        if (!row || isDiagnosticProbeRow(row)) continue;
-        const idKey = String(row.id || '');
-        if (idKey && !seenIds.has(idKey)) {
-          seenIds.add(idKey);
-          combinedRows.push(row);
-        }
-      }
-    }
-
-    // Consulta complementar em 'orders' (caso exista como tabela ou view separada)
-    try {
-      const { data: ordersData, error: ordersErr } = await client
-        .from('orders')
-        .select('*')
-        .order('created_at', { ascending: false })
-        .limit(200);
-      if (!ordersErr && Array.isArray(ordersData)) {
-        for (const row of ordersData) {
-          if (!row || isDiagnosticProbeRow(row)) continue;
-          const idKey = String(row.id || '');
-          if (idKey && !seenIds.has(idKey)) {
-            seenIds.add(idKey);
-            combinedRows.push(row);
-          }
-        }
-      }
-    } catch {
-      // ignora se a tabela 'orders' não existir
-    }
-
-    if (error && combinedRows.length === 0 && !isMissingTableError(error)) {
-      console.warn('[Supabase] Aviso ao buscar pedidos do cliente:', error.message);
-      return [];
-    }
-
-    return combinedRows
-      .map((row) => mapSupabaseRowToCustomerOrder(row))
-      .filter(matchesCustomerIdentity);
-  } catch (err) {
-    if (isMissingTableError(err)) return [];
-    return [];
+    // The authenticated UUID owns the history. Fetch only that customer's rows.
+    const read = (table: string) => client.from(table).select('*')
+      .eq('customer_id', customerId).order('created_at', {ascending: false}).limit(200);
+    let result = await read('customer_orders');
+    // The legacy name is a fallback, not a second source to merge on every read.
+    if (result.error && isMissingTableError(result.error)) result = await read('orders');
+    if (result.error || !Array.isArray(result.data)) return null;
+    if (result.data.length) customerOrdersSupportedColumnsCache = new Set(Object.keys(result.data[0]));
+    return result.data
+      .filter(row => !String(row.id || '').startsWith('diag-rls-probe-')
+        && !String(row.order_code || row.reference_id || '').startsWith('DIAG-RLS-'))
+      .map(row => ({...mapSupabaseRowToCustomerOrder(row), _syncStatus: 'synced' as const}))
+      .filter(order => order.customerId === customerId);
+  } catch {
+    // Failed reads must not look like an authoritative empty history.
+    return null;
   }
 }
 

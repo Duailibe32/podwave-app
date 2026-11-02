@@ -239,6 +239,7 @@ export interface OrderStatusHistoryEntry {
 
 export interface CustomerOrderHistoryItem {
   id: string;
+  _syncStatus?: 'synced' | 'pending_sync' | 'sync_error';
   referenceId: string;
   customerId?: string;
   customerName?: string;
