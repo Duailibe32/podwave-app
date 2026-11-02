@@ -107,6 +107,34 @@ export interface ImageStorageConfig {
   lastCacheClearedAt?: string; // Data ISO da última limpeza manual
 }
 
+export interface ProgressiveDiscountConfig {
+  enabled: boolean;
+  title: string;
+  tier1Label: string; // ex: 'Catálogo'
+  tier2MinUnits: number; // padrão: 2
+  tier2Label: string; // ex: 'Frete Grátis ✓'
+  tier2FreeShipping: boolean; // padrão: true
+  tier3MinUnits: number; // padrão: 3
+  tier3DiscountType?: 'percent' | 'fixed'; // padrão: 'percent'
+  tier3DiscountPercent: number; // padrão: 10 (ou valor em R$ quando tier3DiscountType === 'fixed')
+  tier3Label: string; // ex: '10% OFF Total 🔥'
+  freeShippingGoalValue: number; // padrão: 250
+}
+
+export interface ComplementaryAddonItem {
+  id: string;
+  name: string;
+  description: string;
+  price: number;
+  icon: string;
+  emoji?: string;
+  active: boolean;
+  themeColor?: 'cyan' | 'magenta' | 'emerald';
+  applicableModelId?: string; // 'all' ou ID de um ProductModel principal vinculado
+  applicableModelIds?: string[]; // Lista de IDs de produtos principais vinculados ('all' ou IDs específicos)
+  applicableModelName?: string; // Nome de exibição do(s) produto(s) principal(is) vinculado(s)
+}
+
 export interface StoreSettings {
   storeName: string;
   legalNotice: string;
@@ -122,6 +150,8 @@ export interface StoreSettings {
   pixKeyType?: 'telefone' | 'cpf' | 'cnpj' | 'email' | 'aleatoria';
   pixBeneficiary?: string; // Nome do favorecido/titular da conta Pix
   imageStorageConfig?: ImageStorageConfig; // Configuração personalizável de cache e armazenamento de imagens
+  progressiveDiscountConfig?: ProgressiveDiscountConfig; // Configuração editável de Desconto Progressivo • Leve Mais, Pague Menos
+  complementaryAddons?: ComplementaryAddonItem[]; // Configuração editável de Compre Junto • Acessórios Recomendados
 }
 
 export interface CartItem {

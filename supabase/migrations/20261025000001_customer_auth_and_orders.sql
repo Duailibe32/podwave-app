@@ -89,6 +89,7 @@ ALTER TABLE public.customer_profiles ENABLE ROW LEVEL SECURITY;
 ALTER TABLE public.customer_orders ENABLE ROW LEVEL SECURITY;
 
 REVOKE ALL ON public.customer_profiles, public.customer_orders FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT ON public.customer_profiles, public.customer_orders TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.customer_profiles, public.customer_orders TO authenticated, service_role;
 
 -- 5. REMOÇÃO DE QUALQUER POLÍTICA PÚBLICA LEGADA E CRIAÇÃO DE POLÍTICAS SEGURAS
@@ -101,12 +102,12 @@ DROP POLICY IF EXISTS "Users can update own profile or admins update all" ON pub
 DROP POLICY IF EXISTS "Admins can delete profiles" ON public.customer_profiles;
 
 CREATE POLICY "Users can view own profile or admins view all" ON public.customer_profiles
-  FOR SELECT TO authenticated
-  USING (id = auth.uid()::text OR app_security.is_admin());
+  FOR SELECT TO anon, authenticated
+  USING (id LIKE 'guest-%' OR id = auth.uid()::text OR app_security.is_admin());
 
 CREATE POLICY "Users can insert own profile" ON public.customer_profiles
-  FOR INSERT TO authenticated
-  WITH CHECK (id = auth.uid()::text OR app_security.is_admin());
+  FOR INSERT TO anon, authenticated
+  WITH CHECK (id LIKE 'guest-%' OR id = auth.uid()::text OR app_security.is_admin());
 
 CREATE POLICY "Users can update own profile or admins update all" ON public.customer_profiles
   FOR UPDATE TO authenticated
@@ -125,12 +126,12 @@ DROP POLICY IF EXISTS "Admins can update orders" ON public.customer_orders;
 DROP POLICY IF EXISTS "Admins can delete orders" ON public.customer_orders;
 
 CREATE POLICY "Users can view own orders or admins view all" ON public.customer_orders
-  FOR SELECT TO authenticated
-  USING (customer_id = auth.uid()::text OR app_security.is_admin());
+  FOR SELECT TO anon, authenticated
+  USING (customer_id LIKE 'guest-%' OR customer_id = auth.uid()::text OR app_security.is_admin());
 
 CREATE POLICY "Users can insert own orders or admins insert" ON public.customer_orders
-  FOR INSERT TO authenticated
-  WITH CHECK (customer_id = auth.uid()::text OR app_security.is_admin());
+  FOR INSERT TO anon, authenticated
+  WITH CHECK (customer_id LIKE 'guest-%' OR customer_id = auth.uid()::text OR app_security.is_admin());
 
 CREATE POLICY "Admins can update orders" ON public.customer_orders
   FOR UPDATE TO authenticated
@@ -140,3 +141,17 @@ CREATE POLICY "Admins can update orders" ON public.customer_orders
 CREATE POLICY "Admins can delete orders" ON public.customer_orders
   FOR DELETE TO authenticated
   USING (app_security.is_admin());
+
+-- Habilita Supabase Realtime para escuta instantânea na tabela customer_orders
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'customer_orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.customer_orders;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
+

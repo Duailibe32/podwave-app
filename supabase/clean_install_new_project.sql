@@ -589,6 +589,7 @@ REVOKE ALL ON public.audit_logs FROM PUBLIC, anon, authenticated;
 GRANT SELECT, INSERT ON public.audit_logs TO authenticated, service_role;
 
 REVOKE ALL ON public.customer_profiles, public.customer_orders FROM PUBLIC, anon, authenticated;
+GRANT SELECT, INSERT ON public.customer_profiles, public.customer_orders TO anon;
 GRANT SELECT, INSERT, UPDATE, DELETE ON public.customer_profiles, public.customer_orders TO authenticated, service_role;
 
 REVOKE ALL ON public.manual_sales, public.manual_expenses, public.merchandise_purchases, public.cash_movements, public.initial_cash_balances, public.manual_commitments FROM PUBLIC, anon, authenticated;
@@ -658,8 +659,8 @@ DROP POLICY IF EXISTS "Users can view own profile or admins view all" ON public.
 DROP POLICY IF EXISTS "Users can insert own profile" ON public.customer_profiles;
 DROP POLICY IF EXISTS "Users can update own profile or admins update all" ON public.customer_profiles;
 DROP POLICY IF EXISTS "Admins can delete profiles" ON public.customer_profiles;
-CREATE POLICY "Users can view own profile or admins view all" ON public.customer_profiles FOR SELECT TO authenticated USING (id = auth.uid()::text OR app_security.is_admin());
-CREATE POLICY "Users can insert own profile" ON public.customer_profiles FOR INSERT TO authenticated WITH CHECK (id = auth.uid()::text OR app_security.is_admin());
+CREATE POLICY "Users can view own profile or admins view all" ON public.customer_profiles FOR SELECT TO anon, authenticated USING (id LIKE 'guest-%' OR id = auth.uid()::text OR app_security.is_admin());
+CREATE POLICY "Users can insert own profile" ON public.customer_profiles FOR INSERT TO anon, authenticated WITH CHECK (id LIKE 'guest-%' OR id = auth.uid()::text OR app_security.is_admin());
 CREATE POLICY "Users can update own profile or admins update all" ON public.customer_profiles FOR UPDATE TO authenticated USING (id = auth.uid()::text OR app_security.is_admin()) WITH CHECK (id = auth.uid()::text OR app_security.is_admin());
 CREATE POLICY "Admins can delete profiles" ON public.customer_profiles FOR DELETE TO authenticated USING (app_security.is_admin());
 
@@ -667,10 +668,23 @@ DROP POLICY IF EXISTS "Users can view own orders or admins view all" ON public.c
 DROP POLICY IF EXISTS "Users can insert own orders or admins insert" ON public.customer_orders;
 DROP POLICY IF EXISTS "Admins can update orders" ON public.customer_orders;
 DROP POLICY IF EXISTS "Admins can delete orders" ON public.customer_orders;
-CREATE POLICY "Users can view own orders or admins view all" ON public.customer_orders FOR SELECT TO authenticated USING (customer_id = auth.uid()::text OR app_security.is_admin());
-CREATE POLICY "Users can insert own orders or admins insert" ON public.customer_orders FOR INSERT TO authenticated WITH CHECK (customer_id = auth.uid()::text OR app_security.is_admin());
+CREATE POLICY "Users can view own orders or admins view all" ON public.customer_orders FOR SELECT TO anon, authenticated USING (customer_id LIKE 'guest-%' OR customer_id = auth.uid()::text OR app_security.is_admin());
+CREATE POLICY "Users can insert own orders or admins insert" ON public.customer_orders FOR INSERT TO anon, authenticated WITH CHECK (customer_id LIKE 'guest-%' OR customer_id = auth.uid()::text OR app_security.is_admin());
 CREATE POLICY "Admins can update orders" ON public.customer_orders FOR UPDATE TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());
 CREATE POLICY "Admins can delete orders" ON public.customer_orders FOR DELETE TO authenticated USING (app_security.is_admin());
+
+-- Habilita Supabase Realtime para escuta instantânea de pedidos e estoque
+DO $$
+BEGIN
+  IF NOT EXISTS (
+    SELECT 1 FROM pg_publication_tables
+    WHERE pubname = 'supabase_realtime' AND schemaname = 'public' AND tablename = 'customer_orders'
+  ) THEN
+    ALTER PUBLICATION supabase_realtime ADD TABLE public.customer_orders;
+  END IF;
+EXCEPTION WHEN OTHERS THEN
+  NULL;
+END $$;
 
 DROP POLICY IF EXISTS "Admin Full Access Manual Sales" ON public.manual_sales;
 CREATE POLICY "Admin Full Access Manual Sales" ON public.manual_sales FOR ALL TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());

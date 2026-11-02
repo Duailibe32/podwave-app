@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../context/CatalogContext';
 import { formatCep, formatBrazilianPhone } from "../utils/customerInputs";
 import { useCepLookup } from "../hooks/useCepLookup";
-import { USB_C_ADDON, LANYARD_ADDON, SILICONE_COVER_ADDON } from '../data/initialData';
+import { USB_C_ADDON, LANYARD_ADDON, SILICONE_COVER_ADDON, DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG, DEFAULT_COMPLEMENTARY_ADDONS } from '../data/initialData';
 import { GpsLocationSection } from './GpsLocationSection';
 import {
   X,
@@ -27,10 +27,12 @@ export const CheckoutDrawer: React.FC = () => {
   const {
     cart,
     isUsbCableAdded,
+    cablePrice,
     isLanyardAdded,
     lanyardPrice,
     isSiliconeCoverAdded,
     siliconeCoverPrice,
+    progressiveDiscountRate,
     progressiveDiscountAmount,
     coupons,
     appliedCoupon,
@@ -52,6 +54,21 @@ export const CheckoutDrawer: React.FC = () => {
     updateCustomerProfile,
     recordCustomerOrder,
   } = useCatalog();
+
+  const progCfg = {
+    ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
+    ...(settings.progressiveDiscountConfig || {}),
+  };
+  const tier3Min = Math.max(1, Number(progCfg.tier3MinUnits) || 3);
+
+  const configuredAddons =
+    settings.complementaryAddons && settings.complementaryAddons.length > 0
+      ? settings.complementaryAddons
+      : DEFAULT_COMPLEMENTARY_ADDONS;
+
+  const usbAddon = configuredAddons.find((a) => a.id === USB_C_ADDON.id) || configuredAddons[0] || USB_C_ADDON;
+  const lanyardAddon = configuredAddons.find((a) => a.id === LANYARD_ADDON.id) || configuredAddons[1] || LANYARD_ADDON;
+  const siliconeAddon = configuredAddons.find((a) => a.id === SILICONE_COVER_ADDON.id) || configuredAddons[2] || SILICONE_COVER_ADDON;
 
   const currentLoyalty = currentUser
     ? getUserLoyaltyCard(currentUser, settings.loyaltyGoalStamps || 10, settings.loyaltyDefaultReward)
@@ -622,36 +639,6 @@ type="text"
                   </button>
                 </div>
               )}
-
-              {/* Chips rápidos com cupons disponíveis */}
-              <div className="pt-1 flex flex-wrap items-center gap-1.5 text-[10px]">
-                <span className="text-gray-400 font-medium">Cupons:</span>
-                {coupons
-                  .filter((c) => c.active !== false && (!c.maxUses || c.usedCount < c.maxUses))
-                  .slice(0, 5)
-                  .map((demo) => {
-                    const isCurrent = appliedCoupon?.code.toUpperCase() === demo.code.toUpperCase();
-                    const discountLabel = demo.discountType === 'percent' ? `${demo.value}%` : `R$ ${demo.value}`;
-                    return (
-                      <button
-                        key={demo.id || demo.code}
-                        type="button"
-                        onClick={() => {
-                          setCouponCode(demo.code);
-                          handleApplyCoupon(demo.code);
-                        }}
-                        className={`px-2 py-0.5 rounded-lg border font-mono transition-all cursor-pointer ${
-                          isCurrent
-                            ? 'bg-emerald-500/25 border-emerald-400 text-emerald-300 font-bold'
-                            : 'bg-[#0D1022] light:bg-slate-200 hover:bg-[#8423DA]/30 border-[#8423DA]/25 hover:border-[#00DFFF] text-[#00DFFF]'
-                        }`}
-                        title={`Aplicar ${discountLabel} OFF (${demo.description})`}
-                      >
-                        {demo.code} (-{discountLabel})
-                      </button>
-                    );
-                  })}
-              </div>
             </div>
 
             {/* RESUMO DO PEDIDO */}
@@ -687,27 +674,27 @@ type="text"
                   </span>
                 </div>
 
-                {isUsbCableAdded && (
+                {isUsbCableAdded && usbAddon.active !== false && (
                   <div className="flex items-center justify-between text-xs py-1 text-[#00DFFF]">
-                    <span>1x {USB_C_ADDON.name}</span>
+                    <span>1x {usbAddon.name}</span>
                     <span className="font-bold font-mono">
-                      +R$ {USB_C_ADDON.price.toFixed(2).replace('.', ',')}
+                      +R$ {cablePrice.toFixed(2).replace('.', ',')}
                     </span>
                   </div>
                 )}
 
-                {isLanyardAdded && (
+                {isLanyardAdded && lanyardAddon.active !== false && (
                   <div className="flex items-center justify-between text-xs py-1 text-[#E53CF3]">
-                    <span>1x {LANYARD_ADDON.name}</span>
+                    <span>1x {lanyardAddon.name}</span>
                     <span className="font-bold font-mono">
                       +R$ {lanyardPrice.toFixed(2).replace('.', ',')}
                     </span>
                   </div>
                 )}
 
-                {isSiliconeCoverAdded && (
+                {isSiliconeCoverAdded && siliconeAddon.active !== false && (
                   <div className="flex items-center justify-between text-xs py-1 text-emerald-300">
-                    <span>1x {SILICONE_COVER_ADDON.name}</span>
+                    <span>1x {siliconeAddon.name}</span>
                     <span className="font-bold font-mono">
                       +R$ {siliconeCoverPrice.toFixed(2).replace('.', ',')}
                     </span>
@@ -718,7 +705,7 @@ type="text"
                   <div className="flex items-center justify-between text-xs py-1 text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/30">
                     <span className="flex items-center gap-1 font-bold">
                       <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      Combo 3+ Pods (10% OFF automático):
+                      Combo {tier3Min}+ Pods ({progressiveDiscountRate}% OFF automático):
                     </span>
                     <span className="font-bold font-mono">
                       -R$ {progressiveDiscountAmount.toFixed(2).replace('.', ',')}

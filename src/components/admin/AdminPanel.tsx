@@ -60,9 +60,11 @@ import { ImageEditorStudioModal } from './ImageEditorStudioModal';
 import { MyBusinessModule } from './MyBusinessModule';
 import { OrdersCenterTab } from './OrdersCenterTab';
 import { ImageStorageSettingsSection } from './ImageStorageSettingsSection';
+import { WebPushSettingsSection } from './WebPushSettingsSection';
+import { CombosAndAddonsTab } from './CombosAndAddonsTab';
 import { calculateVariantAvailability, calculateVariantsSummary, isNeedsAttention, DEFAULT_LOW_QUANTITY_THRESHOLD } from '../../utils/availability';
 
-type AdminTab = 'pedidos' | 'meu_negocio' | 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'banners' | 'historico' | 'usuarios' | 'configuracoes' | 'supabase';
+type AdminTab = 'pedidos' | 'meu_negocio' | 'dashboard' | 'variantes' | 'modelos' | 'marcas' | 'cupons' | 'promocoes' | 'combos_acessorios' | 'banners' | 'historico' | 'usuarios' | 'configuracoes' | 'supabase';
 
 export const AdminPanel: React.FC = () => {
   const {
@@ -1109,6 +1111,22 @@ export const AdminPanel: React.FC = () => {
               >
                 <Ticket className="w-3.5 h-3.5 text-[#00DFFF]" />
                 <span>Cupons ({totalCoupons})</span>
+              </button>
+
+              {/* TAB: PROMOÇÕES (DESCONTO PROGRESSIVO & COMPRE JUNTO) */}
+              <button
+                onClick={() => {
+                  setActiveTab('promocoes');
+                  setTimeout(checkTabsScroll, 100);
+                }}
+                className={`flex items-center gap-1.5 px-3.5 py-2 rounded-xl text-xs font-bold transition-all cursor-pointer border shrink-0 ${
+                  activeTab === 'promocoes' || activeTab === 'combos_acessorios'
+                    ? 'bg-gradient-to-r from-amber-500 via-[#8423DA] to-[#00DFFF] text-white font-black border-[#00DFFF] shadow-[0_0_15px_rgba(0,223,255,0.35)]'
+                    : 'bg-[#11152A] text-gray-300 border-transparent hover:border-[#00DFFF]/40'
+                }`}
+              >
+                <Flame className="w-3.5 h-3.5 text-amber-400" />
+                <span>Promoções</span>
               </button>
 
               <button
@@ -2561,6 +2579,9 @@ export const AdminPanel: React.FC = () => {
             {/* SEÇÃO PERSONALIZÁVEL: GESTÃO DE CACHE & ARMAZENAMENTO DE IMAGENS */}
             <ImageStorageSettingsSection onNotify={showToast} />
 
+            {/* SEÇÃO: CONFIGURAÇÃO & TESTE DE NOTIFICAÇÕES WEB PUSH (SERVICE WORKER) */}
+            <WebPushSettingsSection onNotify={showToast} />
+
             <OwnerAdvancedSettings />
           </div>
         )}
@@ -2575,6 +2596,11 @@ export const AdminPanel: React.FC = () => {
             onClearInitialCustomer={() => setFocusedCustomerIdInUsersTab(null)}
             onNavigateToOrders={() => setActiveTab('pedidos')}
           />
+        )}
+
+        {/* ===================== TAB: PROMOÇÕES (DESCONTO PROGRESSIVO & COMPRE JUNTO) ===================== */}
+        {(activeTab === 'promocoes' || activeTab === 'combos_acessorios') && (
+          <CombosAndAddonsTab onNotify={showToast} />
         )}
 
         {/* ===================== TAB: CUPONS & LIMITES (SOLICITADO PELO USUÁRIO) ===================== */}
@@ -2686,8 +2712,8 @@ export const AdminPanel: React.FC = () => {
                             {coupon.code}
                           </span>
                           {!coupon.active && (
-                            <span className="px-2 py-0.5 rounded-md bg-gray-700 text-gray-300 text-[10px] font-bold">
-                              Inativo
+                            <span className="px-2 py-0.5 rounded-md bg-rose-500/20 border border-rose-500/30 text-rose-300 text-[10px] font-bold">
+                              {isExhausted ? 'Inativo (Limite atingido)' : 'Inativo'}
                             </span>
                           )}
                         </div>

@@ -170,6 +170,11 @@ export const ActivityLogsSection: React.FC = () => {
           bg: 'bg-orange-500/20 border-orange-500/40 text-orange-300',
           icon: <Trash className="w-3.5 h-3.5 text-orange-400 shrink-0" />,
         };
+      case 'PEDIDO_ATUALIZADO':
+        return {
+          bg: 'bg-cyan-500/20 border-cyan-400/50 text-[#00DFFF]',
+          icon: <Clock className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />,
+        };
       default:
         return {
           bg: 'bg-[#8423DA]/20 border-[#8423DA]/40 text-gray-300',
@@ -343,6 +348,7 @@ export const ActivityLogsSection: React.FC = () => {
                 className="py-2 px-3 rounded-xl bg-[#141838] border border-[#8423DA]/30 text-gray-200 text-xs focus:outline-none focus:border-[#00DFFF] cursor-pointer"
               >
                 <option value="all">Todas as Ações</option>
+                <option value="PEDIDO_ATUALIZADO">Status de Pedidos (Histórico de Vendas)</option>
                 <option value="produtos">Apenas Produtos (Criar/Editar/Excluir)</option>
                 <option value="PRODUTO_ADICIONADO">Adições de Produtos</option>
                 <option value="PRODUTO_EDITADO">Edições de Produtos</option>
@@ -413,6 +419,7 @@ export const ActivityLogsSection: React.FC = () => {
                                 {new Date(log.timestamp).toLocaleTimeString('pt-BR', {
                                   hour: '2-digit',
                                   minute: '2-digit',
+                                  second: '2-digit',
                                 })}
                               </span>
                             </div>

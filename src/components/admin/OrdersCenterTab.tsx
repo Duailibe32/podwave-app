@@ -61,6 +61,7 @@ import {
   Sparkles,
   Plus,
   Printer,
+  Trash2,
 } from 'lucide-react';
 import { ThermalReceiptModal } from './ThermalReceiptModal';
 
@@ -82,6 +83,7 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
     updateCatalogOrderPayment,
     grantLoyaltyStampForOrder,
     recordOrderInFinancialSales,
+    deleteCatalogOrder,
     allUsers,
     manualSales,
     settings,
@@ -95,10 +97,12 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
   const [paymentFilter, setPaymentFilter] = useState<'all' | CatalogOrderPaymentStatus>('all');
   const [searchQuery, setSearchQuery] = useState<string>('');
   const [viewMode, setViewMode] = useState<'kanban' | 'list'>('kanban');
+  const [isStatusAuditOpen, setIsStatusAuditOpen] = useState<boolean>(true);
 
   // Active modals & action states
   const [selectedOrderId, setSelectedOrderId] = useState<string | null>(null);
   const [deliveredPromptOrderId, setDeliveredPromptOrderId] = useState<string | null>(null);
+  const [confirmDeleteOrder, setConfirmDeleteOrder] = useState<CustomerOrderHistoryItem | null>(null);
   const [reasonModalState, setReasonModalState] = useState<{
     orderId: string;
     targetStatus: CatalogOrderStatus;
@@ -208,6 +212,56 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
         : null,
     [allCatalogOrders, deliveredPromptOrderId]
   );
+
+  // Agregador do Log de Auditoria Simples de Status de Pedidos (com Data e Horário exatos)
+  const orderStatusAuditEntries = useMemo(() => {
+    const entries: Array<{
+      id: string;
+      orderId: string;
+      referenceId: string;
+      customerName: string;
+      fromStatus: CatalogOrderStatus | null;
+      toStatus: CatalogOrderStatus;
+      changedAt: string;
+      changedBy: string;
+      reason?: string;
+    }> = [];
+
+    for (const ord of allCatalogOrders) {
+      const history =
+        Array.isArray(ord.statusHistory) && ord.statusHistory.length > 0
+          ? ord.statusHistory
+          : [
+              {
+                id: `${ord.id}-init`,
+                fromStatus: null,
+                toStatus: ord.status,
+                changedAt: ord.updatedAt || ord.createdAt,
+                changedBy: ord.updatedBy || ord.customerName || 'Sistema',
+                origin: 'checkout' as const,
+                reason: 'Registro inicial do pedido',
+              },
+            ];
+
+      for (const h of history) {
+        entries.push({
+          id: `${ord.id}-${h.id}-${h.changedAt}`,
+          orderId: ord.id,
+          referenceId: ord.referenceId.replace(/^#/, ''),
+          customerName: ord.customerName || 'Cliente PodWave',
+          fromStatus: h.fromStatus,
+          toStatus: h.toStatus,
+          changedAt: h.changedAt || ord.updatedAt || ord.createdAt,
+          changedBy: h.changedBy || 'Administrador',
+          reason: h.reason,
+        });
+      }
+    }
+
+    return entries.sort(
+      (a, b) => new Date(b.changedAt).getTime() - new Date(a.changedAt).getTime()
+    );
+  }, [allCatalogOrders]);
 
   // Handlers
   const handleInitiateStatusChange = async (
@@ -381,6 +435,29 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
           `Pedido #${order.referenceId} registrado em Minhas Vendas (Meu Negócio) sem duplicidade!`
         );
       }
+    } finally {
+      setBusyOrderId(null);
+    }
+  };
+
+  const handleConfirmDeleteOrder = async () => {
+    if (!confirmDeleteOrder) return;
+    const target = confirmDeleteOrder;
+    setBusyOrderId(target.id);
+    try {
+      const res = await deleteCatalogOrder(target.id);
+      if (!res.success) {
+        showFeedback('error', res.error || 'Não foi possível excluir o pedido.');
+        return;
+      }
+      if (selectedOrderId === target.id) {
+        setSelectedOrderId(null);
+      }
+      if (deliveredPromptOrderId === target.id) {
+        setDeliveredPromptOrderId(null);
+      }
+      setConfirmDeleteOrder(null);
+      showFeedback('success', `Pedido #${target.referenceId} excluído com sucesso!`);
     } finally {
       setBusyOrderId(null);
     }
@@ -804,6 +881,108 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
           </div>
         </div>
 
+        {/* Seletor Visual de Status Rápido (Supabase Realtime) */}
+        <div className="pt-2 border-t border-white/10 space-y-1.5">
+          <div className="flex items-center justify-between">
+            <span className="text-[10px] font-black uppercase text-gray-300 flex items-center gap-1 tracking-wider">
+              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-pulse" />
+              Status Visual • Realtime
+            </span>
+            <span className="text-[9px] text-[#A5A5B8]">
+              Clique para alterar estado
+            </span>
+          </div>
+
+          <div className="grid grid-cols-3 sm:grid-cols-6 gap-1">
+            {(
+              [
+                { id: 'recebido', label: 'Pendente', activeClass: 'bg-cyan-500/25 border-[#00DFFF] text-[#00DFFF]' },
+                { id: 'confirmado', label: 'Confirmado', activeClass: 'bg-blue-500/25 border-blue-400 text-blue-200' },
+                { id: 'em_separacao', label: 'Em Preparo', activeClass: 'bg-amber-500/25 border-amber-400 text-amber-200' },
+                { id: 'enviado', label: 'Enviado', activeClass: 'bg-purple-500/25 border-purple-400 text-purple-200' },
+                { id: 'entregue', label: 'Entregue', activeClass: 'bg-emerald-500/25 border-emerald-400 text-emerald-200' },
+                { id: 'cancelado', label: 'Cancelado', activeClass: 'bg-rose-500/25 border-rose-400 text-rose-200' },
+              ] as Array<{ id: CatalogOrderStatus; label: string; activeClass: string }>
+            ).map((stage) => {
+              const isCurrent = order.status === stage.id;
+              return (
+                <button
+                  key={stage.id}
+                  type="button"
+                  disabled={isBusy || isCurrent}
+                  onClick={() => handleInitiateStatusChange(order, stage.id)}
+                  className={`py-1 px-1.5 rounded-lg border text-[9px] font-black uppercase tracking-tight transition-all cursor-pointer truncate ${
+                    isCurrent
+                      ? `${stage.activeClass} shadow-sm`
+                      : 'bg-[#080811]/80 border-white/10 text-gray-400 hover:border-[#00DFFF]/40 hover:text-white'
+                  } disabled:cursor-default`}
+                  title={`Alterar status do pedido #${order.referenceId} para ${stage.label}`}
+                >
+                  {isCurrent ? `● ${stage.label}` : stage.label}
+                </button>
+              );
+            })}
+          </div>
+
+          {/* Log de Auditoria Simples do Pedido (Data e Horário de cada mudança de status) */}
+          <div className="mt-2 p-2.5 rounded-xl bg-[#080811]/90 border border-[#8423DA]/25 space-y-1.5">
+            <div className="flex items-center justify-between text-[10px]">
+              <span className="font-black uppercase tracking-wider text-[#00DFFF] flex items-center gap-1">
+                <History className="w-3 h-3 text-[#00DFFF]" />
+                <span>Log de Auditoria de Status</span>
+              </span>
+              <span className="text-[9px] font-mono text-gray-400">
+                {(order.statusHistory?.length || 1)}{' '}
+                {(order.statusHistory?.length || 1) === 1 ? 'registro' : 'registros'}
+              </span>
+            </div>
+
+            <div className="space-y-1 max-h-24 overflow-y-auto pr-1">
+              {(order.statusHistory && order.statusHistory.length > 0
+                ? [...order.statusHistory].reverse().slice(0, 4)
+                : [
+                    {
+                      id: 'init',
+                      fromStatus: null,
+                      toStatus: order.status,
+                      changedAt: order.updatedAt || order.createdAt,
+                      changedBy: order.updatedBy || order.customerName || 'Sistema',
+                      origin: 'checkout' as const,
+                    },
+                  ]
+              ).map((entry, idx) => {
+                const formattedDt = new Date(entry.changedAt).toLocaleString('pt-BR', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                });
+                const fromLabel = entry.fromStatus
+                  ? getOrderStatusMeta(entry.fromStatus).shortLabel
+                  : 'Criação';
+                const toLabel = getOrderStatusMeta(entry.toStatus).shortLabel;
+                return (
+                  <div
+                    key={`${entry.id}-${idx}`}
+                    className="flex items-center justify-between gap-2 text-[10px] py-0.5 border-b border-white/5 last:border-0"
+                  >
+                    <div className="flex items-center gap-1 min-w-0 truncate">
+                      <span className="text-gray-400 truncate">{fromLabel}</span>
+                      <ArrowRight className="w-2.5 h-2.5 text-[#00DFFF] shrink-0" />
+                      <span className="font-bold text-white truncate">{toLabel}</span>
+                    </div>
+                    <span className="font-mono text-[9px] text-emerald-300 shrink-0 tabular-nums">
+                      {formattedDt}
+                    </span>
+                  </div>
+                );
+              })}
+            </div>
+          </div>
+        </div>
+
         {/* Fast Action Bar */}
         <div className="pt-2 border-t border-white/10 flex flex-col gap-1.5">
           <div className="flex flex-wrap items-center gap-1.5">
@@ -899,6 +1078,17 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
             >
               Detalhes
             </button>
+
+            <button
+              type="button"
+              disabled={isBusy}
+              onClick={() => setConfirmDeleteOrder(order)}
+              aria-label={`Excluir pedido #${order.referenceId}`}
+              title="Excluir pedido da Central de Pedidos"
+              className="p-2 rounded-xl bg-rose-500/15 hover:bg-rose-500/30 border border-rose-500/35 text-rose-300 cursor-pointer transition shrink-0 disabled:opacity-40"
+            >
+              <Trash2 className="w-4 h-4" />
+            </button>
           </div>
         </div>
       </div>
@@ -910,15 +1100,21 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
       {/* Header Banner */}
       <div className="p-6 rounded-3xl bg-gradient-to-r from-[#141838] via-[#11152A] to-[#181D3D] border-2 border-[#00DFFF]/35 shadow-2xl flex flex-col lg:flex-row lg:items-center justify-between gap-4">
         <div className="space-y-1">
-          <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[11px] font-black uppercase tracking-wider">
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span>Central Inteligente de Pedidos • Tempo Real</span>
+          <div className="flex flex-wrap items-center gap-2">
+            <div className="inline-flex items-center gap-2 px-3 py-1 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/40 text-[#00DFFF] text-[11px] font-black uppercase tracking-wider">
+              <ShoppingBag className="w-3.5 h-3.5" />
+              <span>Central Inteligente de Pedidos • Tempo Real</span>
+            </div>
+            <div className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[10px] font-bold">
+              <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+              <span>Supabase Realtime Ativo</span>
+            </div>
           </div>
           <h2 className="font-heading text-2xl sm:text-3xl font-black text-white">
             Gerenciamento de Pedidos, Fidelidade e Financeiro
           </h2>
           <p className="text-xs sm:text-sm text-[#A5A5B8] max-w-2xl">
-            Acompanhe a fila de pedidos do catálogo, dê baixa automática no estoque ao confirmar, credite selos sem duplicidade e integre vendas reais ao módulo Meu Negócio.
+            Acompanhe a fila de pedidos do catálogo com escuta instantânea via Supabase Realtime, altere o status visual (Pendente, Confirmado, Em Preparo, Enviado, Entregue) em 1 clique e integre vendas reais ao módulo Meu Negócio.
           </p>
         </div>
 
@@ -933,6 +1129,19 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
               <span>Abrir Meu Negócio</span>
             </button>
           )}
+
+          <button
+            type="button"
+            onClick={() => setIsStatusAuditOpen((prev) => !prev)}
+            className={`px-3.5 py-2.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 cursor-pointer transition ${
+              isStatusAuditOpen
+                ? 'bg-[#00DFFF]/20 border-[#00DFFF] text-[#00DFFF]'
+                : 'bg-[#181D3D] hover:bg-[#8423DA]/30 border-[#8423DA]/40 text-gray-200'
+            }`}
+          >
+            <History className="w-4 h-4 text-[#00DFFF]" />
+            <span>Log de Auditoria ({orderStatusAuditEntries.length})</span>
+          </button>
 
           <button
             type="button"
@@ -958,6 +1167,110 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
           </button>
         </div>
       </div>
+
+      {/* LOG DE AUDITORIA SIMPLES DE ALTERAÇÕES DE STATUS DE PEDIDO */}
+      {isStatusAuditOpen && (
+        <div className="p-5 rounded-3xl bg-[#0D1022] border-2 border-[#00DFFF]/35 shadow-xl space-y-3 animate-in fade-in duration-200">
+          <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-white/10 pb-3">
+            <div className="flex items-center gap-2.5">
+              <div className="w-9 h-9 rounded-xl bg-[#00DFFF]/15 border border-[#00DFFF]/40 flex items-center justify-center text-[#00DFFF]">
+                <History className="w-4 h-4" />
+              </div>
+              <div>
+                <h3 className="font-heading text-sm sm:text-base font-black text-white flex items-center gap-2">
+                  <span>Log de Auditoria de Status de Pedidos</span>
+                  <span className="px-2 py-0.5 rounded-full bg-emerald-500/15 border border-emerald-400/40 text-emerald-300 text-[10px] font-mono">
+                    {orderStatusAuditEntries.length} registro(s)
+                  </span>
+                </h3>
+                <p className="text-[11px] text-[#A5A5B8]">
+                  Histórico cronológico de processamento de cada venda com data, horário exato, status anterior, novo status e responsável.
+                </p>
+              </div>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setIsStatusAuditOpen(false)}
+              className="self-start sm:self-auto px-3 py-1.5 rounded-xl bg-[#141838] hover:bg-white/10 border border-white/10 text-[11px] font-bold text-gray-300 cursor-pointer"
+            >
+              Ocultar Log
+            </button>
+          </div>
+
+          {orderStatusAuditEntries.length === 0 ? (
+            <p className="text-xs text-[#A5A5B8] py-4 text-center">
+              Nenhuma alteração de status registrada até o momento. Assim que um pedido for recebido ou tiver o status alterado, o histórico aparecerá aqui com data e hora.
+            </p>
+          ) : (
+            <div className="max-h-60 overflow-y-auto pr-1 space-y-1.5">
+              {orderStatusAuditEntries.slice(0, 30).map((item) => {
+                const formattedDate = new Date(item.changedAt).toLocaleDateString('pt-BR', {
+                  day: '2-digit',
+                  month: '2-digit',
+                  year: 'numeric',
+                });
+                const formattedTime = new Date(item.changedAt).toLocaleTimeString('pt-BR', {
+                  hour: '2-digit',
+                  minute: '2-digit',
+                  second: '2-digit',
+                });
+                const fromMeta = item.fromStatus ? getOrderStatusMeta(item.fromStatus) : null;
+                const toMeta = getOrderStatusMeta(item.toStatus);
+
+                return (
+                  <div
+                    key={item.id}
+                    className="p-2.5 rounded-xl bg-[#141838]/90 border border-white/10 hover:border-[#00DFFF]/40 transition flex flex-col sm:flex-row sm:items-center justify-between gap-2 text-xs"
+                  >
+                    <div className="flex flex-wrap items-center gap-2 min-w-0">
+                      <span className="font-mono text-[11px] font-black text-emerald-300 px-2 py-0.5 rounded-lg bg-emerald-500/10 border border-emerald-400/30 tabular-nums shrink-0">
+                        📅 {formattedDate} às {formattedTime}
+                      </span>
+
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrderId(item.orderId)}
+                        className="font-mono text-xs font-black text-[#00DFFF] hover:underline cursor-pointer shrink-0"
+                        title="Abrir detalhes completos deste pedido"
+                      >
+                        #{item.referenceId}
+                      </button>
+
+                      <span className="text-gray-200 font-bold truncate max-w-[160px]">
+                        {item.customerName}
+                      </span>
+
+                      <div className="flex items-center gap-1.5">
+                        <span className="px-2 py-0.5 rounded-md bg-white/5 border border-white/10 text-[10px] text-gray-300 font-semibold">
+                          {fromMeta ? fromMeta.shortLabel : 'Novo Pedido'}
+                        </span>
+                        <ArrowRight className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
+                        <span
+                          className={`px-2 py-0.5 rounded-md border text-[10px] font-black uppercase ${toMeta.badgeClass}`}
+                        >
+                          {toMeta.shortLabel}
+                        </span>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center gap-2 text-[11px] text-[#A5A5B8] shrink-0">
+                      {item.reason && (
+                        <span className="text-amber-300 italic truncate max-w-[200px]">
+                          "{item.reason}"
+                        </span>
+                      )}
+                      <span className="px-2 py-0.5 rounded bg-[#0D1022] border border-white/10 text-[10px] text-gray-300 font-mono">
+                        Por: {item.changedBy}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
 
       {/* Feedback Banner */}
       {feedbackBanner && (
@@ -1593,6 +1906,16 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                     <Printer className="w-3.5 h-3.5 text-[#00DFFF]" />
                     <span>Imprimir Comprovante (58/80mm)</span>
                   </button>
+
+                  <button
+                    type="button"
+                    disabled={busyOrderId === selectedOrder.id}
+                    onClick={() => setConfirmDeleteOrder(selectedOrder)}
+                    className="px-3 py-2 rounded-xl bg-rose-500/20 hover:bg-rose-500/35 border border-rose-400/50 text-rose-200 font-bold text-xs flex items-center gap-1.5 cursor-pointer active:scale-95 disabled:opacity-40"
+                  >
+                    <Trash2 className="w-3.5 h-3.5 text-rose-400" />
+                    <span>Excluir Pedido</span>
+                  </button>
                 </div>
               </div>
 
@@ -1830,6 +2153,52 @@ export const OrdersCenterTab: React.FC<OrdersCenterTabProps> = ({
                 className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-black cursor-pointer disabled:opacity-40"
               >
                 Confirmar Alteração
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ===================== MODAL DE CONFIRMAÇÃO DE EXCLUSÃO DE PEDIDO ===================== */}
+      {confirmDeleteOrder && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/85 backdrop-blur-md"
+          role="dialog"
+          aria-modal="true"
+        >
+          <div className="w-full max-w-md rounded-3xl bg-[#0D1022] border-2 border-rose-500/50 p-6 space-y-4 shadow-2xl">
+            <div className="flex items-center gap-3">
+              <div className="w-10 h-10 rounded-2xl bg-rose-500/20 border border-rose-500/40 flex items-center justify-center text-rose-400 shrink-0">
+                <Trash2 className="w-5 h-5" />
+              </div>
+              <div>
+                <h3 className="font-heading text-base font-black text-white">
+                  Excluir Pedido #{confirmDeleteOrder.referenceId}
+                </h3>
+                <p className="text-xs text-[#A5A5B8]">
+                  Cliente: {confirmDeleteOrder.customerName || 'Cliente PodWave'}
+                </p>
+              </div>
+            </div>
+            <p className="text-xs text-gray-300 leading-relaxed">
+              Tem certeza que deseja excluir permanentemente este pedido da Central de Pedidos e do banco de dados?
+            </p>
+            <div className="flex justify-end gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteOrder(null)}
+                className="px-4 py-2 rounded-xl bg-[#141838] hover:bg-white/10 text-gray-300 text-xs font-bold cursor-pointer"
+              >
+                Cancelar
+              </button>
+              <button
+                type="button"
+                disabled={busyOrderId === confirmDeleteOrder.id}
+                onClick={() => void handleConfirmDeleteOrder()}
+                className="px-4 py-2 rounded-xl bg-rose-500 hover:bg-rose-600 text-white text-xs font-black flex items-center gap-1.5 cursor-pointer disabled:opacity-40"
+              >
+                <Trash2 className="w-3.5 h-3.5" />
+                <span>Excluir Permanentemente</span>
               </button>
             </div>
           </div>

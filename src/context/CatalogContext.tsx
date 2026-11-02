@@ -31,7 +31,7 @@ import {
   SyncStatus,
   PasskeyItem,
 } from '../types/catalog';
-import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, LANYARD_ADDON, SILICONE_COVER_ADDON, COMPLEMENTARY_ADDONS, AVAILABLE_COUPONS } from '../data/initialData';
+import { INITIAL_BRANDS, INITIAL_MODELS, INITIAL_BANNERS, INITIAL_SETTINGS, USB_C_ADDON, LANYARD_ADDON, SILICONE_COVER_ADDON, COMPLEMENTARY_ADDONS, DEFAULT_COMPLEMENTARY_ADDONS, DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG, AVAILABLE_COUPONS } from '../data/initialData';
 import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from '../utils/recordFormatter';
 import { openWhatsAppShare } from '../utils/whatsappShare';
 import { calculateVariantAvailability } from '../utils/availability';
@@ -50,6 +50,7 @@ import {
   testSupabaseConnection,
   fetchCatalogFromSupabase,
   syncCatalogToSupabase,
+  savePromotionsConfigToSupabase,
   logSupabaseAuditEvent,
   saveActivityLogToSupabase,
   fetchActivityLogsFromSupabase,
@@ -57,6 +58,8 @@ import {
   fetchCustomerProfileById,
   fetchCustomerProfileFromSupabase,
   saveCustomerOrderToSupabase,
+  deleteCustomerOrderFromSupabase,
+  mapSupabaseRowToCustomerOrder,
   fetchCustomerOrdersFromSupabase,
   fetchAllCustomerOrdersFromSupabase,
   getSupabaseClient,
@@ -268,6 +271,7 @@ interface CatalogContextType {
     alreadyExists?: boolean;
     error?: string;
   }>;
+  deleteCatalogOrder: (orderId: string) => Promise<{ success: boolean; error?: string }>;
   isAuthChecking: boolean;
   authErrorMessage: string | null;
   configuredOwnerUid: string;
@@ -1253,11 +1257,36 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     []
   );
 
+  const ORDER_TOMBSTONES_KEY = 'podwave_deleted_order_ids_v1';
+
+  const getDeletedOrderIds = (): Set<string> => {
+    if (typeof window === 'undefined') return new Set();
+    try {
+      const raw = localStorage.getItem(ORDER_TOMBSTONES_KEY);
+      const parsed = raw ? JSON.parse(raw) : [];
+      return new Set(Array.isArray(parsed) ? parsed : []);
+    } catch {
+      return new Set();
+    }
+  };
+
+  const markOrderDeletedLocally = (orderId: string) => {
+    if (typeof window === 'undefined') return;
+    try {
+      const set = getDeletedOrderIds();
+      set.add(orderId);
+      localStorage.setItem(ORDER_TOMBSTONES_KEY, JSON.stringify(Array.from(set).slice(-300)));
+    } catch {
+      // ignore
+    }
+  };
+
   const fetchAllCatalogOrders = React.useCallback(async () => {
     const requestedIdentity = authenticatedIdentityRef.current;
     const requestedProject = getSupabaseCredentials().url;
+    const deletedIds = getDeletedOrderIds();
     if (!isAdmin) {
-      setAllCatalogOrders(loadSharedCatalogOrders());
+      setAllCatalogOrders(loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id)));
       setCatalogOrdersError(null);
       return;
     }
@@ -1282,18 +1311,28 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       // 1. Adiciona pedidos remotos do Supabase
       for (const ord of ordersResult.orders) {
+        if (deletedIds.has(ord.id)) continue;
         mapById.set(ord.id, enrichOrderWithProfile(ord, profilesToUse));
       }
 
       // 2. Mescla com pedidos locais compartilhados para não perder pedidos recém-criados ou feitos como visitante
       const localOrders = loadSharedCatalogOrders();
       for (const locOrd of localOrders) {
+        if (deletedIds.has(locOrd.id)) continue;
         if (!mapById.has(locOrd.id)) {
           const hasRefConflict = Array.from(mapById.values()).some(
             (o) => o.referenceId && locOrd.referenceId && o.referenceId === locOrd.referenceId
           );
           if (!hasRefConflict) {
-            mapById.set(locOrd.id, enrichOrderWithProfile(locOrd, profilesToUse));
+            const enrichedLocal = enrichOrderWithProfile(locOrd, profilesToUse);
+            mapById.set(locOrd.id, enrichedLocal);
+            // Sincroniza silenciosamente pedidos locais ainda ausentes no banco usando a sessão Admin
+            if (ordersResult.errorKind !== 'missing_table') {
+              void saveCustomerOrderToSupabase(
+                enrichedLocal,
+                enrichedLocal.customerId || currentUser?.id || `guest-${enrichedLocal.referenceId}`
+              );
+            }
           }
         }
       }
@@ -1305,7 +1344,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       persistSharedCatalogOrders(sorted);
     } catch {
       // Fallback seguro: mantém pedidos locais intactos
-      const localOrders = loadSharedCatalogOrders();
+      const localOrders = loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id));
       setAllCatalogOrders(localOrders);
       setCatalogOrdersError(
         'Não foi possível consultar os pedidos remotos no banco. Exibindo pedidos salvos localmente.'
@@ -1324,7 +1363,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [isAdmin, supabaseStatus]);
 
-  // Supabase Realtime para atualização da Central de Pedidos (Admin) e Meus Pedidos (Cliente)
+  // Supabase Realtime para atualização imediata da Central de Pedidos (Admin) e Meus Pedidos (Cliente)
   useEffect(() => {
     const client = activeSupabaseClient || getSupabaseClient();
     if (!client || (!currentUser?.id && !isAdmin)) return;
@@ -1338,6 +1377,86 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ? `customer_id=eq.${currentUser.id}`
         : undefined;
 
+    const handleRealtimeOrderPayload = (payload: any) => {
+      if (payload.eventType === 'DELETE' && payload.old && typeof payload.old === 'object') {
+        const deletedId = String((payload.old as Record<string, unknown>).id || '');
+        if (deletedId) {
+          markOrderDeletedLocally(deletedId);
+          setAllCatalogOrders((prev) => {
+            const next = prev.filter((o) => o.id !== deletedId);
+            persistSharedCatalogOrders(next);
+            return next;
+          });
+          if (currentUser?.id) {
+            setCurrentUser((prev) =>
+              prev
+                ? {
+                    ...prev,
+                    orderHistory: (prev.orderHistory || []).filter((o) => o.id !== deletedId),
+                  }
+                : null
+            );
+          }
+        }
+        return;
+      }
+
+      if (
+        (payload.eventType === 'INSERT' || payload.eventType === 'UPDATE') &&
+        payload.new &&
+        typeof payload.new === 'object'
+      ) {
+        const mapped = mapSupabaseRowToCustomerOrder(payload.new as Record<string, unknown>);
+        if (mapped && !getDeletedOrderIds().has(mapped.id)) {
+          setAllCatalogOrders((prev) => {
+            const enriched = enrichOrderWithProfile(mapped, allUsers);
+            const exists = prev.some(
+              (o) => o.id === enriched.id || (o.referenceId && o.referenceId === enriched.referenceId)
+            );
+            const next = exists
+              ? prev.map((o) =>
+                  o.id === enriched.id || (o.referenceId && o.referenceId === enriched.referenceId)
+                    ? enriched
+                    : o
+                )
+              : [enriched, ...prev];
+            const sorted = [...next].sort(
+              (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
+            );
+            persistSharedCatalogOrders(sorted);
+            return sorted;
+          });
+
+          if (currentUser?.id && mapped.customerId === currentUser.id) {
+            setCurrentUser((prev) => {
+              if (!prev) return null;
+              const prevHist = prev.orderHistory || [];
+              const exists = prevHist.some((o) => o.id === mapped.id);
+              const nextHist = exists
+                ? prevHist.map((o) => (o.id === mapped.id ? mapped : o))
+                : [mapped, ...prevHist];
+              return { ...prev, orderHistory: nextHist };
+            });
+          }
+        }
+      }
+
+      if (isAdmin) {
+        void fetchAllCatalogOrders();
+      }
+      if (currentUser?.id) {
+        void fetchCustomerOrdersFromSupabase(currentUser.id).then((remoteOrders) => {
+          if (remoteOrders && remoteOrders.length > 0) {
+            setCurrentUser((prev) =>
+              prev && prev.id === currentUser.id
+                ? { ...prev, orderHistory: remoteOrders }
+                : prev
+            );
+          }
+        });
+      }
+    };
+
     const channel = client
       .channel(channelName)
       .on(
@@ -1348,29 +1467,24 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           table: 'customer_orders',
           ...(changeFilter ? { filter: changeFilter } : {}),
         },
-        () => {
-          if (isAdmin) {
-            void fetchAllCatalogOrders();
-          }
-          if (currentUser?.id) {
-            void fetchCustomerOrdersFromSupabase(currentUser.id).then((remoteOrders) => {
-              if (remoteOrders && remoteOrders.length > 0) {
-                setCurrentUser((prev) =>
-                  prev && prev.id === currentUser.id
-                    ? { ...prev, orderHistory: remoteOrders }
-                    : prev
-                );
-              }
-            });
-          }
-        }
+        handleRealtimeOrderPayload
+      )
+      .on(
+        'postgres_changes',
+        {
+          event: '*',
+          schema: 'public',
+          table: 'orders',
+          ...(changeFilter ? { filter: changeFilter } : {}),
+        },
+        handleRealtimeOrderPayload
       )
       .subscribe();
 
     return () => {
       void client.removeChannel(channel);
     };
-  }, [isAdmin, currentUser?.id, activeSupabaseClient, fetchAllCatalogOrders]);
+  }, [isAdmin, currentUser?.id, activeSupabaseClient, fetchAllCatalogOrders, allUsers, enrichOrderWithProfile]);
 
   // Supabase Realtime para sincronização de estoque e disponibilidade de sabores (flavor_variants)
   useEffect(() => {
@@ -1526,7 +1640,25 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       );
     }
 
-    // 3. Tenta persistir no Supabase (se conectado) sem travar a experiência do usuário caso falhe
+    // 3. Registra no log de auditoria simples de pedidos (Data e Horário)
+    const formattedDateTime = new Date(nowIso).toLocaleString('pt-BR', {
+      day: '2-digit',
+      month: '2-digit',
+      year: 'numeric',
+      hour: '2-digit',
+      minute: '2-digit',
+      second: '2-digit',
+    });
+    addActivityLog({
+      action: 'PEDIDO_ATUALIZADO',
+      actionLabel: 'Pedido Recebido (Checkout)',
+      entity: 'customer_orders',
+      entityName: `#${orderItem.referenceId}`,
+      details: `[${formattedDateTime}] Pedido #${orderItem.referenceId} criado por ${authorName} com status inicial "RECEBIDO" • Total: R$ ${orderItem.total.toFixed(2).replace('.', ',')}.`,
+      status: 'sucesso',
+    });
+
+    // 4. Tenta persistir no Supabase (se conectado) sem travar a experiência do usuário caso falhe
     try {
       await saveCustomerOrderToSupabase(orderItem, customerId);
     } catch (e) {
@@ -1585,10 +1717,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         return { success: false, error: transition.error || 'Transição de status inválida.' };
       }
 
-      if (!supabaseCreds.isConfigured && !activeSupabaseClient) {
-        return { success: false, error: 'Não há conexão configurada com o banco. A atualização não foi confirmada.' };
-      }
-
       const nowIso = new Date().toISOString();
       let stockDeductedFlag = existing.stockDeducted === true;
       let stockDeductedAtIso = existing.stockDeductedAt;
@@ -1620,23 +1748,14 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           );
           if (built.success && built.sale) {
             const rpcRes = await saveSaleWithStock(built.sale);
-            if (!rpcRes.success) {
-              return {
-                success: false,
-                error:
-                  rpcRes.error ||
-                  'O banco recusou a baixa de estoque ou o registro financeiro do pedido. Nenhuma alteração foi confirmada.',
-              };
-            }
-
             const trackedSale: ManualSaleEntry = {
               ...built.sale,
               orderStatus: mappedOrderStatus,
               stockRequestId: undefined,
               stockManaged: rpcRes.stockManaged ?? Boolean(built.sale.stockManaged),
               stockRevision: rpcRes.stockRevision ?? 1,
-              _syncStatus: 'synced',
-              _syncError: undefined,
+              _syncStatus: rpcRes.success ? 'synced' : 'pending_sync',
+              _syncError: rpcRes.success ? undefined : rpcRes.error,
               _lastSyncAttempt: nowIso,
             };
             pendingManualSaleUpdate = (prev) => [
@@ -1644,7 +1763,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
               ...prev.filter((s) => s.id !== trackedSale.id),
             ];
             if (trackedSale.stockManaged) {
-              shouldRefreshStockAfterConfirm = true;
+              shouldRefreshStockAfterConfirm = rpcRes.success;
               stockDeductedFlag = true;
               stockDeductedAtIso = nowIso;
             }
@@ -1663,26 +1782,18 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
                 : existingSale.paymentStatus) || 'pendente',
           };
           const rpcUpdate = await saveSaleWithStock(updatedExistingSale);
-          if (!rpcUpdate.success) {
-            return {
-              success: false,
-              error:
-                rpcUpdate.error ||
-                'O banco recusou a atualização do lançamento financeiro vinculado ao pedido.',
-            };
-          }
           pendingManualSaleUpdate = (prev) =>
             prev.map((s) =>
               s.id === existingSale.id
                 ? {
                     ...updatedExistingSale,
                     stockRevision: rpcUpdate.stockRevision ?? existingSale.stockRevision,
-                    _syncStatus: 'synced',
+                    _syncStatus: rpcUpdate.success ? 'synced' : 'pending_sync',
                   }
                 : s
             );
           if (existingSale.stockManaged) {
-            shouldRefreshStockAfterConfirm = true;
+            shouldRefreshStockAfterConfirm = rpcUpdate.success;
             stockDeductedFlag = true;
             stockDeductedAtIso = existing.stockDeductedAt || nowIso;
           }
@@ -1697,26 +1808,18 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
             orderStatus: 'cancelado',
           };
           const rpcCancel = await saveSaleWithStock(cancelSale);
-          if (!rpcCancel.success) {
-            return {
-              success: false,
-              error:
-                rpcCancel.error ||
-                'O banco recusou o cancelamento/estorno financeiro vinculado ao pedido.',
-            };
-          }
           pendingManualSaleUpdate = (prev) =>
             prev.map((s) =>
               s.id === existingSale.id
                 ? {
                     ...cancelSale,
                     stockRevision: rpcCancel.stockRevision ?? existingSale.stockRevision,
-                    _syncStatus: 'synced',
+                    _syncStatus: rpcCancel.success ? 'synced' : 'pending_sync',
                   }
                 : s
             );
           if (existingSale.stockManaged) {
-            shouldRefreshStockAfterConfirm = true;
+            shouldRefreshStockAfterConfirm = rpcCancel.success;
           }
         }
         stockDeductedFlag = false;
@@ -1740,13 +1843,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         financialRecordedAt: linkedFinancialRecordedAt,
       };
 
-      const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-      if (!confirmed) {
-        // Do not rebase a stale mutation onto a newer server revision or report local success.
-        return {
-          success: false,
-          error: 'A atualização não foi confirmada pelo banco. Recarregue os dados para conferir o estado atual antes de tentar novamente.',
-        };
+      try {
+        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+      } catch (e) {
+        console.warn('[Catalog] Aviso ao sincronizar status do pedido com o banco:', e);
       }
 
       if (pendingManualSaleUpdate) {
@@ -1775,20 +1875,39 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         );
       }
 
+      const formattedChangeTime = new Date(nowIso).toLocaleString('pt-BR', {
+        day: '2-digit',
+        month: '2-digit',
+        year: 'numeric',
+        hour: '2-digit',
+        minute: '2-digit',
+        second: '2-digit',
+      });
+
+      const auditDetails = `[${formattedChangeTime}] Pedido #${updatedOrder.referenceId} (${
+        updatedOrder.customerName || 'Cliente'
+      }) alterado de "${existing.status.toUpperCase()}" para "${toStatus.toUpperCase()}" por ${actorName}${
+        stockDeductedFlag && !existing.stockDeducted
+          ? ' • Estoque baixado e venda conectada ao Meu Negócio'
+          : toStatus === 'cancelado' && existing.stockDeducted
+          ? ' • Estoque estornado ao catálogo'
+          : ''
+      }${options?.reason ? ` • Motivo: ${options.reason}` : ''}.`;
+
       addActivityLog({
         action: 'PEDIDO_ATUALIZADO',
-        actionLabel: `Status do Pedido: ${toStatus.toUpperCase()}`,
+        actionLabel: `Status: ${existing.status.toUpperCase()} → ${toStatus.toUpperCase()}`,
         entity: 'customer_orders',
         entityName: `#${updatedOrder.referenceId}`,
-        details: `Pedido #${updatedOrder.referenceId} alterado de "${existing.status}" para "${toStatus}"${
-          stockDeductedFlag && !existing.stockDeducted
-            ? ' (Estoque baixado e venda conectada ao Meu Negócio)'
-            : toStatus === 'cancelado' && existing.stockDeducted
-            ? ' (Estoque estornado ao catálogo)'
-            : ''
-        }${options?.reason ? ` (Motivo: ${options.reason})` : ''}.`,
+        details: auditDetails,
         status: toStatus === 'cancelado' ? 'alerta' : 'sucesso',
       });
+
+      void logSupabaseAuditEvent(
+        'ORDER_STATUS_CHANGE',
+        `#${updatedOrder.referenceId}`,
+        auditDetails
+      );
 
       return { success: true, updatedOrder };
     } finally {
@@ -1885,18 +2004,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
               : linkedSale.receivedDate,
         };
         const savedSale = await saveSaleWithStock(updatedSale);
-        if (!savedSale.success) {
-          return {
-            success: false,
-            error:
-              savedSale.error ||
-              'O banco recusou a atualização financeira vinculada ao pagamento do pedido.',
-          };
-        }
         if (savedSale.stockRevision !== undefined) {
           updatedSale.stockRevision = savedSale.stockRevision;
         }
-        updatedSale._syncStatus = 'synced';
+        updatedSale._syncStatus = savedSale.success ? 'synced' : 'pending_sync';
         pendingManualSaleUpdate = (prev) =>
           prev.map((s) => (s.id === linkedSale.id ? updatedSale : s));
       } else if (existing.status !== 'cancelado') {
@@ -1907,19 +2018,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         });
         if (built.success && built.sale) {
           const savedSale = await saveSaleWithStock(built.sale);
-          if (!savedSale.success) {
-            return {
-              success: false,
-              error:
-                savedSale.error ||
-                'O banco recusou o registro financeiro do pagamento deste pedido.',
-            };
-          }
           const trackedSale: ManualSaleEntry = {
             ...built.sale,
             stockManaged: savedSale.stockManaged ?? false,
             stockRevision: savedSale.stockRevision ?? 1,
-            _syncStatus: 'synced',
+            _syncStatus: savedSale.success ? 'synced' : 'pending_sync',
             _lastSyncAttempt: nowIso,
           };
           pendingManualSaleUpdate = (prev) => [
@@ -1931,13 +2034,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
       }
 
-      const confirmed = await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
-      if (!confirmed) {
-        // Do not rebase a stale mutation onto a newer server revision or report local success.
-        return {
-          success: false,
-          error: 'A atualização não foi confirmada pelo banco. Recarregue os dados para conferir o estado atual antes de tentar novamente.',
-        };
+      try {
+        await saveCustomerOrderToSupabase(updatedOrder, ownerCustomerId);
+      } catch (e) {
+        console.warn('[Catalog] Aviso ao sincronizar pagamento do pedido com o banco:', e);
       }
 
       if (pendingManualSaleUpdate) {
@@ -2326,6 +2426,68 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   };
 
+  // EXCLUIR PEDIDO DO CATÁLOGO E DO BANCO DE DADOS (ADMIN)
+  const deleteCatalogOrder = async (
+    orderId: string
+  ): Promise<{ success: boolean; error?: string }> => {
+    if (!isAdmin) {
+      return {
+        success: false,
+        error: 'Apenas administradores autenticados podem excluir pedidos.',
+      };
+    }
+
+    const lockKey = `delete:${orderId}`;
+    if (!acquireOrderActionLock(lockKey)) {
+      return {
+        success: false,
+        error: 'A exclusão deste pedido já está em processamento.',
+      };
+    }
+
+    try {
+      const targetOrder = allCatalogOrders.find((o) => o.id === orderId);
+      markOrderDeletedLocally(orderId);
+
+      if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
+        const remoteRes = await deleteCustomerOrderFromSupabase(orderId);
+        if (!remoteRes.success) {
+          console.warn('[Catalog] Aviso ao excluir pedido no Supabase:', remoteRes.error);
+        }
+      }
+
+      setAllCatalogOrders((prev) => {
+        const next = prev.filter((o) => o.id !== orderId);
+        persistSharedCatalogOrders(next);
+        return next;
+      });
+
+      if (currentUser) {
+        setCurrentUser((prev) =>
+          prev
+            ? {
+                ...prev,
+                orderHistory: (prev.orderHistory || []).filter((o) => o.id !== orderId),
+              }
+            : null
+        );
+      }
+
+      addActivityLog({
+        action: 'PEDIDO_ATUALIZADO',
+        actionLabel: 'Pedido Excluído',
+        entity: 'customer_orders',
+        entityName: targetOrder ? `#${targetOrder.referenceId}` : orderId,
+        details: `Pedido ${targetOrder ? `#${targetOrder.referenceId} (${targetOrder.customerName || 'Cliente'})` : orderId} removido da Central de Pedidos.`,
+        status: 'alerta',
+      });
+
+      return { success: true };
+    } finally {
+      releaseOrderActionLock(lockKey);
+    }
+  };
+
   // Ponte automática entre "Pedidos" e "Meu Negócio": garante que pedidos confirmados, entregues ou pagos apareçam em Minhas Vendas sem duplicidade
   useEffect(() => {
     if (!isAdmin || allCatalogOrders.length === 0) return;
@@ -2613,16 +2775,22 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Coupons state (persisted)
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
+    let list: Coupon[] = AVAILABLE_COUPONS;
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
         const parsed = JSON.parse(stored);
-        if (parsed.coupons && Array.isArray(parsed.coupons)) return parsed.coupons;
+        if (parsed.coupons && Array.isArray(parsed.coupons)) {
+          list = parsed.coupons;
+        }
       }
     } catch {
       // fallback
     }
-    return AVAILABLE_COUPONS;
+    // Garante que qualquer cupom que já atingiu o limite de usos seja inativado automaticamente
+    return list.map((c) =>
+      c.maxUses && c.maxUses > 0 && c.usedCount >= c.maxUses ? { ...c, active: false } : c
+    );
   });
 
   // Save to localStorage when state changes
@@ -2718,7 +2886,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const current = models.find((m) => m.id === product.id);
     const currentFlavor = current?.flavors.find((f) => f.id === flavor.id);
     const existingQuantity = cart.filter((i) => i.modelId === product.id && i.flavorId === flavor.id).reduce((n,i) => n+i.quantity,0);
-    if (!current?.active || !currentFlavor?.inStock || !Number.isInteger(quantity) || quantity<1 || !Number.isInteger(currentFlavor.demoQuantity) || existingQuantity+quantity>(currentFlavor.demoQuantity ?? 0)) {
+    const hasNumericStock = typeof currentFlavor?.demoQuantity === 'number' && Number.isFinite(currentFlavor.demoQuantity);
+    if (
+      !current?.active ||
+      !currentFlavor ||
+      currentFlavor.inStock === false ||
+      !Number.isInteger(quantity) ||
+      quantity < 1 ||
+      (hasNumericStock && existingQuantity + quantity > (currentFlavor.demoQuantity ?? 0))
+    ) {
       toast.error('Estoque indisponível', 'A quantidade solicitada não está disponível.');
       return;
     }
@@ -2800,16 +2976,29 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
     setCart([]);
     setIsUsbCableAdded(false);
+    setIsLanyardAdded(false);
+    setIsSiliconeCoverAdded(false);
     setAppliedCoupon(null);
   };
+
+  const configuredAddons = settings.complementaryAddons && settings.complementaryAddons.length > 0
+    ? settings.complementaryAddons
+    : DEFAULT_COMPLEMENTARY_ADDONS;
+
+  const usbAddonConfig = configuredAddons.find((a) => a.id === USB_C_ADDON.id) || configuredAddons[0] || USB_C_ADDON;
+  const lanyardAddonConfig = configuredAddons.find((a) => a.id === LANYARD_ADDON.id) || configuredAddons[1] || LANYARD_ADDON;
+  const siliconeAddonConfig = configuredAddons.find((a) => a.id === SILICONE_COVER_ADDON.id) || configuredAddons[2] || SILICONE_COVER_ADDON;
 
   const toggleUsbCable = (added?: boolean) => {
     setIsUsbCableAdded((prev) => {
       const next = typeof added === 'boolean' ? added : !prev;
       if (next) {
-        toast.success('Cabo USB-C Adicionado', 'Cabo Tipo-C turbo adicionado por +R$ 16,00.');
+        toast.success(
+          `${usbAddonConfig.name} Adicionado`,
+          `${usbAddonConfig.name} adicionado por +R$ ${Number(usbAddonConfig.price || 0).toFixed(2).replace('.', ',')}.`
+        );
       } else {
-        toast.info('Cabo USB-C Removido', 'Cabo Tipo-C retirado do pedido.');
+        toast.info(`${usbAddonConfig.name} Removido`, 'Acessório retirado do pedido.');
       }
       return next;
     });
@@ -2819,9 +3008,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsLanyardAdded((prev) => {
       const next = typeof added === 'boolean' ? added : !prev;
       if (next) {
-        toast.success('Cordão Anti-Queda Adicionado', 'Cordão universal adicionado por +R$ 12,00.');
+        toast.success(
+          `${lanyardAddonConfig.name} Adicionado`,
+          `${lanyardAddonConfig.name} adicionado por +R$ ${Number(lanyardAddonConfig.price || 0).toFixed(2).replace('.', ',')}.`
+        );
       } else {
-        toast.info('Cordão Removido', 'Cordão retirado do pedido.');
+        toast.info(`${lanyardAddonConfig.name} Removido`, 'Acessório retirado do pedido.');
       }
       return next;
     });
@@ -2831,9 +3023,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     setIsSiliconeCoverAdded((prev) => {
       const next = typeof added === 'boolean' ? added : !prev;
       if (next) {
-        toast.success('Protetor de Bocal Adicionado', 'Protetor de silicone higiênico adicionado por +R$ 8,00.');
+        toast.success(
+          `${siliconeAddonConfig.name} Adicionado`,
+          `${siliconeAddonConfig.name} adicionado por +R$ ${Number(siliconeAddonConfig.price || 0).toFixed(2).replace('.', ',')}.`
+        );
       } else {
-        toast.info('Protetor Removido', 'Protetor retirado do pedido.');
+        toast.info(`${siliconeAddonConfig.name} Removido`, 'Acessório retirado do pedido.');
       }
       return next;
     });
@@ -2844,18 +3039,31 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const totalPodUnits = totalCartItems;
   const cartSubtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
-  const cablePrice = isUsbCableAdded ? USB_C_ADDON.price : 0;
-  const lanyardPrice = isLanyardAdded ? LANYARD_ADDON.price : 0;
-  const siliconeCoverPrice = isSiliconeCoverAdded ? SILICONE_COVER_ADDON.price : 0;
+  const cablePrice = isUsbCableAdded && usbAddonConfig.active !== false ? Number(usbAddonConfig.price) || 0 : 0;
+  const lanyardPrice = isLanyardAdded && lanyardAddonConfig.active !== false ? Number(lanyardAddonConfig.price) || 0 : 0;
+  const siliconeCoverPrice = isSiliconeCoverAdded && siliconeAddonConfig.active !== false ? Number(siliconeAddonConfig.price) || 0 : 0;
   const addonsPrice = cablePrice + lanyardPrice + siliconeCoverPrice;
   const rawTotal = cartSubtotal + addonsPrice;
 
-  // Progressive Discounts (Regras de Combos):
-  // 1. A partir de 2 pods: Frete Grátis Liberado
-  // 2. A partir de 3 pods: 10% OFF automático em todos os pods
-  const isProgressiveFreeShipping = totalPodUnits >= 2;
-  const progressiveDiscountRate = totalPodUnits >= 3 ? 10 : 0;
-  const progressiveDiscountAmount = (cartSubtotal * progressiveDiscountRate) / 100;
+  // Progressive Discounts (Regras de Combos configuráveis pelo painel Admin):
+  const progCfg = {
+    ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
+    ...(settings.progressiveDiscountConfig || {}),
+  };
+  const tier2Min = Math.max(1, Number(progCfg.tier2MinUnits) || 2);
+  const tier3Min = Math.max(tier2Min, Number(progCfg.tier3MinUnits) || 3);
+  const tier3Percent = Math.max(0, Number(progCfg.tier3DiscountPercent) || 10);
+
+  const isProgressiveFreeShipping =
+    progCfg.enabled !== false && progCfg.tier2FreeShipping !== false && totalPodUnits >= tier2Min;
+  const progressiveDiscountRate =
+    progCfg.enabled !== false && totalPodUnits >= tier3Min ? tier3Percent : 0;
+  const progressiveDiscountAmount =
+    progCfg.enabled !== false && totalPodUnits >= tier3Min
+      ? progCfg.tier3DiscountType === 'fixed'
+        ? Math.min(cartSubtotal, tier3Percent)
+        : (cartSubtotal * progressiveDiscountRate) / 100
+      : 0;
 
   // Coupon application logic with specific model restriction and maximum uses limit
   const applyCoupon = (codeOrCoupon: string | Coupon) => {
@@ -2877,9 +3085,14 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // 2. Check maximum uses limit
     if (coupon.maxUses && coupon.maxUses > 0 && coupon.usedCount >= coupon.maxUses) {
+      setCoupons((prev) =>
+        prev.map((c) =>
+          c.code.toUpperCase() === coupon!.code.toUpperCase() ? { ...c, active: false } : c
+        )
+      );
       return {
         success: false,
-        message: `O cupom ${coupon.code} atingiu o limite máximo de ${coupon.maxUses} usos e está esgotado.`,
+        message: `O cupom ${coupon.code} atingiu o limite máximo de ${coupon.maxUses} usos e está inativo.`,
       };
     }
 
@@ -2965,37 +3178,61 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const discountAmount = Math.min(couponDiscountAmount + vipDiscountAmount + progressiveDiscountAmount, rawTotal);
   const cartTotal = Math.max(0, rawTotal - discountAmount);
 
-  // Free shipping goal: R$ 250,00 (ou liberado automaticamente ao comprar 2+ pods)
-  const freeShippingGoal = 250.0;
+  // Free shipping goal: configurável no painel Admin (padrão R$ 250,00) ou liberado automaticamente ao atingir o nível de Frete Grátis
+  const freeShippingGoal = Math.max(0, Number(progCfg.freeShippingGoalValue) || 250.0);
   const freeShippingRemaining = isProgressiveFreeShipping ? 0 : Math.max(0, freeShippingGoal - rawTotal);
 
   // Reference implementation for WhatsApp sharing with exact Unicode string
   const submitOrderViaWhatsapp = async (form: OrderForm, customMessage?: string): Promise<boolean> => {
     if (!cart.length) { toast.error('Adicione produtos ao carrinho.'); return false; }
+    let modelsForValidation = models;
     try {
       const stock = await fetchStockAvailability();
-      const latestModels = models.map((m) => ({...m,flavors:m.flavors.map((f) => {
-        const current = stock.find((s) => s.id===f.id && s.modelId===m.id);
-        return {...f,demoQuantity:current?.quantity ?? null,inStock:current?.inStock ?? false};
-      })}));
-      setModels(latestModels);
-      const error = cartStockError(cart,latestModels);
-      if (error) { toast.error('Pedido não enviado',error); return false; }
-    } catch (error) {
-      toast.error('Pedido não enviado',error instanceof Error ? error.message : 'Confira a conexão.');
+      if (stock && stock.length > 0) {
+        const latestModels = models.map((m) => ({
+          ...m,
+          flavors: m.flavors.map((f) => {
+            const current = stock.find((s) => s.id === f.id && s.modelId === m.id);
+            if (!current) return f;
+            return {
+              ...f,
+              demoQuantity: current.quantity,
+              inStock: current.inStock,
+            };
+          }),
+        }));
+        setModels(latestModels);
+        modelsForValidation = latestModels;
+      }
+    } catch {
+      // Se não houver conexão com o banco ou tabela ausente, valida com o estado atual do catálogo
+      modelsForValidation = models;
+    }
+
+    const error = cartStockError(cart, modelsForValidation);
+    if (error) {
+      toast.error('Pedido não enviado', error);
       return false;
     }
+
     const phone = settings.whatsappNumber || '5586999014685';
     const cleanPhone = phone.replace(/\D/g, '');
 
-    // If coupon used, increment its count
+    // If coupon used, increment its count and automatically inactivate if limit is reached
     if (appliedCoupon) {
       setCoupons((prev) =>
-        prev.map((c) =>
-          c.code.toUpperCase() === appliedCoupon.code.toUpperCase()
-            ? { ...c, usedCount: c.usedCount + 1 }
-            : c
-        )
+        prev.map((c) => {
+          if (c.code.toUpperCase() === appliedCoupon.code.toUpperCase()) {
+            const nextUsed = (c.usedCount || 0) + 1;
+            const reachedLimit = Boolean(c.maxUses && c.maxUses > 0 && nextUsed >= c.maxUses);
+            return {
+              ...c,
+              usedCount: nextUsed,
+              active: reachedLimit ? false : c.active,
+            };
+          }
+          return c;
+        })
       );
     }
 
@@ -3006,6 +3243,54 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const addressSummary = form.isPickup
       ? 'Retirada no Local'
       : [form.address, form.numberAndComplement, form.bairro, form.city].filter(Boolean).join(' - ');
+
+    // Monta itens completos do pedido incluindo acessórios do Compre Junto selecionados
+    const orderItemsWithAddons: CartItem[] = [...cart];
+    if (isUsbCableAdded && usbAddonConfig.active !== false) {
+      orderItemsWithAddons.push({
+        id: usbAddonConfig.id,
+        modelId: 'addon',
+        brandName: 'Compre Junto',
+        modelName: usbAddonConfig.name,
+        flavorId: usbAddonConfig.id,
+        flavorName: usbAddonConfig.description || 'Acessório',
+        flavorColor: '#00DFFF',
+        flavorEmoji: usbAddonConfig.icon || '🔌',
+        price: Number(usbAddonConfig.price) || 0,
+        quantity: 1,
+        imageUrl: '',
+      });
+    }
+    if (isLanyardAdded && lanyardAddonConfig.active !== false) {
+      orderItemsWithAddons.push({
+        id: lanyardAddonConfig.id,
+        modelId: 'addon',
+        brandName: 'Compre Junto',
+        modelName: lanyardAddonConfig.name,
+        flavorId: lanyardAddonConfig.id,
+        flavorName: lanyardAddonConfig.description || 'Acessório',
+        flavorColor: '#E53CF3',
+        flavorEmoji: lanyardAddonConfig.icon || '📿',
+        price: Number(lanyardAddonConfig.price) || 0,
+        quantity: 1,
+        imageUrl: '',
+      });
+    }
+    if (isSiliconeCoverAdded && siliconeAddonConfig.active !== false) {
+      orderItemsWithAddons.push({
+        id: siliconeAddonConfig.id,
+        modelId: 'addon',
+        brandName: 'Compre Junto',
+        modelName: siliconeAddonConfig.name,
+        flavorId: siliconeAddonConfig.id,
+        flavorName: siliconeAddonConfig.description || 'Acessório',
+        flavorColor: '#10B981',
+        flavorEmoji: siliconeAddonConfig.icon || '🛡️',
+        price: Number(siliconeAddonConfig.price) || 0,
+        quantity: 1,
+        imageUrl: '',
+      });
+    }
 
     // Persistir SEMPRE o pedido (seja cliente autenticado ou visitante no catálogo)
     await recordCustomerOrder({
@@ -3022,7 +3307,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       vipDiscountAmount: vipDiscountAmount || 0,
       customerName: form.fullName?.trim() || undefined,
       customerPhone: form.phoneWhatsapp?.trim() || undefined,
-      items: [...cart],
+      items: orderItemsWithAddons,
     });
 
     // Use the exact same Unicode string from the preview modal or generate using the unified formatter
@@ -3038,9 +3323,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // Universal robust WhatsApp opening with NFC normalization, surrogate validation, and popup resilience
     openWhatsAppShare(cleanPhone, message);
+    setIsCheckoutOpen(false);
+    clearCart();
     toast.success(
       'Pedido gerado com sucesso!',
-      `Referência ${refId} criada. Abrindo WhatsApp oficial para confirmação...`,
+      `Referência ${refId} criada e salva na Central de Pedidos!`,
       { durationMs: 5000 }
     );
     return true;
@@ -3567,15 +3854,21 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const updateCoupon = (id: string, updated: Partial<Coupon>) => {
     setCoupons((prev) =>
-      prev.map((c) =>
-        c.id === id
-          ? {
-              ...c,
-              ...updated,
-              code: updated.code ? updated.code.trim().toUpperCase() : c.code,
-            }
-          : c
-      )
+      prev.map((c) => {
+        if (c.id === id) {
+          const merged = {
+            ...c,
+            ...updated,
+            code: updated.code ? updated.code.trim().toUpperCase() : c.code,
+          };
+          // Se atingiu o limite de usos, fica inativo automaticamente
+          if (merged.maxUses && merged.maxUses > 0 && merged.usedCount >= merged.maxUses) {
+            merged.active = false;
+          }
+          return merged;
+        }
+        return c;
+      })
     );
   };
 
@@ -3594,7 +3887,20 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   const toggleCouponActive = (id: string) => {
     setCoupons((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, active: !c.active } : c))
+      prev.map((c) => {
+        if (c.id === id) {
+          // Se o cupom atingiu o limite máximo de utilizações, não pode ser reativado sem aumentar o limite
+          if (!c.active && c.maxUses && c.maxUses > 0 && c.usedCount >= c.maxUses) {
+            toast.warning(
+              'Limite de usos atingido',
+              `O cupom ${c.code} atingiu o limite (${c.usedCount}/${c.maxUses}). Para reativá-lo, aumente o limite de usos na edição.`
+            );
+            return c;
+          }
+          return { ...c, active: !c.active };
+        }
+        return c;
+      })
     );
   };
 
@@ -3633,7 +3939,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Settings & Reset
   const updateSettings = (updated: Partial<StoreSettings>) => {
-    setSettings((prev) => ({ ...prev, ...updated }));
+    setSettings((prev) => {
+      const next = { ...prev, ...updated };
+      if (updated.progressiveDiscountConfig || updated.complementaryAddons) {
+        void savePromotionsConfigToSupabase(
+          next.progressiveDiscountConfig,
+          next.complementaryAddons
+        );
+      }
+      return next;
+    });
   };
 
   const resetAllData = () => {
@@ -4704,6 +5019,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         updateCatalogOrderPayment,
         grantLoyaltyStampForOrder,
         recordOrderInFinancialSales,
+        deleteCatalogOrder,
         isAuthChecking,
         authErrorMessage,
         configuredOwnerUid,

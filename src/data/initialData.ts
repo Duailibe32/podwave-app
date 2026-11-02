@@ -1,4 +1,4 @@
-import { Brand, ProductModel, BannerSlide, StoreSettings, Coupon, ImageStorageConfig } from '../types/catalog';
+import { Brand, ProductModel, BannerSlide, StoreSettings, Coupon, ImageStorageConfig, ProgressiveDiscountConfig, ComplementaryAddonItem } from '../types/catalog';
 
 export const INITIAL_BRANDS: Brand[] = [
   {
@@ -547,38 +547,59 @@ export const INITIAL_BANNERS: BannerSlide[] = [
   },
 ];
 
-export const USB_C_ADDON = {
+export const USB_C_ADDON: ComplementaryAddonItem = {
   id: 'addon-usbc-turbo',
   name: 'Cabo USB tipo C 1m TURBO',
   description: 'para carregar seu pod com rapidez',
   price: 16.00,
   icon: '🔌',
   emoji: '⚡',
+  active: true,
+  themeColor: 'cyan',
 };
 
-export const LANYARD_ADDON = {
+export const LANYARD_ADDON: ComplementaryAddonItem = {
   id: 'addon-lanyard',
   name: 'Cordão Anti-Queda PodWave',
   description: 'com anel de silicone universal',
   price: 12.00,
   icon: '📿',
   emoji: '✨',
+  active: true,
+  themeColor: 'magenta',
 };
 
-export const SILICONE_COVER_ADDON = {
+export const SILICONE_COVER_ADDON: ComplementaryAddonItem = {
   id: 'addon-silicone-cover',
   name: 'Protetor Higiênico de Bocal',
   description: 'silicone anti-poeira para saída de vapor',
   price: 8.00,
   icon: '🛡️',
   emoji: '🧼',
+  active: true,
+  themeColor: 'emerald',
 };
 
-export const COMPLEMENTARY_ADDONS = [
+export const DEFAULT_COMPLEMENTARY_ADDONS: ComplementaryAddonItem[] = [
   USB_C_ADDON,
   LANYARD_ADDON,
   SILICONE_COVER_ADDON,
 ];
+
+export const COMPLEMENTARY_ADDONS = DEFAULT_COMPLEMENTARY_ADDONS;
+
+export const DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG: ProgressiveDiscountConfig = {
+  enabled: true,
+  title: 'Desconto Progressivo • Leve Mais, Pague Menos',
+  tier1Label: 'Catálogo',
+  tier2MinUnits: 2,
+  tier2Label: 'Frete Grátis ✓',
+  tier2FreeShipping: true,
+  tier3MinUnits: 3,
+  tier3DiscountPercent: 10,
+  tier3Label: '10% OFF Total 🔥',
+  freeShippingGoalValue: 250,
+};
 
 export const AVAILABLE_COUPONS: Coupon[] = [
   {
@@ -683,4 +704,6 @@ export const INITIAL_SETTINGS: StoreSettings = {
   pixKeyType: 'telefone',
   pixBeneficiary: 'PodWave Teresina',
   imageStorageConfig: DEFAULT_IMAGE_STORAGE_CONFIG,
+  progressiveDiscountConfig: DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
+  complementaryAddons: DEFAULT_COMPLEMENTARY_ADDONS,
 };
