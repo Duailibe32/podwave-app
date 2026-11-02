@@ -3285,15 +3285,65 @@ export async function deleteManualSaleFromSupabase(saleId: string): Promise<bool
   if (!client) return false;
 
   try {
-    const { data: sale, error: readError } = await client.from('manual_sales').select('stock_revision').eq('id', saleId).maybeSingle();
+    const { data: sale, error: readError } = await client
+      .from('manual_sales')
+      .select('*')
+      .eq('id', saleId)
+      .maybeSingle();
+
+    // Se a venda não existe na tabela remota (ex.: estava apenas no cache local ou já foi removida), confirma imediatamente
+    if (!readError && !sale) {
+      return true;
+    }
+
     if (!readError && sale) {
+      const revision = Number(sale.stock_revision) || 0;
       const { error } = await client.rpc('save_sale_with_stock', {
         p_sale: { id: saleId },
-        p_expected_revision: sale.stock_revision ?? 0,
+        p_expected_revision: revision,
         p_request_id: crypto.randomUUID(),
         p_delete: true,
       });
       if (!error) return true;
+
+      // Se a revisão mudou em outra aba/dispositivo, lê a revisão atualizada e tenta novamente
+      if (/outro dispositivo|revis/i.test(error.message || '')) {
+        const { data: latestSale } = await client
+          .from('manual_sales')
+          .select('stock_revision')
+          .eq('id', saleId)
+          .maybeSingle();
+        if (!latestSale) return true;
+        const retryRev = await client.rpc('save_sale_with_stock', {
+          p_sale: { id: saleId },
+          p_expected_revision: Number(latestSale.stock_revision) || 0,
+          p_request_id: crypto.randomUUID(),
+          p_delete: true,
+        });
+        if (!retryRev.error) return true;
+      }
+
+      // Se algum sabor alocado estiver com demo_quantity NULL impedindo a devolução, inicializa em 0 e repete a exclusão
+      if (/Defina o estoque|sabor vinculado/i.test(error.message || '')) {
+        const allocation =
+          sale.stock_allocation && typeof sale.stock_allocation === 'object'
+            ? (sale.stock_allocation as Record<string, unknown>)
+            : {};
+        for (const flavorId of Object.keys(allocation)) {
+          await client
+            .from('flavor_variants')
+            .update({ demo_quantity: 0, in_stock: false, updated_at: new Date().toISOString() })
+            .eq('id', flavorId)
+            .is('demo_quantity', null);
+        }
+        const retryNullStock = await client.rpc('save_sale_with_stock', {
+          p_sale: { id: saleId },
+          p_expected_revision: revision,
+          p_request_id: crypto.randomUUID(),
+          p_delete: true,
+        });
+        if (!retryNullStock.error) return true;
+      }
     }
 
     const fallbackDel = await executeConfirmedSupabaseDelete('manual_sales', saleId);

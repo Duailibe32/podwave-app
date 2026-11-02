@@ -1,19 +1,6 @@
 -- ============================================================================
 -- PODWAVE — REPARO DE PEDIDOS ENTRE APARELHOS (CELULAR ↔ PC) E PERFIS
 -- Arquivo: supabase/proposals/20261102_fix_cross_device_orders_and_profiles.sql
---
--- O QUE ESTE SCRIPT RESOLVE (100% IDEMPOTENTE E SEM APAGAR NENHUM REGISTRO):
--- 1. Corrige a função de trigger app_security.podwave_guard_profile_permissions()
---    removendo expressões inválidas (pg_catalog.coalesce / pg_catalog.nullif / current_user)
---    que impediam novas contas secundárias de criarem seu perfil em customer_profiles.
--- 2. Sincroniza automaticamente em public.customer_profiles qualquer conta já
---    criada em auth.users (como a sua conta secundária do celular) que tenha
---    ficado sem perfil devido ao bloqueio anterior da trigger.
--- 3. Garante que public.customer_orders possua todas as colunas esperadas pelo
---    catálogo (order_code, delivery_info, coupon_code, vip_discount_applied,
---    vip_discount_amount) e permissões GRANT + políticas RLS para que clientes
---    autenticados no celular consigam inserir pedidos e o Admin no PC visualize
---    todos em tempo real.
 -- ============================================================================
 
 BEGIN;
@@ -37,8 +24,7 @@ ALTER TABLE public.customer_orders
   ADD COLUMN IF NOT EXISTS vip_discount_applied BOOLEAN DEFAULT false,
   ADD COLUMN IF NOT EXISTS vip_discount_amount NUMERIC(10, 2) DEFAULT 0;
 
--- 2. Reparar a trigger function app_security.podwave_guard_profile_permissions()
---    (caso exista no banco) sem usar pg_catalog.coalesce, pg_catalog.nullif ou current_user
+-- 2. Reparar a trigger function app_security.podwave_guard_profile_permissions() (se existir)
 DO $$
 BEGIN
   IF to_regnamespace('app_security') IS NOT NULL
@@ -131,8 +117,7 @@ BEGIN
   END IF;
 END $$;
 
--- 3. Backfill seguro: criar perfil em public.customer_profiles para qualquer conta
---    já existente em auth.users (ex.: sua conta secundária criada no celular)
+-- 3. Criar automaticamente o perfil em public.customer_profiles para contas de auth.users (ex.: sua conta secundária)
 DO $$
 DECLARE
   v_has_name boolean;
@@ -159,9 +144,7 @@ BEGIN
       'customer',
       NOW()
     FROM auth.users au
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.customer_profiles cp WHERE cp.id = au.id::text
-    )
+    WHERE NOT EXISTS (SELECT 1 FROM public.customer_profiles cp WHERE cp.id = au.id::text)
     ON CONFLICT (id) DO NOTHING;
   ELSIF v_has_full_name THEN
     INSERT INTO public.customer_profiles (id, email, full_name, phone, role, updated_at)
@@ -173,9 +156,7 @@ BEGIN
       'customer',
       NOW()
     FROM auth.users au
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.customer_profiles cp WHERE cp.id = au.id::text
-    )
+    WHERE NOT EXISTS (SELECT 1 FROM public.customer_profiles cp WHERE cp.id = au.id::text)
     ON CONFLICT (id) DO NOTHING;
   ELSIF v_has_name THEN
     INSERT INTO public.customer_profiles (id, email, name, phone, role, updated_at)
@@ -187,20 +168,15 @@ BEGIN
       'customer',
       NOW()
     FROM auth.users au
-    WHERE NOT EXISTS (
-      SELECT 1 FROM public.customer_profiles cp WHERE cp.id = au.id::text
-    )
+    WHERE NOT EXISTS (SELECT 1 FROM public.customer_profiles cp WHERE cp.id = au.id::text)
     ON CONFLICT (id) DO NOTHING;
   END IF;
 END $$;
 
--- 4. Garantir GRANTs e Políticas RLS em public.customer_profiles e public.customer_orders
---    para que qualquer conta autenticada (no celular ou PC) consiga criar e ler seus próprios pedidos
---    e o Admin/Owner veja e gerencie todos os pedidos em tempo real.
+-- 4. Garantir GRANTs e Políticas RLS em public.customer_profiles e public.customer_orders usando public.is_admin()
 GRANT SELECT, INSERT, UPDATE ON TABLE public.customer_profiles TO authenticated;
 GRANT SELECT, INSERT, UPDATE, DELETE ON TABLE public.customer_orders TO authenticated;
 
--- Remover eventual política restritiva que bloqueava INSERT de clientes não-admin
 DROP POLICY IF EXISTS "Block unvalidated customer inserts" ON public.customer_orders;
 DROP POLICY IF EXISTS "Users can view own orders or admins view all" ON public.customer_orders;
 DROP POLICY IF EXISTS "Users can insert own orders or admins insert" ON public.customer_orders;
@@ -213,8 +189,7 @@ CREATE POLICY "Users can view own orders or admins view all"
   TO authenticated
   USING (
     customer_id = auth.uid()::text
-    OR (to_regprocedure('public.is_admin()') IS NOT NULL AND public.is_admin())
-    OR (to_regprocedure('app_security.is_admin()') IS NOT NULL AND app_security.is_admin())
+    OR public.is_admin()
   );
 
 CREATE POLICY "Users can insert own orders or admins insert"
@@ -223,33 +198,23 @@ CREATE POLICY "Users can insert own orders or admins insert"
   TO authenticated
   WITH CHECK (
     customer_id = auth.uid()::text
-    OR (to_regprocedure('public.is_admin()') IS NOT NULL AND public.is_admin())
-    OR (to_regprocedure('app_security.is_admin()') IS NOT NULL AND app_security.is_admin())
+    OR public.is_admin()
   );
 
 CREATE POLICY "Admins can update orders"
   ON public.customer_orders
   FOR UPDATE
   TO authenticated
-  USING (
-    (to_regprocedure('public.is_admin()') IS NOT NULL AND public.is_admin())
-    OR (to_regprocedure('app_security.is_admin()') IS NOT NULL AND app_security.is_admin())
-  )
-  WITH CHECK (
-    (to_regprocedure('public.is_admin()') IS NOT NULL AND public.is_admin())
-    OR (to_regprocedure('app_security.is_admin()') IS NOT NULL AND app_security.is_admin())
-  );
+  USING (public.is_admin())
+  WITH CHECK (public.is_admin());
 
 CREATE POLICY "Admins can delete orders"
   ON public.customer_orders
   FOR DELETE
   TO authenticated
-  USING (
-    (to_regprocedure('public.is_admin()') IS NOT NULL AND public.is_admin())
-    OR (to_regprocedure('app_security.is_admin()') IS NOT NULL AND app_security.is_admin())
-  );
+  USING (public.is_admin());
 
--- 5. Garantir publicação Realtime ativa para customer_orders
+-- 5. Garantir Realtime ativo e recarregar cache do PostgREST
 DO $$
 BEGIN
   IF EXISTS (SELECT 1 FROM pg_publication WHERE pubname = 'supabase_realtime') THEN
@@ -262,7 +227,6 @@ BEGIN
   END IF;
 END $$;
 
--- Recarregar schema cache do PostgREST imediatamente
 NOTIFY pgrst, 'reload schema';
 
 COMMIT;

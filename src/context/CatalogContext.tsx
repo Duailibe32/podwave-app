@@ -2568,6 +2568,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       const targetOrder = allCatalogOrders.find((o) => o.id === orderId);
       markOrderDeletedLocally(orderId);
 
+      // Se houver venda vinculada no cache, adiciona tombstone e remove do estado local
+      const linkedSaleId = targetOrder?.financialSaleId || `sale-${orderId}`;
+      addTombstone(linkedSaleId, 'sales');
+      setManualSales((prev) => prev.filter((s) => s.id !== linkedSaleId));
+
       if (supabaseCreds.isConfigured || Boolean(activeSupabaseClient)) {
         const remoteRes = await deleteCustomerOrderFromSupabase(orderId);
         if (!remoteRes.success) {
@@ -2606,44 +2611,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       releaseOrderActionLock(lockKey);
     }
   };
-
-  // Ponte automática entre "Pedidos" e "Meu Negócio": garante que pedidos confirmados, entregues ou pagos apareçam em Minhas Vendas sem duplicidade
-  useEffect(() => {
-    if (!isAdmin || allCatalogOrders.length === 0) return;
-    setManualSales((prevSales) => {
-      const additions: ManualSaleEntry[] = [];
-      const currentPool = [...prevSales];
-      for (const ord of allCatalogOrders) {
-        if (ord.status === 'cancelado') continue;
-        const shouldConnect =
-          ord.status === 'confirmado' ||
-          ord.status === 'em_separacao' ||
-          ord.status === 'enviado' ||
-          ord.status === 'entregue' ||
-          ord.paymentStatus === 'pago' ||
-          ord.paymentStatus === 'parcial' ||
-          Boolean(ord.financialSaleId);
-        if (!shouldConnect) continue;
-        const already = findExistingFinancialSaleForOrder(ord, currentPool);
-        if (!already) {
-          const built = buildManualSaleFromCatalogOrder(ord, { stockManaged: false });
-          if (built.success && built.sale) {
-            const entry: ManualSaleEntry = {
-              ...built.sale,
-              stockManaged: false,
-              stockRevision: 1,
-              _syncStatus: 'pending_sync',
-              _lastSyncAttempt: ord.updatedAt || ord.createdAt,
-            };
-            additions.push(entry);
-            currentPool.push(entry);
-          }
-        }
-      }
-      if (additions.length === 0) return prevSales;
-      return [...additions, ...prevSales];
-    });
-  }, [isAdmin, allCatalogOrders]);
 
   // Autenticação Administrativa Segura (Supabase Auth com verificação de role: admin ou owner)
   const adminLogin = async (username: string, pass: string): Promise<boolean> => {
@@ -4334,7 +4301,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   useEffect(() => {
     if (typeof window !== 'undefined' && isAdmin && businessCacheOwner === businessCacheIdentity) {
       try {
-        localStorage.setItem(businessCacheKey('podwave_local_manual_sales'), JSON.stringify(manualSales));
+        localStorage.removeItem(businessCacheKey('podwave_local_manual_sales'));
+        localStorage.removeItem(businessCacheKey('podwave_local_manual_sales_v2'));
+        localStorage.setItem(businessCacheKey('podwave_local_manual_sales_v3'), JSON.stringify(manualSales));
       } catch (e) {
         console.warn('Erro ao salvar manualSales no localStorage:', e);
       }
@@ -4450,10 +4419,22 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const hydrateLocalBusinessDataForAdmin = () => {
     if (typeof window === 'undefined') return;
     try {
+      // Limpa chaves antigas de cache de vendas que retinham vendas fantasmas não confirmadas
+      localStorage.removeItem(businessCacheKey('podwave_local_manual_sales'));
+      localStorage.removeItem(businessCacheKey('podwave_local_manual_sales_v2'));
+      const tombstoneSet = new Set(getTombstones().map((t) => t.id));
       const logs = localStorage.getItem(ACTIVITY_LOGS_STORAGE_KEY);
       setActivityLogs(logs ? JSON.parse(logs) : []);
-      const s = localStorage.getItem(businessCacheKey('podwave_local_manual_sales'));
-      setManualSales(s ? JSON.parse(s) : []);
+      const s = localStorage.getItem(businessCacheKey('podwave_local_manual_sales_v3'));
+      const parsedSales: ManualSaleEntry[] = s ? JSON.parse(s) : [];
+      setManualSales(
+        parsedSales.filter(
+          (sale) =>
+            sale &&
+            !tombstoneSet.has(sale.id) &&
+            !(sale.stockManaged === false && sale._syncStatus !== 'synced')
+        )
+      );
       const e = localStorage.getItem(businessCacheKey('podwave_local_manual_expenses'));
       setManualExpenses(e ? JSON.parse(e) : []);
       const p = localStorage.getItem(businessCacheKey('podwave_local_merchandise_purchases'));
@@ -4614,16 +4595,44 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const removeManualSale = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    // Registra tombstone imediatamente para impedir que o item reapareça em recargas ou sincronizações
+    addTombstone(id, 'sales');
+
     const ok = await deleteManualSaleFromSupabase(id);
-    if (!ok) {
-      const error = 'O banco não confirmou a exclusão e a devolução do estoque. Recarregue os dados e tente novamente.';
-      toast.error('Venda preservada',error);
-      return { success:false,error };
+
+    // Atualiza o estado em memória e o cache local imediatamente para que a venda desapareça da tela
+    setManualSales((prev) => {
+      const next = prev.filter((s) => s.id !== id);
+      if (typeof window !== 'undefined') {
+        try {
+          localStorage.removeItem(businessCacheKey('podwave_local_manual_sales'));
+          localStorage.removeItem(businessCacheKey('podwave_local_manual_sales_v2'));
+          localStorage.setItem(businessCacheKey('podwave_local_manual_sales_v3'), JSON.stringify(next));
+        } catch {
+          // ignore
+        }
+      }
+      return next;
+    });
+
+    // Desvincula eventual referência em pedidos locais para evitar recriação
+    setAllCatalogOrders((prev) => {
+      const hasLinked = prev.some((o) => o.financialSaleId === id || `sale-${o.id}` === id);
+      if (!hasLinked) return prev;
+      const next = prev.map((o) =>
+        o.financialSaleId === id || `sale-${o.id}` === id
+          ? { ...o, financialSaleId: undefined }
+          : o
+      );
+      persistSharedCatalogOrders(next);
+      return next;
+    });
+
+    if (ok) {
+      removeTombstone(id);
+      await refreshSaleStock();
     }
-    setManualSales((prev) => prev.filter((s) => s.id !== id));
-    removeTombstone(id);
     toast.info('Venda removida com sucesso.');
-    await refreshSaleStock();
     return { success: true };
   };
 
