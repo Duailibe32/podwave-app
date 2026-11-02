@@ -2328,43 +2328,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     [isAdmin, allCatalogOrders]
   );
 
-  // DIAGNÓSTICO COMPLETO DE CONEXÃO E RLS (TABELAS 'orders' E 'customer_orders') + AUTO-RECONCILIAÇÃO
+  // Diagnóstico manual independente do cache; abrir/login nunca cria sondas ou pedidos.
   const diagnoseOrdersConnection = React.useCallback(
-    async (runWriteProbe = true): Promise<SupabaseOrdersRLSDiagnosticReport> => {
-      const localOrders = loadSharedCatalogOrders();
-      const report = await diagnoseSupabaseOrdersConnectionAndRLS({
-        localOrdersToReconcile: localOrders,
-        runWriteProbe,
-      });
-      if ((report.reconciledLocalOrders?.syncedNow || 0) > 0) {
-        await fetchAllCatalogOrders();
-      }
-      return report;
-    },
-    [fetchAllCatalogOrders]
+    async (runWriteProbe = false): Promise<SupabaseOrdersRLSDiagnosticReport> =>
+      diagnoseSupabaseOrdersConnectionAndRLS({ runWriteProbe }),
+    []
   );
-
-  const hasRunAutoOrderDiagRef = useRef<string | null>(null);
-  useEffect(() => {
-    const uid = currentUser?.id || (isAdmin ? 'admin-session' : null);
-    if (!uid) return;
-    if (hasRunAutoOrderDiagRef.current === uid) return;
-    hasRunAutoOrderDiagRef.current = uid;
-
-    // Executa diagnóstico automático em segundo plano e exibe o relatório detalhado no console
-    const timer = setTimeout(() => {
-      void diagnoseSupabaseOrdersConnectionAndRLS({
-        localOrdersToReconcile: loadSharedCatalogOrders(),
-        runWriteProbe: true,
-      }).then((report) => {
-        if ((report.reconciledLocalOrders?.syncedNow || 0) > 0) {
-          void fetchAllCatalogOrders();
-        }
-      });
-    }, 1200);
-
-    return () => clearTimeout(timer);
-  }, [currentUser?.id, isAdmin, fetchAllCatalogOrders]);
 
   // Autenticação Administrativa Segura (Supabase Auth com verificação de role: admin ou owner)
   const adminLogin = async (username: string, pass: string): Promise<boolean> => {
@@ -2935,7 +2904,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const tier2Min = Math.max(1, Number(progCfg.tier2MinUnits) || 2);
   const tier2Percent = Math.max(0, Number(progCfg.tier2DiscountPercent ?? 5));
   const tier3Min = Math.max(tier2Min, Number(progCfg.tier3MinUnits) || 3);
-  const tier3Percent = Math.max(0, Number(progCfg.tier3DiscountPercent) || 10);
+  const tier3Percent = Math.max(0, Number(progCfg.tier3DiscountPercent ?? 10));
 
   const isProgressiveFreeShipping =
     progCfg.enabled !== false && progCfg.tier2FreeShipping === true && totalPodUnits >= tier2Min;
@@ -4394,6 +4363,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const removeManualSale = async (id: string): Promise<{ success: boolean; error?: string }> => {
+    // A venda do pedido permanece vinculada: cancelamento e estorno pertencem à Central.
+    if (allCatalogOrders.some(order => order.financialSaleId === id || `sale-ord-${order.id}` === id || `sale-${order.id}` === id)) {
+      return { success: false, error: 'Venda vinculada a um pedido. Cancele o pedido na Central de Pedidos para estornar o estoque; a venda vinculada será preservada para auditoria.' };
+    }
     // Registra tombstone imediatamente para impedir que o item reapareça em recargas ou sincronizações
     addTombstone(id, 'sales');
 
@@ -4416,19 +4389,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
           // ignore
         }
       }
-      return next;
-    });
-
-    // Desvincula eventual referência em pedidos locais para evitar recriação
-    setAllCatalogOrders((prev) => {
-      const hasLinked = prev.some((o) => o.financialSaleId === id || `sale-${o.id}` === id);
-      if (!hasLinked) return prev;
-      const next = prev.map((o) =>
-        o.financialSaleId === id || `sale-${o.id}` === id
-          ? { ...o, financialSaleId: undefined }
-          : o
-      );
-      persistSharedCatalogOrders(next);
       return next;
     });
 

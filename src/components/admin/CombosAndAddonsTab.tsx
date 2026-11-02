@@ -311,7 +311,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
     : `${tier2Val}% OFF`;
 
   const tier3Min = Math.max(tier2Min, Number(progForm.tier3MinUnits) || 3);
-  const tier3Val = Math.max(0, Number(progForm.tier3DiscountPercent) || 10);
+  const tier3Val = Math.max(0, Number(progForm.tier3DiscountPercent ?? 10));
   const isFixedDiscount = progForm.tier3DiscountType === 'fixed';
   const formattedTier3Discount = isFixedDiscount
     ? `R$ ${tier3Val.toFixed(2).replace('.', ',')} OFF`
@@ -579,7 +579,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                       <button
                         type="button"
                         onClick={() => {
-                          const val = progForm.tier3DiscountPercent || 10;
+                          const val = progForm.tier3DiscountPercent ?? 10;
                           setProgForm({
                             ...progForm,
                             tier3DiscountType: 'percent',
@@ -597,7 +597,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                       <button
                         type="button"
                         onClick={() => {
-                          const val = progForm.tier3DiscountPercent || 15;
+                          const val = progForm.tier3DiscountPercent ?? 15;
                           setProgForm({
                             ...progForm,
                             tier3DiscountType: 'fixed',
