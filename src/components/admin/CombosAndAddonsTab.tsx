@@ -58,7 +58,14 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
           found &&
           (found.name === 'Protetor Higiênico de Bocal' ||
             found.name === 'Capinha de Silicone Protetora');
-        const merged = found && !isLegacyThird ? { ...def, ...found } : { ...def };
+        const merged = found ? {
+          ...def, ...found,
+          ...(isLegacyThird ? {
+            name: def.name, description: def.description,
+            price: found.price === 8 ? def.price : found.price,
+            icon: def.icon, emoji: def.emoji,
+          } : {}),
+        } : { ...def };
         return {
           ...merged,
           applicableModelId: merged.applicableModelId || 'all',
@@ -108,7 +115,14 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
             found &&
             (found.name === 'Protetor Higiênico de Bocal' ||
               found.name === 'Capinha de Silicone Protetora');
-          const merged = found && !isLegacyThird ? { ...def, ...found } : { ...def };
+          const merged = found ? {
+          ...def, ...found,
+          ...(isLegacyThird ? {
+            name: def.name, description: def.description,
+            price: found.price === 8 ? def.price : found.price,
+            icon: def.icon, emoji: def.emoji,
+          } : {}),
+        } : { ...def };
           return {
             ...merged,
             applicableModelId: merged.applicableModelId || 'all',
@@ -417,6 +431,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
             <label className="inline-flex items-center gap-2.5 px-3.5 py-2 rounded-xl bg-[#141838] border border-[#00DFFF]/35 cursor-pointer">
               <input
                 type="checkbox"
+                aria-label="Ativar desconto progressivo no carrinho"
                 checked={progForm.enabled !== false}
                 onChange={(e) => setProgForm({ ...progForm, enabled: e.target.checked })}
                 className="w-4 h-4 rounded accent-[#00DFFF] cursor-pointer"
@@ -793,6 +808,12 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                 </div>
               </div>
 
+              {progForm.enabled === false && (
+                <p role="status" className="rounded-xl border border-amber-400/30 bg-amber-400/10 p-3 text-xs text-amber-200">
+                  Promoção desativada: esta é uma prévia de edição. O card está oculto no carrinho dos clientes.
+                  Para exibi-lo, ative a regra e clique em Salvar Promoções no Banco.
+                </p>
+              )}
               <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#121636] to-[#0D1022] border border-[#00DFFF]/35 space-y-2.5 shadow-md">
                 <div className="flex items-center justify-between text-xs">
                   <span className="font-extrabold flex items-center gap-1.5 text-white">
@@ -904,7 +925,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                   2. Compre Junto • Acessórios Recomendados & Vínculo de Produtos
                 </h3>
                 <p className="text-xs text-[#A5A5B8]">
-                  Configure preço, nome e vincule cada acessório recomendado a <strong>produtos principais específicos</strong> (ou exiba para todo o catálogo).
+                  Marque Ativo e clique em Salvar Promoções no Banco para exibir o acessório. Configure preço, nome e vincule cada acessório a <strong>produtos principais específicos</strong> (ou exiba para todo o catálogo).
                 </p>
               </div>
             </div>
