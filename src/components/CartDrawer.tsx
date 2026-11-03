@@ -22,6 +22,8 @@ import {
 export const CartDrawer: React.FC = () => {
   const {
     cart,
+    reorderFeedback,
+    clearReorderFeedback,
     removeFromCart,
     updateCartQuantity,
     isUsbCableAdded,
@@ -163,6 +165,11 @@ export const CartDrawer: React.FC = () => {
 
           {/* MAIN SCROLLABLE CONTENT */}
           <div className="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-5 space-y-5">
+            {reorderFeedback && <div role="status" className="p-3 rounded-xl border border-cyan-400/30 bg-cyan-400/10 text-xs text-cyan-100 space-y-2">
+              <div className="flex items-center justify-between gap-2"><strong>{reorderFeedback.addedUnits} {reorderFeedback.addedUnits === 1 ? 'unidade adicionada' : 'unidades adicionadas'} do pedido anterior</strong><button type="button" aria-label="Dispensar aviso de recompra" onClick={clearReorderFeedback} className="min-h-11 min-w-11 flex items-center justify-center shrink-0"><X className="w-4 h-4" /></button></div>
+              <p>Preços atuais aplicados. Revise acessórios, cupom e frete na finalização.</p>
+              {reorderFeedback.warnings.length > 0 && <div className="space-y-1 text-amber-200"><p className="font-bold">Itens que ficaram de fora:</p>{reorderFeedback.warnings.map((message, index) => <p key={index}>{message}</p>)}</div>}
+            </div>}
             {/* Empty State */}
             {cart.length === 0 ? (
               <div className="py-16 text-center space-y-4">

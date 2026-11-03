@@ -3,7 +3,7 @@ const {transformSync}=require('esbuild');
 function compile(source,globals={}){const module={exports:{}};vm.runInNewContext(transformSync(source,{loader:'ts',format:'cjs'}).code,{module,exports:module.exports,...globals});return module.exports;}
 const {selectProductDiscount}=compile(fs.readFileSync('src/utils/productDiscount.ts','utf8'));
 const {isCouponEligibleForCart}=compile(fs.readFileSync('src/utils/checkoutTotals.ts','utf8'));
-const source=fs.readFileSync('src/context/CatalogContext.tsx','utf8');
+const source=fs.readFileSync('src/context/CatalogContext.tsx','utf8').replace(/\r\n/g,'\n');
 const start=source.indexOf('  const progCfg = {');
 const calculation=source.slice(start,source.indexOf('  const getCheckoutSummary',start));
 const baseCoupon={id:'qa',code:'QA',active:true,usedCount:0,discountType:'fixed',value:0};

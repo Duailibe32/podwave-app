@@ -13,6 +13,7 @@ const tests=[
   'test-addon-visibility',
   'test-discount-exclusivity',
   'test-mobile-scroll-lock',
+  'test-reorder',
 ];
 for(const name of tests){
   const result=spawnSync(process.execPath,[`scripts/${name}.cjs`],{stdio:'inherit'});

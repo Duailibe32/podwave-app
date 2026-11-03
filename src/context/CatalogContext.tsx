@@ -1,3 +1,4 @@
+import { prepareReorder, type ReorderFeedback } from '../utils/reorder';
 import { selectProductDiscount } from '../utils/productDiscount';
 import { calculateCheckoutTotals, isCouponEligibleForCart, type CheckoutSummary } from '../utils/checkoutTotals';
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
@@ -330,6 +331,9 @@ interface CatalogContextType {
   // Cart & Drawers
   cart: CartItem[];
   addToCart: (product: ProductModel, flavor: FlavorVariant, quantity?: number) => void;
+  repeatOrder: (items: CartItem[]) => ReorderFeedback;
+  reorderFeedback: ReorderFeedback | null;
+  clearReorderFeedback: () => void;
   removeFromCart: (cartItemId: string) => void;
   updateCartQuantity: (cartItemId: string, delta: number) => void;
   clearCart: () => void;
@@ -2735,6 +2739,18 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
   }, [cart]);
 
+  const [reorderFeedback, setReorderFeedback] = useState<ReorderFeedback | null>(null);
+  const repeatOrder = (items: CartItem[]): ReorderFeedback => {
+    const result = prepareReorder(items, models, cart);
+    setReorderFeedback({ addedUnits: result.addedUnits, warnings: result.warnings });
+    if (result.addedUnits > 0) {
+      setCart(result.cart);
+      setIsCartOpen(true);
+    }
+    return { addedUnits: result.addedUnits, warnings: result.warnings };
+  };
+  const clearReorderFeedback = () => setReorderFeedback(null);
+
   const addToCart = (product: ProductModel, flavor: FlavorVariant, quantity = 1) => {
     const current = models.find((m) => m.id === product.id);
     const currentFlavor = current?.flavors.find((f) => f.id === flavor.id);
@@ -2824,6 +2840,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   const clearCart = () => {
+    setReorderFeedback(null);
     if (cart.length > 0) {
       toast.info('Carrinho esvaziado', 'Todos os produtos foram removidos.');
     }
@@ -4973,6 +4990,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setActiveSelectedFlavor,
         cart,
         addToCart,
+        repeatOrder,
+        reorderFeedback,
+        clearReorderFeedback,
         removeFromCart,
         updateCartQuantity,
         clearCart,
