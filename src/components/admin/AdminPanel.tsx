@@ -792,7 +792,7 @@ export const AdminPanel: React.FC = () => {
   const [isCouponModalOpen, setIsCouponModalOpen] = useState(false);
   const [couponForm, setCouponForm] = useState({
     code: '',
-    discountType: 'percent' as 'percent' | 'fixed',
+    discountType: 'percent' as 'percent' | 'fixed' | 'free_shipping',
     value: 15,
     description: '',
     applicableModelId: 'all',
@@ -845,7 +845,7 @@ export const AdminPanel: React.FC = () => {
       updateCoupon(editingCoupon.id, {
         code: trimmedCode,
         discountType: couponForm.discountType,
-        value: Number(couponForm.value),
+        value: couponForm.discountType === 'free_shipping' ? 0 : Number(couponForm.value),
         description: couponForm.description,
         applicableModelId: couponForm.applicableModelId,
         applicableModelName: targetModelName,
@@ -858,8 +858,8 @@ export const AdminPanel: React.FC = () => {
       addCoupon({
         code: trimmedCode,
         discountType: couponForm.discountType,
-        value: Number(couponForm.value),
-        description: couponForm.description || `${couponForm.value}% de desconto`,
+        value: couponForm.discountType === 'free_shipping' ? 0 : Number(couponForm.value),
+        description: couponForm.description || (couponForm.discountType === 'free_shipping' ? 'Frete grátis' : `${couponForm.value}${couponForm.discountType === 'percent' ? '%' : ' reais'} de desconto`),
         applicableModelId: couponForm.applicableModelId,
         applicableModelName: targetModelName,
         maxUses: Number(couponForm.maxUses) > 0 ? Number(couponForm.maxUses) : undefined,
@@ -2719,7 +2719,7 @@ export const AdminPanel: React.FC = () => {
                         </div>
 
                         <span className="px-2.5 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 font-heading font-black text-xs shrink-0">
-                          {coupon.discountType === 'percent'
+                          {coupon.discountType === 'free_shipping' ? 'Frete grátis' : coupon.discountType === 'percent'
                             ? `${coupon.value}% OFF`
                             : `R$ ${coupon.value.toFixed(2).replace('.', ',')} OFF`}
                         </span>
@@ -3394,13 +3394,14 @@ export const AdminPanel: React.FC = () => {
                     onChange={(e) =>
                       setCouponForm({
                         ...couponForm,
-                        discountType: e.target.value as 'percent' | 'fixed',
+                        discountType: e.target.value as 'percent' | 'fixed' | 'free_shipping',
                       })
                     }
                     className="w-full p-2.5 rounded-xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/30 text-white light:text-slate-900 focus:outline-none focus:border-[#00DFFF] cursor-pointer"
                   >
                     <option value="percent">Porcentagem (%)</option>
                     <option value="fixed">Valor Fixo (R$)</option>
+                    <option value="free_shipping">Frete grátis</option>
                   </select>
                 </div>
 
@@ -3412,7 +3413,8 @@ export const AdminPanel: React.FC = () => {
                     type="number"
                     step="0.5"
                     min="1"
-                    value={couponForm.value}
+                    disabled={couponForm.discountType === 'free_shipping'}
+                    value={couponForm.discountType === 'free_shipping' ? 0 : couponForm.value}
                     onChange={(e) => setCouponForm({ ...couponForm, value: parseFloat(e.target.value) || 0 })}
                     placeholder="15"
                     required

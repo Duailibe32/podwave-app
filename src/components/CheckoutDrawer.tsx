@@ -43,7 +43,7 @@ export const CheckoutDrawer: React.FC = () => {
     vipDiscountAmount,
     vipDiscountRate,
     cartSubtotal,
-    cartTotal,
+    getCheckoutSummary,
     isCheckoutOpen,
     setIsCheckoutOpen,
     submitOrderViaWhatsapp,
@@ -158,6 +158,8 @@ export const CheckoutDrawer: React.FC = () => {
 
   if (!isCheckoutOpen) return null;
 
+  const checkoutSummary = getCheckoutSummary(isPickup, [city.trim(), addressState.trim()].filter(Boolean).join(' - '));
+
   const handleFormatPhone = (val: string) => setPhoneWhatsapp(formatBrazilianPhone(val));
 
   const handleSubmit = (e: React.FormEvent) => {
@@ -178,6 +180,11 @@ export const CheckoutDrawer: React.FC = () => {
     }
     if (!paymentMethod || paymentMethod === 'Selecione...') {
       setErrorMessage('Por favor selecione a forma de pagamento desejada.');
+      return;
+    }
+
+    if (checkoutSummary.shippingNeedsQuote) {
+      setErrorMessage('Frete a combinar: confira cidade e UF. A loja precisa cadastrar a distância desse destino antes de finalizar.');
       return;
     }
 
@@ -562,7 +569,7 @@ type="text"
                   <span>Cupom de Desconto</span>
                 </label>
                 <span className="text-[10px] font-bold px-2 py-0.5 rounded-full bg-[#8423DA]/30 text-[#00DFFF] border border-[#8423DA]/40">
-                  Redução % no Total
+                  Desconto ou frete grátis
                 </span>
               </div>
 
@@ -623,7 +630,7 @@ type="text"
                     <Tag className="w-3.5 h-3.5 text-emerald-400" />
                     <span className="font-bold">{appliedCoupon.code}</span>
                     <span className="text-[11px] text-gray-300 light:text-slate-600">
-                      ({appliedCoupon.discountType === 'percent' ? `${appliedCoupon.value}% OFF` : `R$ ${appliedCoupon.value} OFF`})
+                      ({appliedCoupon.discountType === 'free_shipping' ? 'Frete grátis' : appliedCoupon.discountType === 'percent' ? `${appliedCoupon.value}% OFF` : `R$ ${appliedCoupon.value} OFF`})
                     </span>
                   </div>
 
@@ -701,6 +708,17 @@ type="text"
                   </div>
                 )}
 
+                <div className="flex items-center justify-between text-xs py-1 text-emerald-300">
+                  <span>{isPickup ? 'Retirada no local' : checkoutSummary.freeShippingApplied ? checkoutSummary.freeShippingSource === 'coupon' ? 'Entrega (cupom)' : 'Entrega (promoção)' : 'Taxa de entrega'}</span>
+                  <span className="font-bold font-mono">{checkoutSummary.shippingNeedsQuote ? 'A combinar' : checkoutSummary.deliveryFee === 0 ? 'Grátis' : `+R$ ${checkoutSummary.deliveryFee.toFixed(2).replace('.', ',')}`}</span>
+                </div>
+
+                {checkoutSummary.deliveryEstimate && (
+                  <p className="text-xs text-gray-400">Estimativa por cidade: {checkoutSummary.deliveryDistanceKm} km de {checkoutSummary.deliveryOriginCity}.
+                    Distância cadastrada pela loja; não é uma rota calculada em tempo real.</p>
+                )}
+                {checkoutSummary.shippingNeedsQuote && <p className="text-xs text-amber-300">Confirme cidade e UF. Frete a combinar com a loja; o valor abaixo não inclui entrega.</p>}
+
                 {progressiveDiscountAmount > 0 && (
                   <div className="flex items-center justify-between text-xs py-1 text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/30">
                     <span className="flex items-center gap-1 font-bold">
@@ -729,10 +747,10 @@ type="text"
                   <div className="flex items-center justify-between text-xs py-1 text-emerald-400 bg-emerald-500/10 px-2 py-1 rounded-lg">
                     <span className="flex items-center gap-1">
                       <Tag className="w-3 h-3" />
-                      Cupom ({appliedCoupon.code} &bull; {appliedCoupon.discountType === 'percent' ? `${appliedCoupon.value}%` : ''} OFF):
+                      {appliedCoupon.discountType === 'free_shipping' ? `Cupom de frete (${appliedCoupon.code}):` : `Cupom (${appliedCoupon.code}):`}
                     </span>
                     <span className="font-bold font-mono">
-                      -R$ {(discountAmount - vipDiscountAmount - progressiveDiscountAmount > 0 ? discountAmount - vipDiscountAmount - progressiveDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}
+                      {appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' ? 'Frete grátis aplicado' : 'Sem isenção adicional' : `-R$ ${(discountAmount - vipDiscountAmount - progressiveDiscountAmount > 0 ? discountAmount - vipDiscountAmount - progressiveDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}`}
                     </span>
                   </div>
                 )}
@@ -741,7 +759,7 @@ type="text"
               <div className="pt-2 flex items-baseline justify-between border-t border-[#8423DA]/20">
                 <div>
                   <span className="font-heading font-extrabold text-sm text-white light:text-slate-900 block">
-                    Total
+                    {checkoutSummary.shippingNeedsQuote ? 'Subtotal sem frete' : checkoutSummary.deliveryEstimate ? 'Total estimado' : 'Total'}
                   </span>
                   {appliedCoupon && (
                     <span className="text-[10px] text-emerald-400 font-bold">
@@ -750,7 +768,7 @@ type="text"
                   )}
                 </div>
                 <span className="font-heading text-2xl font-black text-white light:text-slate-900">
-                  R$ {cartTotal.toFixed(2).replace('.', ',')}
+                  R$ {checkoutSummary.totalAmount.toFixed(2).replace('.', ',')}
                 </span>
               </div>
             </div>

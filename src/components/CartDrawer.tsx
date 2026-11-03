@@ -614,7 +614,7 @@ export const CartDrawer: React.FC = () => {
                 {appliedCoupon && (
                   <div className="flex justify-between text-emerald-400">
                     <span>Cupom ({appliedCoupon.code}):</span>
-                    <span className="font-mono">-R$ {(discountAmount - vipDiscountAmount - progressiveDiscountAmount > 0 ? discountAmount - vipDiscountAmount - progressiveDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}</span>
+                    <span className="font-mono">{appliedCoupon.discountType === 'free_shipping' ? 'Isenção na entrega' : `-R$ ${(discountAmount - vipDiscountAmount - progressiveDiscountAmount > 0 ? discountAmount - vipDiscountAmount - progressiveDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}`}</span>
                   </div>
                 )}
 
@@ -628,6 +628,9 @@ export const CartDrawer: React.FC = () => {
                 </div>
               </div>
 
+              <p className="text-xs text-emerald-300 mb-2">{isProgressiveFreeShipping
+                ? 'Frete grátis por promoção. Retirada sempre sem taxa.'
+                : 'A taxa de entrega será exibida na finalização. Retirada sem taxa.'}</p>
               {/* Green checkout button matching image_466b4232.png */}
               <button
                 onClick={() => {

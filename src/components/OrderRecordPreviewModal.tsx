@@ -25,6 +25,7 @@ export const OrderRecordPreviewModal: React.FC<OrderRecordPreviewModalProps> = (
     appliedCoupon,
     submitOrderViaWhatsapp,
     settings,
+    getCheckoutSummary,
   } = useCatalog();
 
   const [copied, setCopied] = useState(false);
@@ -33,14 +34,16 @@ export const OrderRecordPreviewModal: React.FC<OrderRecordPreviewModalProps> = (
 
   if (!isOpen) return null;
 
+  const checkoutSummary = getCheckoutSummary(form.isPickup, form.city);
   const recordText = formatAttendanceRecord({
     referenceId,
     dateTimeBrasilia: dateTime,
     form,
-    cart,
-    isUsbCableAdded,
+    cart: checkoutSummary.items,
+    isUsbCableAdded: false,
     cablePrice,
     appliedCoupon,
+    financials: checkoutSummary,
   });
 
   const handleCopy = async () => {
