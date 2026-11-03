@@ -68,8 +68,13 @@ export const CustomerProfileModal: React.FC = () => {
     deletePasskey,
     checkPasskeySupport,
     allCatalogOrders,
+    repeatOrder,
   } = useCatalog();
 
+  const [reorderError, setReorderError] = useState<string[] | null>(null);
+  React.useEffect(() => {
+    if (reorderError) document.getElementById('reorder-error')?.focus();
+  }, [reorderError]);
   const [activeTab, setActiveTab] = useState<'profile' | 'loyalty' | 'orders' | 'security'>('profile');
   React.useEffect(() => {
     const openOrders = () => setActiveTab('orders');
@@ -954,6 +959,8 @@ type="text"
               </div>
 
               <OrderNotificationSettings />
+              <p className="text-xs text-gray-400">Repetir Pedido adiciona à sacola pelos preços atuais, sem substituir os itens existentes. Revise acessórios, cupom e frete na finalização.</p>
+              {reorderError && <div id="reorder-error" tabIndex={-1} role="alert" className="p-3 rounded-xl bg-amber-400/10 border border-amber-400/30 text-xs text-amber-200 space-y-1"><p className="font-bold">Nenhum item pôde ser adicionado.</p>{reorderError.map((message, index) => <p key={index}>{message}</p>)}</div>}
 
               {/* Error State with Retry (Never disguise error as empty list) */}
               {customerOrdersError && (
@@ -1059,6 +1066,15 @@ type="text"
                             </div>
                           ))}
                         </div>
+
+                        <button type="button" className="w-full min-h-11 px-4 py-3 rounded-xl border border-[#00DFFF]/40 bg-[#00DFFF]/10 text-[#00DFFF] font-bold text-sm flex items-center justify-center gap-2 cursor-pointer"
+                          onClick={() => {
+                            const result = repeatOrder(order.items);
+                            setReorderError(result.addedUnits > 0 ? null : result.warnings);
+                            if (result.addedUnits > 0) closeProfileModal();
+                          }}>
+                          <RefreshCw className="w-4 h-4" /> Repetir Pedido
+                        </button>
 
                         {/* Financial & Payment Breakdown */}
                         <div className="pt-2 border-t border-white/5 grid grid-cols-2 sm:grid-cols-3 gap-2 text-[10px] text-gray-300">
