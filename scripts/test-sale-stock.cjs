@@ -114,7 +114,31 @@ const { PGlite } = require('@electric-sql/pglite');
     'SELECT save_order_with_sale($1,$2,$3,$4::jsonb,$5::jsonb,$6,$7) result',
     [id,version,status,JSON.stringify({version:version+1}),payload?JSON.stringify(payload):null,revision,'atomic-request-'+(++request)])).rows[0].result;
   assert.equal(await qty('second'),2);
-  const confirmed=await mutate('atomic',1,'confirmado',orderSale('atomic'));
+  const addon={productId:'addon',flavorId:'addon-usbc-turbo',productName:'Cabo USB',quantity:1,unitPrice:16,subtotal:16};
+  const mixedSale=id=>({...orderSale(id),items:[...orderSale(id).items,addon],subtotal:36,total:36,amount_received:36});
+  // Reproduce the reported failure with the actual old RPC and a checkout accessory.
+  await assert.rejects(mutate('atomic',1,'confirmado',mixedSale('atomic')),/não pertence/);
+  assert.equal(await qty('second'),2); // Failed confirmation must not consume any stock.
+  assert.equal((await db.query("SELECT status FROM customer_orders WHERE id='atomic'")).rows[0].status,'recebido');
+  const addonPatch=fs.readFileSync('supabase/proposals/20261102_sale_stock_complementary_addons.sql','utf8');
+  await db.exec('RESET ROLE');
+  const signature="public.save_sale_with_stock(jsonb,integer,text,boolean)";
+  const aclBefore=(await db.query('SELECT proacl::text acl,prosecdef FROM pg_proc WHERE oid=$1::regprocedure',[signature])).rows[0];
+  await db.exec(addonPatch);await db.exec(addonPatch);
+  const aclAfter=(await db.query('SELECT proacl::text acl,prosecdef FROM pg_proc WHERE oid=$1::regprocedure',[signature])).rows[0];
+  assert.deepEqual(aclAfter,aclBefore,'Patch must preserve invoker authorization and grants');
+  await db.exec('SET ROLE authenticated');
+  for(const bad of [
+    {...addon,flavorId:'invented'}, {...addon,flavorId:'second'}, {...addon,productId:'model'}, {...addon,quantity:0},
+    {productId:'other',flavorId:'second',quantity:1},
+  ]) await assert.rejects(call(sale('bad-addon-'+(++request),1,{items:[bad]})));
+  assert.equal(await qty('second'),2);
+  const confirmed=await mutate('atomic',1,'confirmado',mixedSale('atomic'));
+  assert.equal(confirmed.sale.items.length,2,'Accessory must remain in the financial record');
+  assert.equal(Number(confirmed.sale.total),36,'Accessory revenue must not be discarded');
+  assert.deepEqual(confirmed.sale.stock_allocation,{second:1},'Only the real variant consumes stock');
+  assert.equal(confirmed.sale.items[1].flavorId,'addon-usbc-turbo');
+
   assert.equal(confirmed.order.delivery_info.stockDeducted,true);assert.equal(confirmed.order.delivery_info.version,2);
   assert.equal(await qty('second'),1);
   // A stale frontend and hidden orders must not allow deleting the linked sale.
@@ -140,14 +164,15 @@ const { PGlite } = require('@electric-sql/pglite');
   assert.equal(await qty('second'),1);
   assert.equal((await db.query("SELECT count(*)::int n FROM manual_sales WHERE id='sale-ord-rollback-order'")).rows[0].n,0);
   assert.equal((await db.query("SELECT status FROM customer_orders WHERE id='rollback-order'")).rows[0].status,'recebido');
-  const cancelled=await mutate('atomic',2,'cancelado',orderSale('atomic'),1);
+  const cancelled=await mutate('atomic',2,'cancelado',mixedSale('atomic'),1);
   assert.equal(cancelled.order.delivery_info.stockDeducted,false);assert.equal(await qty('second'),2);
-  await mutate('atomic',3,'cancelado',orderSale('atomic'),2);assert.equal(await qty('second'),2);
+  await mutate('atomic',3,'cancelado',mixedSale('atomic'),2);assert.equal(await qty('second'),2);
   await db.exec("SELECT set_config('podwave.test_admin','false',false)");
   await assert.rejects(mutate('atomic',4,'cancelado',null),e=>e.code==='42501');
   await db.exec('RESET ROLE; SET ROLE anon');
   await assert.rejects(mutate('atomic',4,'cancelado',null),e=>e.code==='42501');
   await db.close();
+  console.log('PASS: old accessory failure reproduced; targeted idempotent SQL patch preserves ACL/invoker, accessory revenue, variant-only stock, linked deletion guard and cancellation/restock; forged accessories rejected.');
   console.log('PASS: atomic stock, retry, stale edit, cancellation, deletion, rollback, competing requests, legacy sales, RLS, immutable audit and commitment delete. In-memory database only.');
   console.log('PASS: order + sale + stock transaction, late order rejection rollback, persistent revision, sale identity, cancellation retry, administrator/anonymous access and idempotent installation.');
 })().catch(e => {console.error(e);process.exitCode=1;});
