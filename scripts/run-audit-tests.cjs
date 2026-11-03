@@ -11,6 +11,7 @@ const tests=[
   'test-progressive-discount-regression',
   'test-checkout-shipping',
   'test-addon-visibility',
+  'test-discount-exclusivity',
 ];
 for(const name of tests){
   const result=spawnSync(process.execPath,[`scripts/${name}.cjs`],{stdio:'inherit'});
