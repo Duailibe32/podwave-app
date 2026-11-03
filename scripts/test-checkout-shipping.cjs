@@ -67,6 +67,7 @@ const addons=[{id:'addon-usbc-turbo',name:'USB',price:16},{id:'addon-lanyard',na
 const getSummary=compile(summaryBody+'\nmodule.exports=getCheckoutSummary;',{
  cart,cartSubtotal:200,addonsPrice:63,discountAmount:20,totalPodUnits:2,progCfg:config,appliedCoupon:null,
  calculateCheckoutTotals:totals.calculateCheckoutTotals,
+ getProductDiscountChoice:()=>({total:20,vip:0,coupon:0,flash:0}),
  isUsbCableAdded:true,isLanyardAdded:true,isSiliconeCoverAdded:true,
  usbAddonConfig:addons[0],lanyardAddonConfig:addons[1],siliconeAddonConfig:addons[2],
 });
@@ -86,7 +87,7 @@ const admin=fs.readFileSync('src/components/admin/CombosAndAddonsTab.tsx','utf8'
  const submitHandler=ctx.match(/  const submitOrderViaWhatsapp = [\s\S]*?^  };/m)[0];
  let blocked=0;
  const unknownSubmit=compile(submitHandler+'\nmodule.exports=submitOrderViaWhatsapp;',{
-  cart,getCheckoutSummary:()=>unknown,toast:{error:()=>blocked++},
+  cart,discountAmount:unknown.discountAmount,getCheckoutSummary:()=>unknown,toast:{error:()=>blocked++},
   fetchStockAvailability:async()=>assert.fail('Unknown delivery must stop before any order side effects'),
  });
  assert.equal(await unknownSubmit(form),false);assert.equal(blocked,1);

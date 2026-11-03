@@ -35,6 +35,7 @@ export const CheckoutDrawer: React.FC = () => {
     totalPodUnits,
     progressiveDiscountRate,
     progressiveDiscountAmount,
+    flashSaleDiscountAmount,
     coupons,
     appliedCoupon,
     applyCoupon,
@@ -738,6 +739,7 @@ type="text"
 
                 <p className="text-xs text-gray-400">Descontos em produtos não são cumulativos: aplicamos somente o maior benefício. Frete grátis é separado.</p>
 
+                {flashSaleDiscountAmount > 0 && <div className="flex justify-between gap-3 text-amber-300 font-bold"><span>Oferta Relâmpago:</span><span className="font-mono shrink-0">-R$ {flashSaleDiscountAmount.toFixed(2).replace('.', ',')}</span></div>}
                 {isVip && vipDiscountAmount > 0 && (
                   <div className="flex items-center justify-between text-xs py-1 text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/30">
                     <span className="flex items-center gap-1 font-bold">
@@ -757,7 +759,7 @@ type="text"
                       {appliedCoupon.discountType === 'free_shipping' ? `Cupom de frete (${appliedCoupon.code}):` : `Cupom (${appliedCoupon.code}):`}
                     </span>
                     <span className="font-bold font-mono">
-                      {appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' ? 'Frete grátis aplicado' : 'Sem isenção adicional' : Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount) > 0 ? `-R$ ${Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount).toFixed(2).replace('.', ',')}` : 'Maior benefício já aplicado'}
+                      {appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' ? 'Frete grátis aplicado' : 'Sem isenção adicional' : Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount - (flashSaleDiscountAmount || 0)) > 0 ? `-R$ ${Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount - (flashSaleDiscountAmount || 0)).toFixed(2).replace('.', ',')}` : 'Maior benefício já aplicado'}
                     </span>
                   </div>
                 )}

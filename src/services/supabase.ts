@@ -382,12 +382,12 @@ export async function fetchCatalogFromSupabase(): Promise<SupabaseCatalogResult 
         legalNotice: settingsData?.legal_notice || '',
         themePreference: 'dark',
         progressiveDiscountConfig:
-          (settingsData as any)?.progressive_discount_config ||
           parsedPromotions.progressiveDiscountConfig ||
+          (settingsData as any)?.progressive_discount_config ||
           undefined,
         complementaryAddons:
-          (settingsData as any)?.complementary_addons ||
           parsedPromotions.complementaryAddons ||
+          (settingsData as any)?.complementary_addons ||
           undefined,
       };
     }

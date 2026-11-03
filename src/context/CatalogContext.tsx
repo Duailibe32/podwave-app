@@ -1,5 +1,7 @@
 import { prepareReorder, type ReorderFeedback } from '../utils/reorder';
 import { selectProductDiscount } from '../utils/productDiscount';
+import { calculateFlashSaleDiscount } from '../utils/flashSale';
+import { useFlashSaleBoundary } from '../hooks/useFlashSaleBoundary';
 import { calculateCheckoutTotals, isCouponEligibleForCart, type CheckoutSummary } from '../utils/checkoutTotals';
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -351,6 +353,7 @@ interface CatalogContextType {
   totalPodUnits: number;
   progressiveDiscountRate: number;
   progressiveDiscountAmount: number;
+  flashSaleDiscountAmount: number;
   isProgressiveFreeShipping: boolean;
   appliedCoupon: Coupon | null;
   applyCoupon: (codeOrCoupon: string | Coupon) => { success: boolean; message: string };
@@ -2907,6 +2910,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Cart Calculations & Progressive Discounts (Compre Junto & Combos)
   const totalCartItems = cart.reduce((acc, item) => acc + item.quantity, 0);
   const totalPodUnits = totalCartItems;
+  useFlashSaleBoundary(settings.progressiveDiscountConfig?.flashSale);
   const cartSubtotal = cart.reduce((acc, item) => acc + item.price * item.quantity, 0);
 
   const cablePrice = isUsbCableAdded && usbAddonConfig.active !== false ? Number(usbAddonConfig.price) || 0 : 0;
@@ -3058,11 +3062,14 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }
 
   // Descontos monetários não são cumulativos; em empate priorize VIP/combo e preserve o cupom.
-  const chosenDiscount = selectProductDiscount({ subtotal: rawTotal, vip: vipDiscountCandidate,
-    progressive: progressiveDiscountCandidate, coupon: couponDiscountCandidate });
+  const getProductDiscountChoice = (now: number) => selectProductDiscount({ subtotal: rawTotal, vip: vipDiscountCandidate,
+    progressive: progressiveDiscountCandidate, coupon: couponDiscountCandidate,
+    flash: progCfg.flashSale ? calculateFlashSaleDiscount(progCfg.flashSale, cart, models, now) : 0 });
+  const chosenDiscount = getProductDiscountChoice(Date.now());
   const vipDiscountAmount = chosenDiscount.vip;
   const progressiveDiscountAmount = chosenDiscount.progressive;
   const couponDiscountAmount = chosenDiscount.coupon;
+  const flashSaleDiscountAmount = chosenDiscount.flash;
   const discountAmount = chosenDiscount.total;
   const cartTotal = Math.max(0, rawTotal - discountAmount);
 
@@ -3115,9 +3122,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     }
 
+    const currentDiscount = getProductDiscountChoice(Date.now());
     return {
       ...calculateCheckoutTotals({ itemsSubtotal: cartSubtotal, addonAmount: addonsPrice,
-        discountAmount, totalPodUnits, isPickup, config: progCfg, destinationCity, coupon: appliedCoupon, cart }),
+        discountAmount: currentDiscount.total, totalPodUnits, isPickup, config: progCfg, destinationCity, coupon: appliedCoupon, cart }),
+      vipDiscountAmount: currentDiscount.vip,
+      couponDiscountAmount: currentDiscount.coupon,
+      flashSaleDiscountAmount: currentDiscount.flash,
       items: orderItemsWithAddons,
     };
   };
@@ -3133,6 +3144,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const submitOrderViaWhatsapp = async (form: OrderForm, customMessage?: string): Promise<boolean> => {
     if (!cart.length) { toast.error('Adicione produtos ao carrinho.'); return false; }
     const checkoutSummary = getCheckoutSummary(form.isPickup, form.city);
+    if (checkoutSummary.discountAmount !== discountAmount) {
+      toast.warning('Oferta atualizada', 'O prazo da oferta mudou. Revise o total e confirme novamente.');
+      return false;
+    }
     if (checkoutSummary.shippingNeedsQuote) {
       toast.error('Frete a combinar', 'A cidade/UF não possui uma estimativa cadastrada. Confira o destino ou fale com a loja antes de enviar.');
       return false;
@@ -3169,11 +3184,16 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     }
 
     const phone = settings.whatsappNumber || '5586999014685';
+    const refreshedSummary = getCheckoutSummary(form.isPickup, form.city);
+    if (refreshedSummary.totalAmount !== checkoutSummary.totalAmount) {
+      toast.warning('Oferta encerrada', 'A oferta terminou enquanto o estoque era conferido. Revise o total e confirme novamente.');
+      return false;
+    }
     const cleanPhone = phone.replace(/\D/g, '');
 
     // If coupon used, increment its count and automatically inactivate if limit is reached
     const couponWasUsed = isCouponEligibleForCart(appliedCoupon, cart, cartSubtotal)
-      && (appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' : couponDiscountAmount > 0);
+      && (appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' : (checkoutSummary.couponDiscountAmount ?? couponDiscountAmount) > 0);
     if (appliedCoupon && couponWasUsed) {
       setCoupons((prev) =>
         prev.map((c) => {
@@ -3215,8 +3235,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         ? `Frete estimado por cidade: ${checkoutSummary.deliveryDistanceKm} km; origem: ${checkoutSummary.deliveryOriginCity}.`
         : ''].filter(Boolean).join(' | ') || undefined,
       couponCode: couponWasUsed ? appliedCoupon?.code : undefined,
-      vipDiscountApplied: Boolean(isVip && vipDiscountAmount > 0),
-      vipDiscountAmount: vipDiscountAmount || 0,
+      vipDiscountApplied: Boolean(isVip && (checkoutSummary.vipDiscountAmount ?? vipDiscountAmount) > 0),
+      vipDiscountAmount: checkoutSummary.vipDiscountAmount ?? vipDiscountAmount ?? 0,
       customerName: form.fullName?.trim() || undefined,
       customerPhone: form.phoneWhatsapp?.trim() || undefined,
       items: orderItemsWithAddons,
@@ -5010,6 +5030,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         totalPodUnits,
         progressiveDiscountRate,
         progressiveDiscountAmount,
+        flashSaleDiscountAmount,
         isProgressiveFreeShipping,
         appliedCoupon,
         applyCoupon,

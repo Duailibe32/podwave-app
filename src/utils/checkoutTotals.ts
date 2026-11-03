@@ -21,7 +21,12 @@ export interface CheckoutTotals {
   deliveryOriginCity?: string;
   freeShippingSource?: 'promotion' | 'coupon';
 }
-export interface CheckoutSummary extends CheckoutTotals { items: CartItem[] }
+export interface CheckoutSummary extends CheckoutTotals {
+  items: CartItem[];
+  vipDiscountAmount?: number;
+  couponDiscountAmount?: number;
+  flashSaleDiscountAmount?: number;
+}
 
 /** Same quote for checkout, preview, persisted order and attendance message.
  * The loyalty value goal does not grant shipping. Accessories do not count as pods.
