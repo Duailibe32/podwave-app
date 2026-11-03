@@ -29,7 +29,7 @@ export const InfoSection: React.FC = () => {
       icon: Truck,
       question: 'Quanto tempo leva a entrega?',
       answer:
-        'Entregamos com agilidade em toda a região entre 30 a 60 minutos dependendo da demanda do momento. O prazo exato a gente confirma no WhatsApp assim que o pedido chega.',
+        'Nossa entrega expressa leva de 10 a 20 minutos em toda a região! Assim que seu pedido é confirmado, nossa equipe já prepara o envio imediato e te atualiza pelo WhatsApp e pelo painel da loja.',
     },
     {
       icon: ShieldCheck,

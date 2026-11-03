@@ -118,7 +118,7 @@ export const HeroBanner: React.FC = () => {
               </div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-bold">
                 <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
-                <span>⚡ Entrega expressa em toda a região</span>
+                <span>⚡ Entrega Flash: 10 a 20 min</span>
               </div>
             </div>
 
@@ -165,8 +165,8 @@ export const HeroBanner: React.FC = () => {
               <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#0D1022]/90 border border-[#8423DA]/20 text-left">
                 <Truck className="w-4 h-4 text-[#00DFFF] shrink-0" />
                 <div>
-                  <p className="text-[11px] font-bold text-white leading-tight">Envio Rápido</p>
-                  <p className="text-[10px] text-[#A5A5B8]">Em toda região</p>
+                  <p className="text-[11px] font-bold text-white leading-tight">Entrega em 10–20 min</p>
+                  <p className="text-[10px] text-[#A5A5B8]">Envio imediato na região</p>
                 </div>
               </div>
 
