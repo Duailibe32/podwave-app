@@ -85,7 +85,29 @@ form,
   :is(.mobile-checkout-form, .customer-address-form) :is(input:not([type="checkbox"]), select, textarea) {
     font-size: 16px;
   }
+
+  .mobile-catalog-filters { scrollbar-width: thin; padding-bottom: .5rem; }
+  .mobile-catalog-filters > * { flex-shrink: 0; white-space: nowrap; }
+  .mobile-catalog-filters button { min-height: 44px; }
+  #catalogo :is(input, select) { min-height: 44px; font-size: 16px; }
+  #catalogo button { min-height: 44px; }
+  :is(.mobile-cart, .mobile-checkout) button { min-height: 44px; }
+  .mobile-cart input:not([type="checkbox"]) { min-height: 44px; font-size: 16px; }
+  .mobile-checkout-form label:has(input[type="checkbox"]) { min-height: 44px; }
+  .mobile-checkout-form input[type="checkbox"] { width: 22px; height: 22px; flex-shrink: 0; }
+  .mobile-cart-footer, .mobile-checkout-footer { padding-bottom: max(1rem, env(safe-area-inset-bottom)); }
+  .mobile-price-details .flex { gap: .75rem; overflow-wrap: anywhere; }
+  .mobile-price-details .font-mono { white-space: nowrap; flex-shrink: 0; }
+  .mobile-price-details summary::after { content: '+'; margin-left: auto; font-size: 1.25rem; }
+  .mobile-price-details[open] summary::after { content: '−'; }
 }
+
+@media (hover: none) and (pointer: coarse) {
+  .product-card:hover { transform: none; }
+  .animate-card-fade-slide-up { animation: none; }
+  :is(.mobile-cart, .mobile-checkout) > .absolute { backdrop-filter: none; }
+}
+
 
 .glow-cyan {
   box-shadow: 0 0 20px -3px rgba(0, 223, 255, 0.35);

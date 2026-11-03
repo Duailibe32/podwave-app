@@ -59,8 +59,13 @@ export default defineConfig(() => {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,svg,woff,woff2}'],
           // Load the admin bundle and product images only when they are used.
-          globIgnores: ['**/AdminPanel-*.js'],
+          globIgnores: ['**/AdminPanel-*.js', '**/CheckoutDrawer-*.js', '**/AuthModal-*.js', '**/CustomerProfileModal-*.js', '**/ProductDetailModal-*.js'],
           runtimeCaching: [
+            {
+              urlPattern: ({ request, url }) => request.destination === 'script' && url.origin === self.location.origin && url.pathname.startsWith('/assets/'),
+              handler: 'CacheFirst',
+              options: { cacheName: 'optional-app-scripts-v1', expiration: { maxEntries: 40, maxAgeSeconds: 60 * 60 * 24 * 90 }, cacheableResponse: { statuses: [200] } },
+            },
             {
               // Supabase REST API — Apenas tabelas públicas de vitrine (sem store_settings ou coupons)
               urlPattern: ({ request, url }) =>

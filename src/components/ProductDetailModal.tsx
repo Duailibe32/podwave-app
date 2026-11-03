@@ -19,13 +19,7 @@ export const ProductDetailModal: React.FC = () => {
   useEffect(() => {
     if (activeModalProduct) {
       setActiveImage(activeModalProduct.imageUrl);
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
     }
-    return () => {
-      document.body.style.overflow = 'auto';
-    };
   }, [activeModalProduct]);
 
   useEffect(() => {
