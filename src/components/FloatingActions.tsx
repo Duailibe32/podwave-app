@@ -6,7 +6,7 @@ export const FloatingActions: React.FC = () => {
   const { totalCartItems, setIsCartOpen } = useCatalog();
 
   return (
-    <div className="fixed bottom-6 right-6 z-40 flex flex-col items-end gap-3 pointer-events-none">
+    <div className="fixed bottom-[max(1rem,env(safe-area-inset-bottom))] right-4 sm:right-6 z-40 flex flex-col items-end gap-3 pointer-events-none">
       {/* Floating Cart Button with Counter */}
       <button
         onClick={() => setIsCartOpen(true)}
@@ -16,7 +16,7 @@ export const FloatingActions: React.FC = () => {
       >
         <ShoppingBag className="w-6 h-6 group-hover:scale-110 transition-transform" />
         {totalCartItems > 0 && (
-          <span className="absolute -top-1.5 -right-1.5 min-w-[24px] h-6 px-1.5 rounded-full bg-gradient-to-r from-[#00DFFF] to-[#E53CF3] text-white text-xs font-black flex items-center justify-center shadow-lg border-2 border-[#080811] animate-bounce">
+          <span className="absolute -top-1.5 -right-1.5 min-w-[24px] h-6 px-1.5 rounded-full bg-gradient-to-r from-[#00DFFF] to-[#E53CF3] text-white text-xs font-black flex items-center justify-center shadow-lg border-2 border-[#080811]">
             {totalCartItems}
           </span>
         )}

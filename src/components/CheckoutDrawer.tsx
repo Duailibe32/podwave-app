@@ -125,6 +125,10 @@ export const CheckoutDrawer: React.FC = () => {
     }
   }, [currentUser, isCheckoutOpen]);
 
+  useEffect(() => {
+    if (errorMessage && isCheckoutOpen) document.getElementById('checkout-feedback')?.focus();
+  }, [errorMessage, isCheckoutOpen]);
+
   // Dynamic coupon input and validation
   const [couponCode, setCouponCode] = useState('');
   const [couponFeedback, setCouponFeedback] = useState<{ success: boolean; message: string } | null>(null);
@@ -225,7 +229,7 @@ export const CheckoutDrawer: React.FC = () => {
   };
 
   return (
-    <div className="fixed inset-0 z-50 overflow-hidden animate-in fade-in duration-200">
+    <div role="dialog" aria-modal="true" aria-label="Finalizar pedido" className="mobile-checkout fixed inset-0 z-50 overflow-hidden animate-in fade-in duration-200">
       {/* Backdrop */}
       <div
         className="absolute inset-0 bg-black/80 backdrop-blur-md transition-opacity"
@@ -254,9 +258,9 @@ export const CheckoutDrawer: React.FC = () => {
           </div>
 
           {/* FORM CONTENT */}
-          <form onSubmit={handleSubmit} className="mobile-checkout-form w-full max-w-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-6 space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
+          <form id="podwave-checkout-form" onSubmit={handleSubmit} className="mobile-checkout-form w-full max-w-full min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-6 space-y-5 pb-[max(1rem,env(safe-area-inset-bottom))]">
             {errorMessage && (
-              <div className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
+              <div id="checkout-feedback" role="alert" tabIndex={-1} className="p-3 rounded-xl bg-rose-500/20 border border-rose-500/40 text-rose-300 text-xs flex items-center gap-2">
                 <AlertCircle className="w-4 h-4 flex-shrink-0" />
                 <span>{errorMessage}</span>
               </div>
@@ -801,14 +805,6 @@ type="text"
                 <span>📄 Visualizar Ficha / Registro Administrativo</span>
               </button>
 
-              {/* Green WhatsApp Submit Button matching user screenshot */}
-              <button
-                type="submit"
-                className="w-full py-4 px-6 rounded-2xl bg-[#10B981] hover:bg-[#059669] text-white font-heading font-black text-sm tracking-wide shadow-[0_0_25px_rgba(16,185,129,0.4)] transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-98"
-              >
-                <Send className="w-4 h-4" />
-                <span>Confirmar e Enviar no WhatsApp</span>
-              </button>
             </div>
 
             <p className="text-[10px] text-center text-[#A5A5B8] leading-tight">
@@ -816,6 +812,20 @@ type="text"
               <strong className="text-white">{settings.supportPhone}</strong>.
             </p>
           </form>
+          <div className="mobile-checkout-footer shrink-0 border-t border-[#8423DA]/25 bg-[#0D1022] light:bg-white p-4 space-y-2">
+            <div className="flex items-baseline justify-between gap-3 text-sm">
+              <span>{checkoutSummary.shippingNeedsQuote ? 'Subtotal sem frete' : checkoutSummary.deliveryEstimate ? 'Total estimado' : 'Total do pedido'}</span>
+              <strong className="text-xl font-heading">R$ {checkoutSummary.totalAmount.toFixed(2).replace('.', ',')}</strong>
+            </div>
+              <button
+                type="submit" form="podwave-checkout-form"
+                className="w-full py-4 px-6 rounded-2xl bg-[#10B981] hover:bg-[#059669] text-white font-heading font-black text-sm tracking-wide shadow-[0_0_25px_rgba(16,185,129,0.4)] transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-98"
+              >
+                <Send className="w-4 h-4" />
+                <span>Confirmar e Enviar no WhatsApp</span>
+              </button>
+
+          </div>
         </div>
       </div>
 

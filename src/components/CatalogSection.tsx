@@ -1,5 +1,4 @@
 import React, { useMemo } from 'react';
-import { motion, AnimatePresence } from 'motion/react';
 import { useCatalog } from '../context/CatalogContext';
 import { ProductCard } from './ProductCard';
 import { Search, Zap, SlidersHorizontal, RotateCcw, PackageX } from 'lucide-react';
@@ -154,16 +153,18 @@ export const CatalogSection: React.FC = () => {
             <div className="sm:col-span-8 relative">
               <input
                 type="text"
+                aria-label="Buscar modelo, sabor ou marca"
                 placeholder="Filtrar por nome de modelo, sabor ou marca..."
                 value={searchQuery}
                 onChange={(e) => setSearchQuery(e.target.value)}
-                className="w-full pl-10 pr-4 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 focus:border-[#00DFFF] text-white text-xs sm:text-sm focus:outline-none"
+                className="w-full pl-10 pr-12 py-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/30 focus:border-[#00DFFF] text-white text-xs sm:text-sm focus:outline-none"
               />
               <Search className="w-4 h-4 absolute left-3.5 top-3 text-gray-400" />
               {searchQuery && (
                 <button
+                  aria-label="Limpar busca"
                   onClick={() => setSearchQuery('')}
-                  className="absolute right-3 top-3 text-gray-400 hover:text-white"
+                  className="absolute right-0 inset-y-0 min-w-11 min-h-11 text-gray-400 hover:text-white"
                 >
                   &times;
                 </button>
@@ -174,6 +175,7 @@ export const CatalogSection: React.FC = () => {
             <div className="sm:col-span-4 flex items-center gap-2">
               <SlidersHorizontal className="w-4 h-4 text-gray-400 flex-shrink-0" />
               <select
+                aria-label="Ordenar produtos"
                 value={selectedSort}
                 onChange={(e) => setSelectedSort(e.target.value)}
                 className="w-full py-2.5 px-3 rounded-xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/30 focus:border-[#00DFFF] text-white light:text-slate-900 text-xs sm:text-sm focus:outline-none cursor-pointer"
@@ -189,13 +191,12 @@ export const CatalogSection: React.FC = () => {
           </div>
 
           {/* Bottom row: Puffs Buttons Range Filters */}
-          <div className="pt-2 border-t border-[#8423DA]/15 flex flex-wrap items-center gap-2 text-xs">
+          <div className="mobile-catalog-filters pt-2 border-t border-[#8423DA]/15 flex flex-nowrap sm:flex-wrap overflow-x-auto items-center gap-2 text-xs">
             <span className="text-[#A5A5B8] font-bold flex items-center gap-1 mr-1">
               <Zap className="w-3.5 h-3.5 text-[#00DFFF]" /> Faixa de Puffs:
             </span>
 
-            <motion.button
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={() => setSelectedPuffRange('all')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === 'all'
@@ -204,10 +205,9 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               Todos
-            </motion.button>
+            </button>
 
-            <motion.button
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={() => setSelectedPuffRange('under-6k')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === 'under-6k'
@@ -216,10 +216,9 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               ⚡ Até 6.000 Puffs
-            </motion.button>
+            </button>
 
-            <motion.button
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={() => setSelectedPuffRange('6k-15k')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === '6k-15k'
@@ -228,10 +227,9 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               ⚡ 6.000 a 15.000 Puffs
-            </motion.button>
+            </button>
 
-            <motion.button
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={() => setSelectedPuffRange('15k-25k')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === '15k-25k'
@@ -240,10 +238,9 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               ⚡ 15.000 a 25.000 Puffs
-            </motion.button>
+            </button>
 
-            <motion.button
-              whileTap={{ scale: 0.95 }}
+            <button
               onClick={() => setSelectedPuffRange('over-25k')}
               className={`px-3 py-1.5 rounded-lg font-semibold transition-all cursor-pointer ${
                 selectedPuffRange === 'over-25k'
@@ -252,13 +249,12 @@ export const CatalogSection: React.FC = () => {
               }`}
             >
               ⚡ 30.000+ Puffs Max
-            </motion.button>
+            </button>
 
             {/* Category Filter Chips */}
             <div className="hidden lg:flex items-center gap-1.5 ml-auto">
               <span className="text-[#A5A5B8] mr-1">Categoria:</span>
-              <motion.button
-                whileTap={{ scale: 0.94 }}
+              <button
                 onClick={() => setSelectedCategory('all')}
                 className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
                   selectedCategory === 'all'
@@ -267,11 +263,10 @@ export const CatalogSection: React.FC = () => {
                 }`}
               >
                 Todas
-              </motion.button>
+              </button>
               {categories.map((cat) => (
-                <motion.button
+                <button
                   key={cat}
-                  whileTap={{ scale: 0.94 }}
                   onClick={() => setSelectedCategory(cat)}
                   className={`px-2.5 py-1 rounded-md text-[11px] font-medium transition-colors ${
                     selectedCategory === cat
@@ -280,21 +275,18 @@ export const CatalogSection: React.FC = () => {
                   }`}
                 >
                   {cat}
-                </motion.button>
+                </button>
               ))}
             </div>
           </div>
         </div>
 
-        {/* Product Cards Grid: 2 columns on smartphone, 3 to 4 on desktop with smooth Framer Motion transitions */}
-        <AnimatePresence mode="wait">
+        {/* Product Cards Grid: 2 columns on smartphone, 3 to 4 on desktop with lightweight CSS transitions */}
+        <>
           {filteredModels.length > 0 ? (
-            <motion.div
+            <div
               key={`product-grid-${selectedBrand}-${selectedCategory}-${selectedPuffRange}`}
-              initial={{ opacity: 0.92 }}
-              animate={{ opacity: 1 }}
-              transition={{ duration: 0.2 }}
-              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-4 sm:gap-6"
+              className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3 sm:gap-6"
             >
               {filteredModels.map((product, index) => (
                 <div
@@ -304,14 +296,10 @@ export const CatalogSection: React.FC = () => {
                   <ProductCard product={product} priority={index < 2} />
                 </div>
               ))}
-            </motion.div>
+            </div>
           ) : (
-            <motion.div
+            <div
               key="empty-state"
-              initial={{ opacity: 0, y: 16, scale: 0.98 }}
-              animate={{ opacity: 1, y: 0, scale: 1 }}
-              exit={{ opacity: 0, y: -10, scale: 0.98 }}
-              transition={{ duration: 0.28, ease: [0.16, 1, 0.3, 1] }}
               className="py-16 text-center rounded-3xl bg-[#0D1022] light:bg-white border border-[#8423DA]/30 p-8 space-y-4"
             >
               <PackageX className="w-12 h-12 text-[#E53CF3] mx-auto opacity-70" />
@@ -327,9 +315,9 @@ export const CatalogSection: React.FC = () => {
               >
                 Restaurar Todos os Filtros
               </button>
-            </motion.div>
+            </div>
           )}
-        </AnimatePresence>
+        </>
       </div>
     </section>
   );

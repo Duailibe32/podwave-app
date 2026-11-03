@@ -1,6 +1,7 @@
 import React, { useState, useEffect, useRef } from 'react';
 import { createPortal } from 'react-dom';
 import { usePWAInstall } from '../hooks/usePWAInstall';
+import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
 import {
   Download,
   Smartphone,
@@ -48,17 +49,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
     setActiveTab(platform);
   }, [platform]);
 
-  // Lock body scroll when modal is open
-  useEffect(() => {
-    if (isModalOpen) {
-      document.body.style.overflow = 'hidden';
-    } else {
-      document.body.style.overflow = 'auto';
-    }
-    return () => {
-      document.body.style.overflow = 'auto';
-    };
-  }, [isModalOpen]);
+  useBodyScrollLock(isModalOpen);
 
   const handleOpenModal = () => {
     setActiveTab(platform);

@@ -43,7 +43,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
   return (
     <div
       onClick={handleCardClick}
-      className="group relative flex flex-col justify-between h-full rounded-[24px] sm:rounded-[26px] p-3 sm:p-4 transition-all duration-300 cursor-pointer bg-[#0A0D1E] border border-[#1E2348] hover:border-[#00DFFF]/70 hover:shadow-[0_10px_35px_rgba(0,223,255,0.22)] hover:-translate-y-1.5 overflow-hidden w-full select-none"
+      className="product-card group relative flex flex-col justify-between h-full rounded-[24px] sm:rounded-[26px] p-3 sm:p-4 transition-all duration-300 cursor-pointer bg-[#0A0D1E] border border-[#1E2348] hover:border-[#00DFFF]/70 hover:shadow-[0_10px_35px_rgba(0,223,255,0.22)] hover:-translate-y-1.5 overflow-hidden w-full select-none"
     >
       {/* Subtle neon gradient ambient background */}
       <div className="absolute inset-0 rounded-[24px] sm:rounded-[26px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-b from-[#00DFFF]/10 via-transparent to-[#9333EA]/10" />
@@ -84,6 +84,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
             srcSet={cardImage.srcSet}
             sizes="(min-width: 1280px) 280px, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
             alt={`${product.brandName} ${product.modelName}`}
+            width={320} height={320}
             className="w-full h-full object-contain transform transition-transform duration-500 group-hover:scale-105"
             loading={priority ? 'eager' : 'lazy'}
             fetchPriority={priority ? 'high' : 'auto'}
@@ -115,7 +116,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
         </p>
 
         {/* Model Name: Bold crisp white */}
-        <h3 className="font-heading text-sm sm:text-base md:text-lg font-black text-white tracking-tight leading-snug line-clamp-1 truncate break-words">
+        <h3 className="font-heading text-sm sm:text-base md:text-lg font-black text-white tracking-tight leading-snug line-clamp-2 min-h-[2.75rem] break-words">
           {product.modelName}
         </h3>
 
@@ -168,7 +169,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
               {isAllFlavorsSoldOut ? 'Esgotado' : 'Disponível'}
             </span>
           </div>
-          <p className="font-heading text-sm sm:text-base md:text-lg font-black text-white tracking-tight leading-tight truncate">
+          <p className="font-heading text-base md:text-lg font-black text-white tracking-tight leading-tight truncate">
             <span className="text-[10px] sm:text-xs text-[#8E95B8] font-bold mr-0.5">R$</span>
             {product.startingPrice.toFixed(2).replace('.', ',')}
           </p>
@@ -191,7 +192,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
               handleCardClick();
             }
           }}
-          className={`w-9 h-9 sm:w-10 sm:h-10 rounded-full flex items-center justify-center text-white transition-all duration-200 cursor-pointer shrink-0 ${
+          className={`min-w-11 min-h-11 w-11 h-11 rounded-full flex items-center justify-center text-white transition-all duration-200 cursor-pointer shrink-0 ${
             isAllFlavorsSoldOut
               ? 'bg-[#181C38] border border-rose-500/40 text-rose-400 shadow-none hover:bg-rose-950/40'
               : 'bg-gradient-to-br from-[#00DFFF] via-[#7C3AED] to-[#A855F7] shadow-[0_0_15px_rgba(0,223,255,0.4)] hover:shadow-[0_0_22px_rgba(168,85,247,0.6)] hover:scale-105 active:scale-95'
