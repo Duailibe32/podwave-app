@@ -11,7 +11,7 @@ for(const [config,units,expected] of [
  [{enabled:false,tier3DiscountPercent:10},3,0],
 ]){
  const module={exports:{}};
- vm.runInNewContext(transformSync(code+'\nmodule.exports=progressiveDiscountAmount;',{loader:'ts',format:'cjs'}).code,{
+ vm.runInNewContext(transformSync(code+'\nmodule.exports=progressiveDiscountCandidate;',{loader:'ts',format:'cjs'}).code,{
   module,exports:module.exports,settings:{progressiveDiscountConfig:config},
   DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG:{enabled:true,tier2MinUnits:2,tier2DiscountPercent:5,tier3MinUnits:3,tier3DiscountPercent:10},
   totalPodUnits:units,cartSubtotal:300,

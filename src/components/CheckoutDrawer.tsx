@@ -32,6 +32,7 @@ export const CheckoutDrawer: React.FC = () => {
     lanyardPrice,
     isSiliconeCoverAdded,
     siliconeCoverPrice,
+    totalPodUnits,
     progressiveDiscountRate,
     progressiveDiscountAmount,
     coupons,
@@ -723,13 +724,15 @@ type="text"
                   <div className="flex items-center justify-between text-xs py-1 text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/30">
                     <span className="flex items-center gap-1 font-bold">
                       <Sparkles className="w-3.5 h-3.5 text-amber-400" />
-                      Combo {tier3Min}+ Pods ({progressiveDiscountRate}% OFF automático):
+                      Combo aplicado ({(totalPodUnits >= tier3Min ? progCfg.tier3DiscountType : progCfg.tier2DiscountType) === 'fixed' ? 'valor fixo' : `${progressiveDiscountRate}% OFF`}):
                     </span>
                     <span className="font-bold font-mono">
                       -R$ {progressiveDiscountAmount.toFixed(2).replace('.', ',')}
                     </span>
                   </div>
                 )}
+
+                <p className="text-xs text-gray-400">Descontos em produtos não são cumulativos: aplicamos somente o maior benefício. Frete grátis é separado.</p>
 
                 {isVip && vipDiscountAmount > 0 && (
                   <div className="flex items-center justify-between text-xs py-1 text-amber-300 bg-amber-400/10 px-2 py-1 rounded-lg border border-amber-400/30">
@@ -750,7 +753,7 @@ type="text"
                       {appliedCoupon.discountType === 'free_shipping' ? `Cupom de frete (${appliedCoupon.code}):` : `Cupom (${appliedCoupon.code}):`}
                     </span>
                     <span className="font-bold font-mono">
-                      {appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' ? 'Frete grátis aplicado' : 'Sem isenção adicional' : `-R$ ${(discountAmount - vipDiscountAmount - progressiveDiscountAmount > 0 ? discountAmount - vipDiscountAmount - progressiveDiscountAmount : discountAmount).toFixed(2).replace('.', ',')}`}
+                      {appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' ? 'Frete grátis aplicado' : 'Sem isenção adicional' : Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount) > 0 ? `-R$ ${Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount).toFixed(2).replace('.', ',')}` : 'Maior benefício já aplicado'}
                     </span>
                   </div>
                 )}

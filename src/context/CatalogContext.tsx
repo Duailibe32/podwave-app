@@ -1,3 +1,4 @@
+import { selectProductDiscount } from '../utils/productDiscount';
 import { calculateCheckoutTotals, isCouponEligibleForCart, type CheckoutSummary } from '../utils/checkoutTotals';
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { SupabaseClient } from '@supabase/supabase-js';
@@ -2920,7 +2921,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     ? tier2Percent
     : 0;
 
-  const progressiveDiscountAmount = isTier3Reached
+  const progressiveDiscountCandidate = isTier3Reached
     ? progCfg.tier3DiscountType === 'fixed'
       ? Math.min(cartSubtotal, tier3Percent)
       : (cartSubtotal * tier3Percent) / 100
@@ -3010,13 +3011,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // VIP Customer Discount calculation (for users with role 'vip')
   const vipDiscountRate = isVip ? (currentUser?.vipDiscountCustom || settings.vipDiscountPercent || 10) : 0;
-  let vipDiscountAmount = 0;
+  let vipDiscountCandidate = 0;
   if (isVip && vipDiscountRate > 0) {
-    vipDiscountAmount = (cartSubtotal * vipDiscountRate) / 100;
+    vipDiscountCandidate = (cartSubtotal * vipDiscountRate) / 100;
   }
 
   // Discount calculation based on general or item-specific coupon
-  let couponDiscountAmount = 0;
+  let couponDiscountCandidate = 0;
   if (isCouponEligibleForCart(appliedCoupon, cart, cartSubtotal) && appliedCoupon.discountType !== 'free_shipping') {
     if (appliedCoupon.applicableModelId && appliedCoupon.applicableModelId !== 'all') {
       // Item-specific calculation
@@ -3025,22 +3026,27 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         .reduce((sum, item) => sum + item.price * item.quantity, 0);
 
       if (appliedCoupon.discountType === 'percent') {
-        couponDiscountAmount = (matchingItemsSubtotal * appliedCoupon.value) / 100;
+        couponDiscountCandidate = (matchingItemsSubtotal * appliedCoupon.value) / 100;
       } else {
-        couponDiscountAmount = Math.min(appliedCoupon.value, matchingItemsSubtotal);
+        couponDiscountCandidate = Math.min(appliedCoupon.value, matchingItemsSubtotal);
       }
     } else {
       // General cart discount
       if (appliedCoupon.discountType === 'percent') {
-        couponDiscountAmount = (rawTotal * appliedCoupon.value) / 100;
+        couponDiscountCandidate = (rawTotal * appliedCoupon.value) / 100;
       } else {
-        couponDiscountAmount = appliedCoupon.value;
+        couponDiscountCandidate = appliedCoupon.value;
       }
     }
   }
 
-  // Total discount combined (coupon + VIP discount + progressive combo discount)
-  const discountAmount = Math.min(couponDiscountAmount + vipDiscountAmount + progressiveDiscountAmount, rawTotal);
+  // Descontos monetários não são cumulativos; em empate priorize VIP/combo e preserve o cupom.
+  const chosenDiscount = selectProductDiscount({ subtotal: rawTotal, vip: vipDiscountCandidate,
+    progressive: progressiveDiscountCandidate, coupon: couponDiscountCandidate });
+  const vipDiscountAmount = chosenDiscount.vip;
+  const progressiveDiscountAmount = chosenDiscount.progressive;
+  const couponDiscountAmount = chosenDiscount.coupon;
+  const discountAmount = chosenDiscount.total;
   const cartTotal = Math.max(0, rawTotal - discountAmount);
 
   const getCheckoutSummary = (isPickup: boolean, destinationCity?: string): CheckoutSummary => {
@@ -3150,7 +3156,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     // If coupon used, increment its count and automatically inactivate if limit is reached
     const couponWasUsed = isCouponEligibleForCart(appliedCoupon, cart, cartSubtotal)
-      && (appliedCoupon.discountType !== 'free_shipping' || checkoutSummary.freeShippingSource === 'coupon');
+      && (appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' : couponDiscountAmount > 0);
     if (appliedCoupon && couponWasUsed) {
       setCoupons((prev) =>
         prev.map((c) => {
