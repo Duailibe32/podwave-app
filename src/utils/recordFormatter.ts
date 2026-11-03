@@ -1,3 +1,4 @@
+import type { CheckoutTotals } from './checkoutTotals';
 /**
  * PODWAVE — Gerador Centralizado de Fichas de Atendimento e Registros Administrativos
  * Formato padronizado em UTF-8 com separadores, símbolos limpos e sem caracteres corrompidos.
@@ -18,6 +19,7 @@ export interface AttendanceRecordData {
   cablePrice: number;
   appliedCoupon: Coupon | null;
   situation?: string;
+  financials?: CheckoutTotals;
 }
 
 /**
@@ -70,13 +72,20 @@ export function formatAttendanceRecord(data: AttendanceRecordData): string {
     appliedCoupon,
   } = data;
 
-  const financials = calculateOrderFinancials({
+  const financials = data.financials ? {
+    itemsSubtotalFormatted: formatCurrency(data.financials.itemsSubtotal),
+    addonFormatted: formatCurrency(data.financials.addonAmount),
+    discountFormatted: formatCurrency(data.financials.discountAmount),
+    deliveryFeeFormatted: data.financials.shippingNeedsQuote ? 'A combinar (não incluído no subtotal)' : form.isPickup ? 'Grátis (Retirada)' : data.financials.freeShippingApplied
+      ? data.financials.freeShippingSource === 'coupon' ? 'Grátis (Cupom)' : 'Grátis (Promoção)' : formatCurrency(data.financials.deliveryFee),
+    totalFormatted: formatCurrency(data.financials.totalAmount),
+  } : calculateOrderFinancials({
     cart,
     isUsbCableAdded,
     cablePrice,
     appliedCoupon,
     isPickup: form.isPickup,
-    deliveryFee: 10.0,
+    deliveryFee: 0,
   });
 
   // Items formatting
@@ -185,8 +194,8 @@ ${itemsLines.join('\n\n')}
 Subtotal itens: ${financials.itemsSubtotalFormatted}
 Adicionais: ${financials.addonFormatted}
 Descontos: ${financials.discountFormatted}
-Taxa de entrega: ${financials.deliveryFeeFormatted}
-*TOTAL REGISTRADO: ${financials.totalFormatted}*
+Taxa de entrega: ${financials.deliveryFeeFormatted}${data.financials?.deliveryEstimate ? ` (estimativa por cidade: ${data.financials.deliveryDistanceKm} km)` : ''}
+*${data.financials?.shippingNeedsQuote ? 'SUBTOTAL SEM FRETE' : data.financials?.deliveryEstimate ? 'TOTAL ESTIMADO' : 'TOTAL REGISTRADO'}: ${financials.totalFormatted}*
 
 💳 *INFORMAÇÕES DE PAGAMENTO*
 ----------------------------------------

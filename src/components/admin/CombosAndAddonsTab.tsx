@@ -44,7 +44,6 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
     if (base.tier2DiscountPercent === undefined || base.tier2Label === 'Frete Grátis ✓') {
       base.tier2DiscountPercent = 5;
       base.tier2Label = '5% OFF ✓';
-      base.tier2FreeShipping = false;
     }
     return base;
   });
@@ -95,7 +94,6 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       if (nextProg.tier2DiscountPercent === undefined || nextProg.tier2Label === 'Frete Grátis ✓') {
         nextProg.tier2DiscountPercent = 5;
         nextProg.tier2Label = '5% OFF ✓';
-        nextProg.tier2FreeShipping = false;
       }
       setProgForm(nextProg);
     }
@@ -184,6 +182,24 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
     e.preventDefault();
     setIsSavingSupabase(true);
 
+    const deliveryOrigins = (progForm.deliveryOrigins || []).map(base => ({
+      ...base, city: base.city.trim(), state: base.state.trim().toUpperCase(),
+    }));
+    const deliveryCities = (progForm.deliveryCities || []).map((area, index) => ({
+      id: area.id || `city-${index}`, originId: area.originId, city: area.city.trim(), state: area.state.trim().toUpperCase(),
+      distanceKm: Number(area.distanceKm),
+    }));
+    if (progForm.deliveryPricingMode === 'per_km') {
+      const keys = deliveryCities.map(area => (area.originId + ':' + area.city + ' - ' + area.state).normalize('NFD').replace(/[\u0300-\u036f]/g, '').toLowerCase());
+      if (!deliveryOrigins.length || deliveryOrigins.some(base => !base.city || !/^[A-Z]{2}$/.test(base.state)) || !(Number(progForm.deliveryRatePerKm) > 0)
+        || !Number.isFinite(Number(progForm.deliveryRatePerKm)) || !deliveryCities.length
+        || deliveryCities.some(area => !deliveryOrigins.some(base => base.id === area.originId) || !area.city || !/^[A-Z]{2}$/.test(area.state) || !Number.isFinite(area.distanceKm) || area.distanceKm < 0)
+        || new Set(keys).size !== keys.length) {
+        const error = 'Confira o frete por km: informe origem, valor positivo por km e cidades únicas com UF e distância válida.';
+        setIsSavingSupabase(false); setSavedBanner(error); onNotify?.(error); return;
+      }
+    }
+
     const tier2Type = progForm.tier2DiscountType === 'fixed' ? 'fixed' : 'percent';
     const tier2MaxVal = tier2Type === 'percent' ? 90 : 500;
     const discountType = progForm.tier3DiscountType === 'fixed' ? 'fixed' : 'percent';
@@ -198,7 +214,13 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       tier2MinUnits: Math.max(1, Number(progForm.tier2MinUnits) || 2),
       tier2DiscountType: tier2Type,
       tier2DiscountPercent: Math.max(0, Math.min(tier2MaxVal, Number(progForm.tier2DiscountPercent ?? 5))),
-      tier2FreeShipping: false,
+      tier2FreeShipping: progForm.tier2FreeShipping === true,
+      deliveryPricingMode: progForm.deliveryPricingMode === 'per_km' ? 'per_km' : 'fixed',
+      deliveryOrigins,
+      deliveryRatePerKm: Number(progForm.deliveryRatePerKm) || 0,
+      deliveryMinimumFee: Math.max(0, Number(progForm.deliveryMinimumFee) || 0),
+      deliveryCities,
+      baseDeliveryFee: Number.isFinite(Number(progForm.baseDeliveryFee)) ? Math.max(0, Math.round(Number(progForm.baseDeliveryFee) * 100) / 100) : 0,
       tier3MinUnits: Math.max(
         Math.max(1, Number(progForm.tier2MinUnits) || 2),
         Number(progForm.tier3MinUnits) || 3
@@ -235,13 +257,15 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       };
     });
 
-    updateSettings({
-      progressiveDiscountConfig: normalizedProg,
-      complementaryAddons: normalizedAddons,
-    });
-
     const dbRes = await savePromotionsConfigToSupabase(normalizedProg, normalizedAddons);
     setIsSavingSupabase(false);
+    if (!dbRes.success) {
+      const error = 'Não foi possível salvar as promoções no Supabase. A regra anterior continua aplicada. ' + (dbRes.error || 'Tente novamente.');
+      setSavedBanner(error);
+      onNotify?.(error);
+      return;
+    }
+    updateSettings({ progressiveDiscountConfig: normalizedProg, complementaryAddons: normalizedAddons }, { persistPromotions: false });
 
     addActivityLog({
       action: 'CONFIGURACAO_ALTERADA',
@@ -268,9 +292,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       `Regras de Desconto Progressivo e vínculos de Compre Junto salvos no banco.`
     );
 
-    const msg = dbRes.success
-      ? 'Regras de "Desconto Progressivo" (Nível 2: 5%, Nível 3: 10%, Compra Mínima Selo) e "Compre Junto" salvos no Supabase!'
-      : 'Configurações de "Desconto Progressivo" e "Compre Junto" salvas e aplicadas ao catálogo!';
+    const msg = 'Promoções, taxa de entrega e Compre Junto salvos no Supabase.';
     setSavedBanner(msg);
     if (onNotify) onNotify(msg);
     setTimeout(() => setSavedBanner(null), 5000);
@@ -290,13 +312,16 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       applicableModelIds: ['all'],
       applicableModelName: 'Todos os produtos do catálogo',
     }));
+    setIsSavingSupabase(true);
+    const result = await savePromotionsConfigToSupabase(defProg, defAddons);
+    setIsSavingSupabase(false);
+    if (!result.success) {
+      const error = 'Não foi possível restaurar os padrões no Supabase. As regras anteriores foram mantidas.';
+      setSavedBanner(error); onNotify?.(error); return;
+    }
     setProgForm(defProg);
     setAddonsForm(defAddons);
-    updateSettings({
-      progressiveDiscountConfig: defProg,
-      complementaryAddons: defAddons,
-    });
-    await savePromotionsConfigToSupabase(defProg, defAddons);
+    updateSettings({ progressiveDiscountConfig: defProg, complementaryAddons: defAddons }, { persistPromotions: false });
     const msg = 'Valores padrão de Desconto Progressivo (5% / 10%) e Compre Junto (Powerbank Chaveiro) restaurados!';
     setSavedBanner(msg);
     if (onNotify) onNotify(msg);
@@ -440,6 +465,73 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
                   />
                 </div>
               </div>
+
+              <fieldset className="rounded-xl border border-emerald-400/30 p-3 space-y-3">
+                <legend className="px-2 font-bold text-emerald-300">Entrega e frete grátis</legend>
+                <label htmlFor="delivery-pricing-mode" className="block font-bold text-gray-200">Como calcular a entrega</label>
+                <select id="delivery-pricing-mode" value={progForm.deliveryPricingMode || 'fixed'}
+                  onChange={e => setProgForm({ ...progForm, deliveryPricingMode: e.target.value as 'fixed' | 'per_km' })}
+                  className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/35 text-white">
+                  <option value="fixed">Taxa fixa</option><option value="per_km">Estimativa por km e cidade</option>
+                </select>
+                {progForm.deliveryPricingMode === 'per_km' && <div className="space-y-3">
+                  <p className="font-bold">Sedes / pontos de saída</p>
+                  {(progForm.deliveryOrigins || []).map((base, index) => <div key={base.id} className="grid grid-cols-1 sm:grid-cols-3 gap-2">
+                    <input aria-label={`Cidade da sede ${index + 1}`} value={base.city}
+                      onChange={e => setProgForm({ ...progForm, deliveryOrigins: progForm.deliveryOrigins!.map((a, i) => i === index ? { ...a, city: e.target.value } : a) })}
+                      className="min-w-0 p-2 rounded-lg bg-[#141838] border border-white/20" />
+                    <input aria-label={`UF da sede ${index + 1}`} value={base.state} maxLength={2}
+                      onChange={e => setProgForm({ ...progForm, deliveryOrigins: progForm.deliveryOrigins!.map((a, i) => i === index ? { ...a, state: e.target.value.toUpperCase() } : a) })}
+                      className="min-w-0 p-2 rounded-lg bg-[#141838] border border-white/20" />
+                  </div>)}
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                    <label>Valor por km (R$)<input aria-label="Valor por km" type="number" min="0.01" step="0.01" value={progForm.deliveryRatePerKm ?? 0}
+                      onChange={e => setProgForm({ ...progForm, deliveryRatePerKm: Number(e.target.value) || 0 })}
+                      className="w-full p-2.5 rounded-xl bg-[#141838] border border-white/20" /></label>
+                    <label>Taxa mínima (R$)<input aria-label="Taxa mínima" type="number" min="0" step="0.01" value={progForm.deliveryMinimumFee ?? 0}
+                      onChange={e => setProgForm({ ...progForm, deliveryMinimumFee: Number(e.target.value) || 0 })}
+                      className="w-full p-2.5 rounded-xl bg-[#141838] border border-white/20" /></label>
+                  </div>
+                  <p className="text-gray-400">Cálculo: distância aproximada de ida × valor por km, respeitando a taxa mínima.
+                    Cadastre a distância a partir de cada sede que atende o destino. Usaremos a menor distância cadastrada.
+                    Para entrega local, cadastre a própria cidade com 0 km e defina a taxa mínima. Não é cálculo automático de rota.</p>
+                  {(progForm.deliveryCities || []).map((area, index) => <div key={area.id} className="grid grid-cols-2 gap-2 border border-white/10 rounded-lg p-2">
+                    <select aria-label={`Sede de saída da rota ${index + 1}`} value={area.originId || ''}
+                      onChange={e => setProgForm({ ...progForm, deliveryCities: progForm.deliveryCities!.map((a, i) => i === index ? { ...a, originId: e.target.value } : a) })}
+                      className="col-span-2 w-full p-2 rounded-lg bg-[#141838] border border-white/20">
+                      <option value="">Selecione a sede de saída</option>
+                      {(progForm.deliveryOrigins || []).map(base => <option key={base.id} value={base.id}>{base.city} - {base.state}</option>)}
+                    </select>
+                    <input aria-label={`Cidade destino ${index + 1}`} placeholder="Cidade destino" value={area.city}
+                      onChange={e => setProgForm({ ...progForm, deliveryCities: progForm.deliveryCities!.map((a, i) => i === index ? { ...a, city: e.target.value } : a) })}
+                      className="min-w-0 col-span-2 p-2 rounded-lg bg-[#141838] border border-white/20" />
+                    <input aria-label={`UF destino ${index + 1}`} placeholder="UF" maxLength={2} value={area.state}
+                      onChange={e => setProgForm({ ...progForm, deliveryCities: progForm.deliveryCities!.map((a, i) => i === index ? { ...a, state: e.target.value.toUpperCase() } : a) })}
+                      className="min-w-0 sm:col-span-2 p-2 rounded-lg bg-[#141838] border border-white/20" />
+                    <input aria-label={`Distância km ${index + 1}`} type="number" min="0" step="0.1" placeholder="km" value={area.distanceKm}
+                      onChange={e => setProgForm({ ...progForm, deliveryCities: progForm.deliveryCities!.map((a, i) => i === index ? { ...a, distanceKm: Number(e.target.value) || 0 } : a) })}
+                      className="min-w-0 p-2 rounded-lg bg-[#141838] border border-white/20" />
+                    <button type="button" aria-label={`Remover cidade ${index + 1}`} onClick={() => setProgForm({ ...progForm, deliveryCities: progForm.deliveryCities!.filter((_, i) => i !== index) })}
+                      className="col-span-2 p-2 text-rose-300 border border-rose-300/30 rounded-lg">Remover</button>
+                  </div>)}
+                  <button type="button" onClick={() => setProgForm({ ...progForm, deliveryCities: [...(progForm.deliveryCities || []), { id: `city-${Date.now()}`, originId: progForm.deliveryOrigins?.[0]?.id || '', city: '', state: 'MA', distanceKm: 0 }] })}
+                    className="p-2 rounded-lg border border-emerald-300/30 text-emerald-300">Adicionar cidade</button>
+                  <p className="text-amber-200">Cidade sem cadastro fica com frete a combinar e não finaliza automaticamente.
+                    Frete grátis vale nas cidades cadastradas quando a promoção estiver ativa e a quantidade mínima for atingida.</p>
+                </div>}
+                <label htmlFor="base-delivery-fee" className="block font-bold text-gray-200">Taxa padrão no modo fixo (R$)</label>
+                <input id="base-delivery-fee" type="number" min="0" step="0.01"
+                  value={progForm.baseDeliveryFee ?? 0}
+                  onChange={e => setProgForm({ ...progForm, baseDeliveryFee: Math.max(0, Number(e.target.value) || 0) })}
+                  className="w-full p-2.5 rounded-xl bg-[#141838] border border-[#8423DA]/35 text-white" />
+                <label className="flex items-center gap-2 cursor-pointer">
+                  <input type="checkbox" checked={progForm.tier2FreeShipping === true}
+                    onChange={e => setProgForm({ ...progForm, tier2FreeShipping: e.target.checked })} />
+                  Frete grátis a partir da quantidade do Nível 2
+                </label>
+                <p className="text-gray-400">A promoção precisa estar ativa. Acessórios não contam para a quantidade mínima.
+                  A taxa padrão vale para entrega sem benefício; retirada nunca tem taxa. A compra mínima de fidelidade é uma regra separada.</p>
+              </fieldset>
 
               {/* Níveis 1, 2 e 3 */}
               <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 pt-1">

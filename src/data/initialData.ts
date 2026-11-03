@@ -598,6 +598,12 @@ export const DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG: ProgressiveDiscountConfig = {
   tier2DiscountPercent: 5,
   tier2Label: '5% OFF ✓',
   tier2FreeShipping: false,
+  baseDeliveryFee: 0,
+  deliveryPricingMode: 'fixed',
+  deliveryOrigins: [
+    { id: 'base-codo', city: 'Codó', state: 'MA' },
+    { id: 'base-sao-bernardo', city: 'São Bernardo', state: 'MA' },
+  ],
   tier3MinUnits: 3,
   tier3DiscountType: 'percent',
   tier3DiscountPercent: 10,

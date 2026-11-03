@@ -115,7 +115,13 @@ export interface ProgressiveDiscountConfig {
   tier2DiscountType?: 'percent' | 'fixed'; // padrão: 'percent'
   tier2DiscountPercent?: number; // padrão: 5 (5% OFF no Nível 2)
   tier2Label: string; // ex: '5% OFF ✓'
-  tier2FreeShipping: boolean; // legado / opcional
+  tier2FreeShipping: boolean; // frete grátis a partir da quantidade do nível 2
+  baseDeliveryFee?: number; // taxa padrão de entrega em R$; ausente = 0
+  deliveryPricingMode?: 'fixed' | 'per_km';
+  deliveryOrigins?: { id: string; city: string; state: string }[];
+  deliveryRatePerKm?: number;
+  deliveryMinimumFee?: number;
+  deliveryCities?: { id: string; originId: string; city: string; state: string; distanceKm: number }[];
   tier3MinUnits: number; // padrão: 3
   tier3DiscountType?: 'percent' | 'fixed'; // padrão: 'percent'
   tier3DiscountPercent: number; // padrão: 10 (10% OFF no Nível 3)
@@ -174,7 +180,7 @@ export interface CartItem {
 export interface Coupon {
   id: string;
   code: string;
-  discountType: 'percent' | 'fixed';
+  discountType: 'percent' | 'fixed' | 'free_shipping';
   value: number;
   description: string;
   minOrderValue?: number;

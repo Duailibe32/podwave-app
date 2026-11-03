@@ -1,3 +1,4 @@
+import { calculateCheckoutTotals, isCouponEligibleForCart, type CheckoutSummary } from '../utils/checkoutTotals';
 import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { toast } from './ToastContext';
@@ -351,6 +352,7 @@ interface CatalogContextType {
   removeCoupon: () => void;
   discountAmount: number;
   cartTotal: number;
+  getCheckoutSummary: (isPickup: boolean, destinationCity?: string) => CheckoutSummary;
   freeShippingGoal: number;
   freeShippingRemaining: number;
   isCartOpen: boolean;
@@ -390,7 +392,7 @@ interface CatalogContextType {
   toggleBannerActive: (id: string) => void;
 
   // Settings & Reset
-  updateSettings: (settings: Partial<StoreSettings>) => void;
+  updateSettings: (settings: Partial<StoreSettings>, options?: { persistPromotions?: boolean }) => void;
   resetAllData: () => void;
   replaceCatalogData: (newBrands: Brand[], newModels: ProductModel[], newBanners: BannerSlide[]) => void;
 
@@ -2577,7 +2579,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         p.tier2DiscountPercent = 5;
         p.tier2DiscountType = p.tier2DiscountType || 'percent';
         p.tier2Label = '5% OFF ✓';
-        p.tier2FreeShipping = false;
       }
       if (p.minOrderForLoyaltyStamp === undefined) {
         p.minOrderForLoyaltyStamp = p.freeShippingGoalValue || 100;
@@ -2982,7 +2983,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
     setAppliedCoupon(coupon);
 
-    const desc =
+    const desc = coupon.discountType === 'free_shipping' ? 'Frete grátis' :
       coupon.discountType === 'percent'
         ? `${coupon.value}% OFF`
         : `R$ ${coupon.value.toFixed(2).replace('.', ',')} OFF`;
@@ -3016,7 +3017,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Discount calculation based on general or item-specific coupon
   let couponDiscountAmount = 0;
-  if (appliedCoupon) {
+  if (isCouponEligibleForCart(appliedCoupon, cart, cartSubtotal) && appliedCoupon.discountType !== 'free_shipping') {
     if (appliedCoupon.applicableModelId && appliedCoupon.applicableModelId !== 'all') {
       // Item-specific calculation
       const matchingItemsSubtotal = cart
@@ -3042,75 +3043,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const discountAmount = Math.min(couponDiscountAmount + vipDiscountAmount + progressiveDiscountAmount, rawTotal);
   const cartTotal = Math.max(0, rawTotal - discountAmount);
 
-  // Compra Mínima para Pontuar 1 Selo no Cartão Fidelidade (editável na aba Promoções, usando freeShippingGoal para compatibilidade)
-  const freeShippingGoal = Math.max(
-    0,
-    Number(progCfg.minOrderForLoyaltyStamp ?? progCfg.freeShippingGoalValue) || 100.0
-  );
-  const freeShippingRemaining = Math.max(0, freeShippingGoal - cartTotal);
-
-  // Reference implementation for WhatsApp sharing with exact Unicode string
-  const submitOrderViaWhatsapp = async (form: OrderForm, customMessage?: string): Promise<boolean> => {
-    if (!cart.length) { toast.error('Adicione produtos ao carrinho.'); return false; }
-    let modelsForValidation = models;
-    try {
-      const stock = await fetchStockAvailability();
-      if (stock && stock.length > 0) {
-        const latestModels = models.map((m) => ({
-          ...m,
-          flavors: m.flavors.map((f) => {
-            const current = stock.find((s) => s.id === f.id && s.modelId === m.id);
-            if (!current) return f;
-            return {
-              ...f,
-              demoQuantity: current.quantity,
-              inStock: current.inStock,
-            };
-          }),
-        }));
-        setModels(latestModels);
-        modelsForValidation = latestModels;
-      }
-    } catch {
-      // Se não houver conexão com o banco ou tabela ausente, valida com o estado atual do catálogo
-      modelsForValidation = models;
-    }
-
-    const error = cartStockError(cart, modelsForValidation);
-    if (error) {
-      toast.error('Pedido não enviado', error);
-      return false;
-    }
-
-    const phone = settings.whatsappNumber || '5586999014685';
-    const cleanPhone = phone.replace(/\D/g, '');
-
-    // If coupon used, increment its count and automatically inactivate if limit is reached
-    if (appliedCoupon) {
-      setCoupons((prev) =>
-        prev.map((c) => {
-          if (c.code.toUpperCase() === appliedCoupon.code.toUpperCase()) {
-            const nextUsed = (c.usedCount || 0) + 1;
-            const reachedLimit = Boolean(c.maxUses && c.maxUses > 0 && nextUsed >= c.maxUses);
-            return {
-              ...c,
-              usedCount: nextUsed,
-              active: reachedLimit ? false : c.active,
-            };
-          }
-          return c;
-        })
-      );
-    }
-
-    // Extrai o referenceId consistente se já veio pré-formatado na ficha ou gera novo
-    const matchedRef = customMessage?.match(/#(?:PW-[A-Z0-9]+|[A-Z0-9-]+)/)?.[0]?.replace('#', '');
-    const refId = matchedRef || generateReferenceId();
-
-    const addressSummary = form.isPickup
-      ? 'Retirada no Local'
-      : [form.address, form.numberAndComplement, form.bairro, form.city].filter(Boolean).join(' - ');
-
+  const getCheckoutSummary = (isPickup: boolean, destinationCity?: string): CheckoutSummary => {
     // Monta itens completos do pedido incluindo acessórios do Compre Junto selecionados
     const orderItemsWithAddons: CartItem[] = [...cart];
     if (isUsbCableAdded && usbAddonConfig.active !== false) {
@@ -3159,17 +3092,106 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       });
     }
 
+    return {
+      ...calculateCheckoutTotals({ itemsSubtotal: cartSubtotal, addonAmount: addonsPrice,
+        discountAmount, totalPodUnits, isPickup, config: progCfg, destinationCity, coupon: appliedCoupon, cart }),
+      items: orderItemsWithAddons,
+    };
+  };
+
+  // Compra Mínima para Pontuar 1 Selo no Cartão Fidelidade (editável na aba Promoções, usando freeShippingGoal para compatibilidade)
+  const freeShippingGoal = Math.max(
+    0,
+    Number(progCfg.minOrderForLoyaltyStamp ?? progCfg.freeShippingGoalValue) || 100.0
+  );
+  const freeShippingRemaining = Math.max(0, freeShippingGoal - cartTotal);
+
+  // Reference implementation for WhatsApp sharing with exact Unicode string
+  const submitOrderViaWhatsapp = async (form: OrderForm, customMessage?: string): Promise<boolean> => {
+    if (!cart.length) { toast.error('Adicione produtos ao carrinho.'); return false; }
+    const checkoutSummary = getCheckoutSummary(form.isPickup, form.city);
+    if (checkoutSummary.shippingNeedsQuote) {
+      toast.error('Frete a combinar', 'A cidade/UF não possui uma estimativa cadastrada. Confira o destino ou fale com a loja antes de enviar.');
+      return false;
+    }
+
+    let modelsForValidation = models;
+    try {
+      const stock = await fetchStockAvailability();
+      if (stock && stock.length > 0) {
+        const latestModels = models.map((m) => ({
+          ...m,
+          flavors: m.flavors.map((f) => {
+            const current = stock.find((s) => s.id === f.id && s.modelId === m.id);
+            if (!current) return f;
+            return {
+              ...f,
+              demoQuantity: current.quantity,
+              inStock: current.inStock,
+            };
+          }),
+        }));
+        setModels(latestModels);
+        modelsForValidation = latestModels;
+      }
+    } catch {
+      // Se não houver conexão com o banco ou tabela ausente, valida com o estado atual do catálogo
+      modelsForValidation = models;
+    }
+
+    const error = cartStockError(cart, modelsForValidation);
+    if (error) {
+      toast.error('Pedido não enviado', error);
+      return false;
+    }
+
+    const phone = settings.whatsappNumber || '5586999014685';
+    const cleanPhone = phone.replace(/\D/g, '');
+
+    // If coupon used, increment its count and automatically inactivate if limit is reached
+    const couponWasUsed = isCouponEligibleForCart(appliedCoupon, cart, cartSubtotal)
+      && (appliedCoupon.discountType !== 'free_shipping' || checkoutSummary.freeShippingSource === 'coupon');
+    if (appliedCoupon && couponWasUsed) {
+      setCoupons((prev) =>
+        prev.map((c) => {
+          if (c.code.toUpperCase() === appliedCoupon.code.toUpperCase()) {
+            const nextUsed = (c.usedCount || 0) + 1;
+            const reachedLimit = Boolean(c.maxUses && c.maxUses > 0 && nextUsed >= c.maxUses);
+            return {
+              ...c,
+              usedCount: nextUsed,
+              active: reachedLimit ? false : c.active,
+            };
+          }
+          return c;
+        })
+      );
+    }
+
+    // Extrai o referenceId consistente se já veio pré-formatado na ficha ou gera novo
+    const matchedRef = customMessage?.match(/#(?:PW-[A-Z0-9]+|[A-Z0-9-]+)/)?.[0]?.replace('#', '');
+    const refId = matchedRef || generateReferenceId();
+
+    const addressSummary = form.isPickup
+      ? 'Retirada no Local'
+      : [form.address, form.numberAndComplement, form.bairro, form.city].filter(Boolean).join(' - ');
+
+    const orderItemsWithAddons = checkoutSummary.items;
+
     // Persistir SEMPRE o pedido (seja cliente autenticado ou visitante no catálogo)
     await recordCustomerOrder({
       referenceId: refId,
-      subtotal: rawTotal,
-      discount: discountAmount,
-      total: cartTotal,
+      subtotal: checkoutSummary.itemsSubtotal + checkoutSummary.addonAmount,
+      discount: checkoutSummary.discountAmount,
+      deliveryFee: checkoutSummary.deliveryFee,
+      total: checkoutSummary.totalAmount,
       paymentMethod: form.paymentMethod,
       deliveryType: form.isPickup ? 'pickup' : 'delivery',
       addressSummary,
-      customerNotes: form.notes?.trim() || undefined,
-      couponCode: appliedCoupon?.code || undefined,
+      customerNotes: [form.notes?.trim(), checkoutSummary.deliveryEstimate
+        ? `Frete estimado por cidade: ${checkoutSummary.deliveryDistanceKm} km; origem: ${checkoutSummary.deliveryOriginCity}.`
+        : ''].filter(Boolean).join(' | ') || undefined,
+      couponCode: couponWasUsed ? appliedCoupon?.code : undefined,
       vipDiscountApplied: Boolean(isVip && vipDiscountAmount > 0),
       vipDiscountAmount: vipDiscountAmount || 0,
       customerName: form.fullName?.trim() || undefined,
@@ -3182,10 +3204,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       referenceId: refId,
       dateTimeBrasilia: getBrasiliaDateTime(),
       form,
-      cart,
-      isUsbCableAdded,
+      cart: checkoutSummary.items,
+      isUsbCableAdded: false,
       cablePrice,
       appliedCoupon,
+      financials: checkoutSummary,
     });
 
     // Universal robust WhatsApp opening with NFC normalization, surrogate validation, and popup resilience
@@ -3805,17 +3828,12 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // Settings & Reset
-  const updateSettings = (updated: Partial<StoreSettings>) => {
-    setSettings((prev) => {
-      const next = { ...prev, ...updated };
-      if (updated.progressiveDiscountConfig || updated.complementaryAddons) {
-        void savePromotionsConfigToSupabase(
-          next.progressiveDiscountConfig,
-          next.complementaryAddons
-        );
-      }
-      return next;
-    });
+  const updateSettings = (updated: Partial<StoreSettings>, options?: { persistPromotions?: boolean }) => {
+    if (options?.persistPromotions !== false && (updated.progressiveDiscountConfig || updated.complementaryAddons)) {
+      void savePromotionsConfigToSupabase(updated.progressiveDiscountConfig ?? settings.progressiveDiscountConfig,
+        updated.complementaryAddons ?? settings.complementaryAddons);
+    }
+    setSettings(prev => ({ ...prev, ...updated }));
   };
 
   const resetAllData = () => {
@@ -4972,6 +4990,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         removeCoupon,
         discountAmount,
         cartTotal,
+        getCheckoutSummary,
         freeShippingGoal,
         freeShippingRemaining,
         isCartOpen,

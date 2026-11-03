@@ -97,7 +97,7 @@ export function calculateOrderFinancials(params: {
 
   // 3. Discount calculation
   let discountCents = 0;
-  if (appliedCoupon && appliedCoupon.active) {
+  if (appliedCoupon && appliedCoupon.active && appliedCoupon.discountType !== 'free_shipping') {
     const rawItemsSubtotal = fromCents(itemsSubtotalCents);
     const meetsMinOrder = !appliedCoupon.minOrderValue || rawItemsSubtotal >= appliedCoupon.minOrderValue;
 
