@@ -107,7 +107,17 @@ export interface ImageStorageConfig {
   lastCacheClearedAt?: string; // Data ISO da última limpeza manual
 }
 
+export interface FlashSale {
+  enabled: boolean;
+  modelId: string;
+  flavorId?: string;
+  percent: number;
+  startsAt: string;
+  endsAt: string;
+}
+
 export interface ProgressiveDiscountConfig {
+  flashSale?: FlashSale;
   enabled: boolean;
   title: string;
   tier1Label: string; // ex: 'Catálogo'

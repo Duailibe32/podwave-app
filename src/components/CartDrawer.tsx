@@ -37,6 +37,7 @@ export const CartDrawer: React.FC = () => {
     siliconeCoverPrice,
     totalPodUnits,
     progressiveDiscountAmount,
+    flashSaleDiscountAmount,
     isProgressiveFreeShipping,
     coupons,
     appliedCoupon,
@@ -614,6 +615,7 @@ export const CartDrawer: React.FC = () => {
 
                 <p className="text-xs text-gray-400">Descontos em produtos não são cumulativos: aplicamos somente o maior benefício. Frete grátis é separado.</p>
 
+                {flashSaleDiscountAmount > 0 && <div className="flex justify-between gap-3 text-amber-300 font-bold"><span>Oferta Relâmpago:</span><span className="font-mono shrink-0">-R$ {flashSaleDiscountAmount.toFixed(2).replace('.', ',')}</span></div>}
                 {isVip && vipDiscountAmount > 0 && (
                   <div className="flex justify-between text-amber-300 font-bold">
                     <span className="flex items-center gap-1">
@@ -627,7 +629,7 @@ export const CartDrawer: React.FC = () => {
                 {appliedCoupon && (
                   <div className="flex justify-between text-emerald-400">
                     <span>Cupom ({appliedCoupon.code}):</span>
-                    <span className="font-mono">{appliedCoupon.discountType === 'free_shipping' ? 'Isenção na entrega' : Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount) > 0 ? `-R$ ${Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount).toFixed(2).replace('.', ',')}` : 'Maior benefício já aplicado'}</span>
+                    <span className="font-mono">{appliedCoupon.discountType === 'free_shipping' ? 'Isenção na entrega' : Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount - (flashSaleDiscountAmount || 0)) > 0 ? `-R$ ${Math.max(0, discountAmount - vipDiscountAmount - progressiveDiscountAmount - (flashSaleDiscountAmount || 0)).toFixed(2).replace('.', ',')}` : 'Maior benefício já aplicado'}</span>
                   </div>
                 )}
 

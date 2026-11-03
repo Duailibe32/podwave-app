@@ -14,6 +14,7 @@ const tests=[
   'test-discount-exclusivity',
   'test-mobile-scroll-lock',
   'test-reorder',
+  'test-flash-sale',
 ];
 for(const name of tests){
   const result=spawnSync(process.execPath,[`scripts/${name}.cjs`],{stdio:'inherit'});

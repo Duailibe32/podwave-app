@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { FlashSaleSettings } from './FlashSaleSettings';
 import { useCatalog } from '../../context/CatalogContext';
 import {
   DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
@@ -315,6 +316,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
   const handleRestoreDefaults = async () => {
     const defProg: ProgressiveDiscountConfig = {
       ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG,
+      flashSale: settings.progressiveDiscountConfig?.flashSale,
       tier2DiscountType: 'percent',
       tier2DiscountPercent: 5,
       tier3DiscountType: 'percent',
@@ -408,6 +410,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
         </div>
       )}
 
+      <FlashSaleSettings />
       <form onSubmit={(e) => void handleSaveAll(e)} className="space-y-8">
         {/* =====================================================================
             SEÇÃO 1: DESCONTO PROGRESSIVO • LEVE MAIS, PAGUE MENOS

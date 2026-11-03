@@ -4,6 +4,7 @@ import { CatalogProvider, useCatalog } from './context/CatalogContext';
 import { ToastProvider } from './context/ToastContext';
 import { ToastContainer } from './components/ui/ToastContainer';
 import { Header } from './components/Header';
+import { FlashSaleBanner } from './components/FlashSaleBanner';
 import { HeroBanner } from './components/HeroBanner';
 import { BrandScroller } from './components/BrandScroller';
 import { CatalogSection } from './components/CatalogSection';
@@ -33,6 +34,7 @@ const AppContent: React.FC = () => {
   return (
     <div className="min-h-screen flex flex-col bg-[#080811] text-white">
       <Header />
+      {currentView === 'catalog' && <FlashSaleBanner />}
 
       <main className="flex-grow">
         {currentView === 'catalog' ? (
