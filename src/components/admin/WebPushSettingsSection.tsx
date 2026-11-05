@@ -499,6 +499,66 @@ export const WebPushSettingsSection: React.FC<{
             <span className="text-[10px] text-[#A5A5B8]">Disparo em tempo real</span>
           </div>
 
+          <div className="space-y-1.5">
+            <span className="block text-[10px] font-bold uppercase tracking-wider text-[#A5A5B8]">
+              Modelos Rápidos de Status do Pedido:
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setTitle('🛵 Pedido a caminho! (#PW-1042)');
+                  setBody('Prepare-se! Seu pedido saiu para entrega expressa (10 a 20 min) e já está a caminho.');
+                  setUrl('/?orders=1');
+                  setTag('podwave-order-enviado');
+                  setRequireInteraction(true);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 text-amber-200 text-[10px] font-bold cursor-pointer transition"
+              >
+                🛵 Pedido a caminho
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTitle('🎉 Pedido Entregue! (#PW-1042)');
+                  setBody('Entrega confirmada com sucesso! Aproveite sua sessão PodWave.');
+                  setUrl('/?orders=1');
+                  setTag('podwave-order-entregue');
+                  setRequireInteraction(true);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 text-emerald-200 text-[10px] font-bold cursor-pointer transition"
+              >
+                🎉 Pedido Entregue
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTitle('✅ Pedido Confirmado! (#PW-1042)');
+                  setBody('Seu pedido foi confirmado e reservado no estoque. Já vai entrar em separação!');
+                  setUrl('/?orders=1');
+                  setTag('podwave-order-confirmado');
+                  setRequireInteraction(false);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-cyan-500/15 hover:bg-cyan-500/25 border border-cyan-400/40 text-cyan-200 text-[10px] font-bold cursor-pointer transition"
+              >
+                ✅ Pedido Confirmado
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setTitle('🔥 Novidade PodWave: Sabores Exclusivos!');
+                  setBody('Chegaram novos pods descartáveis e juices premium com entrega rápida de 10 a 20 min.');
+                  setUrl('/?ref=push');
+                  setTag('podwave-promo-push');
+                  setRequireInteraction(false);
+                }}
+                className="px-2.5 py-1 rounded-lg bg-purple-500/15 hover:bg-purple-500/25 border border-purple-400/40 text-purple-200 text-[10px] font-bold cursor-pointer transition"
+              >
+                🔥 Promoção
+              </button>
+            </div>
+          </div>
+
           <div className="space-y-3">
             <div>
               <label className="block text-gray-300 light:text-slate-700 font-semibold mb-1 text-[11px]">

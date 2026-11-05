@@ -22,6 +22,7 @@ import {
 
 import { OrderRecordPreviewModal } from './OrderRecordPreviewModal';
 import { getUserLoyaltyCard } from '../utils/loyaltyCard';
+import { OrderNotificationSettings } from '../context/OrderNotificationsContext';
 
 export const CheckoutDrawer: React.FC = () => {
   const {
@@ -796,6 +797,9 @@ type="text"
                 </span>
               </label>
             )}
+
+            {/* Alertas Push do Navegador para acompanhar o pedido */}
+            <OrderNotificationSettings compact />
 
             {/* Visualizar Registro / Ficha Administrativa (PodWave 2.0) */}
             <div className="space-y-2 pt-1">

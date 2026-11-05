@@ -1801,6 +1801,29 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         auditDetails
       );
 
+      if (typeof window !== 'undefined') {
+        const pushPayload = {
+          orderId: updatedOrder.id,
+          referenceId: updatedOrder.referenceId,
+          customerId: updatedOrder.customerId,
+          fromStatus: existing.status,
+          toStatus,
+          deliveryType: updatedOrder.deliveryType,
+        };
+        window.dispatchEvent(
+          new CustomEvent('podwave:order-status-changed', { detail: pushPayload })
+        );
+        if (typeof BroadcastChannel !== 'undefined') {
+          try {
+            const bc = new BroadcastChannel('podwave_order_status_push');
+            bc.postMessage(pushPayload);
+            bc.close();
+          } catch {
+            // ignore BroadcastChannel errors
+          }
+        }
+      }
+
       return { success: true, updatedOrder };
     } finally {
       releaseOrderActionLock(lockKey);

@@ -1,155 +1,793 @@
-import React, { createContext, useContext, useEffect, useState } from 'react';
+import React, { createContext, useCallback, useContext, useEffect, useRef, useState } from 'react';
+import { Bell, BellOff, BellRing, CheckCircle2, Send, Truck } from 'lucide-react';
 import { useCatalog } from './CatalogContext';
+import { useToast } from './ToastContext';
 import { getSupabaseClient } from '../services/supabase';
+import { CatalogOrderStatus } from '../types/catalog';
 
-const preferenceKey = (id: string) => `podwave_order_notifications:${id}`;
-const supported = () => typeof window !== 'undefined' && window.isSecureContext && 'Notification' in window && 'serviceWorker' in navigator;
-const permission = () => supported() ? Notification.permission : 'unsupported';
-const Context = createContext({ enabled:false, busy:false, permission:permission(), message:'', activate:async () => {}, deactivate:() => {} });
+const DEVICE_PREFERENCE_KEY = 'podwave_order_notifications:device';
+const LAST_NOTIFIED_STATUS_KEY = 'podwave_order_last_notified_status_v1';
+const PUSH_VAPID_KEY = 'podwave_webpush_vapid_public_key_v1';
+const PUSH_SUBSCRIPTION_STORAGE_KEY = 'podwave_customer_push_subscription_v1';
+export const ORDER_STATUS_PUSH_CHANNEL = 'podwave_order_status_push';
+export const ORDER_STATUS_CHANGED_EVENT = 'podwave:order-status-changed';
 
-export function OrderNotificationsProvider({children}: {children: React.ReactNode}) {
-  const { currentUser, supabaseClient, openProfileModal } = useCatalog();
-  const userId = currentUser?.id;
-  const [preference,setPreference] = useState<{userId?: string;enabled: boolean}>({enabled:false});
-  const enabled = Boolean(userId && preference.userId === userId && preference.enabled);
-  const [busy,setBusy] = useState(false);
-  const [permissionState,setPermission] = useState(permission);
-  const [message,setMessage] = useState('');
-  useEffect(() => {
-    try { setPreference({userId,enabled:Boolean(userId && localStorage.getItem(preferenceKey(userId)) === 'on')}); }
-    catch { setPreference({userId,enabled:false}); }
-    setMessage('');
-  },[userId]);
-  useEffect(() => {
-    const update = () => setPermission(permission());
-    window.addEventListener('focus',update);
-    return () => window.removeEventListener('focus',update);
-  },[]);
-
-  const activate = async () => {
-    if (!userId || busy) return;
-    if (!supported()) {setMessage('Este navegador não oferece notificações aqui. Abra o site publicado por HTTPS; em alguns celulares, instale o PWA primeiro.');return;}
-    setBusy(true); setMessage('');
-    try {
-      // Permission is requested only from the user's explicit button click.
-      const result = await Notification.requestPermission();
-      setPermission(result);
-      if (result !== 'granted') {setMessage('Permissão não concedida. Você pode ajustar as notificações nas configurações do navegador.');return;}
-      const registration = await navigator.serviceWorker.getRegistration();
-      if (!registration?.active) {setMessage('O aplicativo ainda está sendo preparado. Recarregue o site publicado e tente novamente.');return;}
-      localStorage.setItem(preferenceKey(userId),'on'); setPreference({userId,enabled:true});
-      setMessage('Avisos ativados para esta conta neste dispositivo.');
-    } catch {setMessage('Não foi possível ativar os avisos neste navegador.');}
-    finally {setBusy(false);}
-  };
-  const deactivate = () => {
-    if (userId) {try {localStorage.removeItem(preferenceKey(userId));} catch { /* Session preference still changes. */ }}
-    setPreference({userId,enabled:false}); setMessage('Avisos desativados neste aplicativo. A permissão do navegador pode continuar concedida.');
-  };
-
-  useEffect(() => {
-    if (!userId || !enabled || permissionState !== 'granted' || !supported()) return;
-    const client = supabaseClient || getSupabaseClient();
-    if (!client) {setMessage('Conecte o aplicativo ao banco para acompanhar os pedidos.');return;}
-    let alive=true, loading=false, initialized=false;
-    const statuses = new Map<string,string>();
-    const observe = async (row: {id?: unknown;status?: unknown;customer_id?: unknown}) => {
-      if (!alive || typeof row.id !== 'string' || typeof row.status !== 'string' || row.customer_id !== userId) return;
-      const before = statuses.get(row.id);
-      statuses.set(row.id,row.status);
-      if (!initialized || !before || before === row.status || document.visibilityState !== 'hidden') return;
-      try {
-        const registration = await navigator.serviceWorker.getRegistration();
-        if (!alive || !registration?.active || Notification.permission !== 'granted') return;
-        // No names, products, amounts or order numbers on the lock screen.
-        await registration.showNotification('Atualização de pedido',{
-          body:'O status de um dos seus pedidos mudou. Abra o aplicativo para consultar.',
-          icon:'/pwa-192x192.png',tag:`podwave-order:${userId}:${row.id}`,
-          data:{type:'podwave-order',ownerId:userId,url:'/?orders=1'},
-        });
-      } catch {if (alive) setMessage('O navegador não conseguiu exibir um aviso. Confira seus pedidos no aplicativo.');}
-    };
-    const refresh = async () => {
-      if (!alive || loading) return;
-      loading=true;
-      try {
-        const {data,error} = await client.from('customer_orders').select('id,status,customer_id').eq('customer_id',userId);
-        if (error) {if(alive)setMessage('Não foi possível acompanhar os pedidos. Confira a conexão e suas permissões.');return;}
-        if (!alive) return;
-        for (const row of data || []) await observe(row);
-        initialized=true;
-      } catch {if(alive)setMessage('A conexão foi interrompida. Os avisos serão retomados quando ela voltar.');}
-      finally {loading=false;}
-    };
-    // A normal read remains available even if this table is not enabled in Realtime.
-    void refresh();
-    const timer = window.setInterval(() => void refresh(),60000);
-    const onVisible = () => void refresh();
-    document.addEventListener('visibilitychange',onVisible);
-    let channel: ReturnType<typeof client.channel> | undefined;
-    if (/^[a-zA-Z0-9_-]+$/.test(userId)) {
-      channel = client.channel(`order-notifications:${userId}`).on('postgres_changes',{
-        event:'UPDATE',schema:'public',table:'customer_orders',filter:`customer_id=eq.${userId}`,
-      },() => void refresh()).subscribe();
-    }
-    return () => {
-      alive=false; window.clearInterval(timer); document.removeEventListener('visibilitychange',onVisible);
-      if(channel) void client.removeChannel(channel);
-      void navigator.serviceWorker.getRegistration().then(async registration => {
-        const notifications = await registration?.getNotifications();
-        for(const notification of notifications || []) if(notification.data?.ownerId===userId) notification.close();
-      }).catch(() => {});
-    };
-  },[userId,enabled,permissionState,supabaseClient]);
-
-  useEffect(() => {
-    if (!userId || !('serviceWorker' in navigator)) return;
-    const openOrders = () => {openProfileModal();window.dispatchEvent(new Event('podwave:open-orders'));};
-    const receive = (event: MessageEvent) => {if(event.data?.type==='podwave:open-orders')openOrders();};
-    navigator.serviceWorker.addEventListener('message',receive);
-    const url = new URL(window.location.href);
-    if(url.searchParams.get('orders')==='1') {
-      url.searchParams.delete('orders');window.history.replaceState(window.history.state,'',url.pathname+url.search+url.hash);
-      openOrders();
-    }
-    return () => navigator.serviceWorker.removeEventListener('message',receive);
-  },[userId,openProfileModal]);
-  return <Context.Provider value={{enabled,busy,permission:permissionState,message,activate,deactivate}}>{children}</Context.Provider>;
+export interface OrderStatusPushEventPayload {
+  orderId: string;
+  referenceId?: string;
+  customerId?: string;
+  fromStatus?: CatalogOrderStatus;
+  toStatus: CatalogOrderStatus;
+  deliveryType?: 'delivery' | 'pickup';
 }
 
-export function OrderNotificationSettings() {
-  const {enabled,busy,permission,message,activate,deactivate}=useContext(Context);
+const preferenceKey = (id?: string) =>
+  id ? `podwave_order_notifications:${id}` : DEVICE_PREFERENCE_KEY;
+
+const isNotificationSupported = () =>
+  typeof window !== 'undefined' && 'Notification' in window;
+
+const getCurrentPermission = (): NotificationPermission | 'unsupported' =>
+  isNotificationSupported() ? Notification.permission : 'unsupported';
+
+function urlBase64ToUint8Array(base64String: string): Uint8Array {
+  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
+  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
+  const rawData = window.atob(base64);
+  const outputArray = new Uint8Array(rawData.length);
+  for (let i = 0; i < rawData.length; ++i) {
+    outputArray[i] = rawData.charCodeAt(i);
+  }
+  return outputArray;
+}
+
+export function buildOrderPushNotificationCopy(
+  status: CatalogOrderStatus | string,
+  referenceId?: string,
+  deliveryType?: 'delivery' | 'pickup'
+): { title: string; body: string; urgent: boolean } {
+  const cleanRef = referenceId ? `#${String(referenceId).replace(/^#/, '')}` : '';
+  const refBadge = cleanRef ? ` (${cleanRef})` : '';
+
+  switch (status) {
+    case 'recebido':
+      return {
+        title: `🌊 Pedido Recebido!${refBadge}`,
+        body: 'Recebemos seu pedido na PodWave! Em instantes vamos confirmar e separar seus produtos.',
+        urgent: false,
+      };
+    case 'confirmado':
+      return {
+        title: `✅ Pedido Confirmado!${refBadge}`,
+        body: 'Seu pedido foi aceito e reservado no estoque. Já vai entrar em separação!',
+        urgent: false,
+      };
+    case 'em_separacao':
+      return {
+        title: `📦 Pedido em Separação!${refBadge}`,
+        body: 'Nossa equipe já está conferindo e embalando seus produtos com agilidade.',
+        urgent: false,
+      };
+    case 'enviado':
+      if (deliveryType === 'pickup') {
+        return {
+          title: `🏪 Pronto para Retirada!${refBadge}`,
+          body: 'Seu pedido já está separado e pronto para retirada imediata no ponto combinado!',
+          urgent: true,
+        };
+      }
+      return {
+        title: `🛵 Pedido a caminho!${refBadge}`,
+        body: 'Prepare-se! Seu pedido saiu para entrega expressa (10 a 20 min) e já está a caminho.',
+        urgent: true,
+      };
+    case 'entregue':
+      return {
+        title: `🎉 Pedido Entregue!${refBadge}`,
+        body: 'Entrega confirmada com sucesso! Aproveite sua sessão PodWave.',
+        urgent: true,
+      };
+    case 'cancelado':
+      return {
+        title: `⚠️ Pedido Cancelado${refBadge}`,
+        body: 'O status do seu pedido foi alterado para cancelado. Toque para conferir os detalhes.',
+        urgent: false,
+      };
+    default:
+      return {
+        title: `🔔 Atualização do Pedido${refBadge}`,
+        body: 'O status do seu pedido mudou. Toque para acompanhar em tempo real.',
+        urgent: false,
+      };
+  }
+}
+
+function readStoredNotifiedMap(): Record<string, string> {
+  if (typeof window === 'undefined') return {};
+  try {
+    const raw = sessionStorage.getItem(LAST_NOTIFIED_STATUS_KEY);
+    return raw ? JSON.parse(raw) : {};
+  } catch {
+    return {};
+  }
+}
+
+function writeStoredNotifiedMap(map: Record<string, string>) {
+  if (typeof window === 'undefined') return;
+  try {
+    sessionStorage.setItem(LAST_NOTIFIED_STATUS_KEY, JSON.stringify(map));
+  } catch {
+    // ignore storage errors
+  }
+}
+
+interface OrderNotificationsContextValue {
+  enabled: boolean;
+  busy: boolean;
+  permission: NotificationPermission | 'unsupported';
+  message: string;
+  hasPushSubscription: boolean;
+  activate: () => Promise<void>;
+  deactivate: () => void;
+  sendTestOrderNotification: (sampleStatus?: CatalogOrderStatus) => Promise<void>;
+}
+
+const Context = createContext<OrderNotificationsContextValue>({
+  enabled: false,
+  busy: false,
+  permission: getCurrentPermission(),
+  message: '',
+  hasPushSubscription: false,
+  activate: async () => {},
+  deactivate: () => {},
+  sendTestOrderNotification: async () => {},
+});
+
+export function useOrderNotifications() {
+  return useContext(Context);
+}
+
+export function OrderNotificationsProvider({ children }: { children: React.ReactNode }) {
+  const { currentUser, allCatalogOrders, supabaseClient, openProfileModal } = useCatalog();
+  const toast = useToast();
+  const userId = currentUser?.id;
+
+  const [enabled, setEnabled] = useState<boolean>(false);
+  const [busy, setBusy] = useState(false);
+  const [permissionState, setPermission] = useState<NotificationPermission | 'unsupported'>(
+    getCurrentPermission
+  );
+  const [message, setMessage] = useState('');
+  const [hasPushSubscription, setHasPushSubscription] = useState(false);
+
+  const knownStatusesRef = useRef<Map<string, string>>(new Map());
+  const initializedRef = useRef(false);
+
+  // Carrega a preferência salva do usuário (ou do dispositivo)
+  useEffect(() => {
+    try {
+      const userPref = userId ? localStorage.getItem(preferenceKey(userId)) === 'on' : false;
+      const devicePref = localStorage.getItem(DEVICE_PREFERENCE_KEY) === 'on';
+      setEnabled(Boolean((userPref || devicePref) && getCurrentPermission() === 'granted'));
+    } catch {
+      setEnabled(false);
+    }
+    setMessage('');
+  }, [userId]);
+
+  // Atualiza estado de permissão quando a janela ganha foco
+  useEffect(() => {
+    const update = () => {
+      const perm = getCurrentPermission();
+      setPermission(perm);
+      if (perm !== 'granted') {
+        setEnabled(false);
+      }
+    };
+    window.addEventListener('focus', update);
+    return () => window.removeEventListener('focus', update);
+  }, []);
+
+  // Garante registro do Service Worker e verifica PushManager subscription existente
+  const ensureServiceWorkerAndPushSubscription = useCallback(async () => {
+    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
+    try {
+      let reg = await navigator.serviceWorker.getRegistration();
+      if (!reg) {
+        reg = await navigator.serviceWorker.register('/order-notifications-sw.js');
+      }
+      const readyReg = await navigator.serviceWorker.ready;
+
+      if ('pushManager' in readyReg) {
+        let sub = await readyReg.pushManager.getSubscription();
+        if (!sub) {
+          const vapidKey = localStorage.getItem(PUSH_VAPID_KEY)?.trim();
+          const subOptions: PushSubscriptionOptionsInit = { userVisibleOnly: true };
+          if (vapidKey) {
+            subOptions.applicationServerKey = urlBase64ToUint8Array(vapidKey) as unknown as BufferSource;
+          }
+          try {
+            sub = await readyReg.pushManager.subscribe(subOptions);
+          } catch {
+            // Sem servidor VAPID externo configurado, o Service Worker continua disparando notificações nativas locais/Realtime
+          }
+        }
+        if (sub) {
+          setHasPushSubscription(true);
+          try {
+            localStorage.setItem(PUSH_SUBSCRIPTION_STORAGE_KEY, JSON.stringify(sub));
+          } catch {
+            // ignore
+          }
+        }
+      }
+      return readyReg;
+    } catch {
+      return null;
+    }
+  }, []);
+
+  // Dispara a notificação nativa via Service Worker (Push API) ou Notification API fallback
+  const dispatchBrowserOrderNotification = useCallback(
+    async (params: {
+      orderId: string;
+      referenceId?: string;
+      status: CatalogOrderStatus | string;
+      deliveryType?: 'delivery' | 'pickup';
+      isTest?: boolean;
+    }) => {
+      if (!isNotificationSupported() || Notification.permission !== 'granted') return false;
+
+      const copy = buildOrderPushNotificationCopy(
+        params.status,
+        params.referenceId,
+        params.deliveryType
+      );
+      const tag = params.isTest
+        ? `podwave-order-test-${params.status}-${Date.now()}`
+        : `podwave-order-${params.orderId}-${params.status}`;
+
+      const payload = {
+        title: copy.title,
+        body: copy.body,
+        icon: '/pwa-192x192.png',
+        badge: '/apple-touch-icon.png',
+        tag,
+        orderId: params.orderId,
+        referenceId: params.referenceId,
+        status: params.status,
+        ownerId: userId || 'device',
+        url: '/?orders=1',
+        vibrate: copy.urgent ? [250, 100, 250, 100, 300] : [200, 100, 200],
+        requireInteraction: copy.urgent,
+      };
+
+      try {
+        const reg = await ensureServiceWorkerAndPushSubscription();
+        if (reg && 'showNotification' in reg) {
+          await reg.showNotification(copy.title, {
+            body: copy.body,
+            icon: payload.icon,
+            badge: payload.badge,
+            tag: payload.tag,
+            data: {
+              type: 'podwave-order',
+              ownerId: payload.ownerId,
+              orderId: params.orderId,
+              referenceId: params.referenceId,
+              status: params.status,
+              url: '/?orders=1',
+            },
+            vibrate: payload.vibrate,
+            requireInteraction: payload.requireInteraction,
+            actions: [{ action: 'open-orders', title: 'Acompanhar Pedido' }],
+          } as NotificationOptions);
+
+          if (reg.active) {
+            reg.active.postMessage({
+              type: 'SHOW_ORDER_STATUS_NOTIFICATION',
+              payload,
+            });
+          }
+          return true;
+        }
+
+        // Fallback direto para API Notification do navegador
+        const directNotif = new Notification(copy.title, {
+          body: copy.body,
+          icon: payload.icon,
+          badge: payload.badge,
+          tag: payload.tag,
+        });
+        directNotif.onclick = () => {
+          window.focus();
+          openProfileModal();
+          window.dispatchEvent(new Event('podwave:open-orders'));
+          directNotif.close();
+        };
+        return true;
+      } catch {
+        return false;
+      }
+    },
+    [userId, ensureServiceWorkerAndPushSubscription, openProfileModal]
+  );
+
+  // Ativar notificações Push do navegador
+  const activate = async () => {
+    if (busy) return;
+    if (!isNotificationSupported()) {
+      setMessage(
+        'Este navegador não suporta notificações Web Push. No iPhone/iPad, adicione o app à Tela de Início primeiro.'
+      );
+      return;
+    }
+
+    setBusy(true);
+    setMessage('');
+    try {
+      const result = await Notification.requestPermission();
+      setPermission(result);
+      if (result !== 'granted') {
+        setMessage(
+          'Permissão não concedida. Desbloqueie o ícone de sino/cadeado na barra de endereço do navegador.'
+        );
+        return;
+      }
+
+      await ensureServiceWorkerAndPushSubscription();
+
+      try {
+        if (userId) localStorage.setItem(preferenceKey(userId), 'on');
+        localStorage.setItem(DEVICE_PREFERENCE_KEY, 'on');
+      } catch {
+        // ignore storage errors
+      }
+
+      setEnabled(true);
+      setMessage('Alertas ativados! Você será avisado quando seu pedido estiver a caminho ou entregue.');
+      toast.success('Alertas Push ativados para acompanhar seu pedido em tempo real!');
+
+      // Envia uma notificação imediata de confirmação de ativação
+      const reg = await ensureServiceWorkerAndPushSubscription();
+      if (reg && 'showNotification' in reg) {
+        await reg.showNotification('🔔 Alertas de Pedido Ativados • PodWave', {
+          body: 'Você receberá notificações assim que seu pedido sair para entrega ou for entregue!',
+          icon: '/pwa-192x192.png',
+          badge: '/apple-touch-icon.png',
+          tag: 'podwave-push-welcome',
+          data: { type: 'podwave-order', url: '/?orders=1' },
+        });
+      }
+    } catch {
+      setMessage('Não foi possível ativar os alertas neste navegador.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deactivate = () => {
+    try {
+      if (userId) localStorage.removeItem(preferenceKey(userId));
+      localStorage.removeItem(DEVICE_PREFERENCE_KEY);
+    } catch {
+      // ignore
+    }
+    setEnabled(false);
+    setMessage('Alertas de pedido desativados neste dispositivo.');
+    toast.info('Alertas Push de status do pedido foram desativados.');
+  };
+
+  const sendTestOrderNotification = async (sampleStatus: CatalogOrderStatus = 'enviado') => {
+    if (!isNotificationSupported()) {
+      setMessage('Notificações não suportadas neste navegador.');
+      return;
+    }
+    if (getCurrentPermission() !== 'granted') {
+      await activate();
+      if (getCurrentPermission() !== 'granted') return;
+    }
+    const ok = await dispatchBrowserOrderNotification({
+      orderId: 'test-order',
+      referenceId: 'PW-2026',
+      status: sampleStatus,
+      deliveryType: 'delivery',
+      isTest: true,
+    });
+    const copy = buildOrderPushNotificationCopy(sampleStatus, 'PW-2026', 'delivery');
+    if (ok) {
+      setMessage(`Alerta enviado: "${copy.title}"`);
+      toast.info(`${copy.title} — ${copy.body}`);
+    } else {
+      setMessage('Não foi possível exibir a notificação de teste.');
+    }
+  };
+
+  // Observa mudanças de status nos pedidos locais/compartilhados (allCatalogOrders e currentUser.orderHistory)
+  useEffect(() => {
+    if (!enabled || permissionState !== 'granted') return;
+
+    const storedMap = readStoredNotifiedMap();
+    const relevantOrders = [
+      ...(currentUser?.orderHistory || []),
+      ...(allCatalogOrders || []).filter((o) => !userId || o.customerId === userId),
+    ];
+
+    const seenIds = new Set<string>();
+    for (const order of relevantOrders) {
+      if (!order?.id || !order?.status || seenIds.has(order.id)) continue;
+      seenIds.add(order.id);
+
+      const prevStatus = knownStatusesRef.current.get(order.id) || storedMap[order.id];
+      knownStatusesRef.current.set(order.id, order.status);
+
+      if (initializedRef.current && prevStatus && prevStatus !== order.status) {
+        storedMap[order.id] = order.status;
+        writeStoredNotifiedMap(storedMap);
+
+        const copy = buildOrderPushNotificationCopy(
+          order.status,
+          order.referenceId,
+          order.deliveryType
+        );
+        toast.info(`${copy.title}: ${copy.body}`);
+        void dispatchBrowserOrderNotification({
+          orderId: order.id,
+          referenceId: order.referenceId,
+          status: order.status,
+          deliveryType: order.deliveryType,
+        });
+      } else if (!storedMap[order.id]) {
+        storedMap[order.id] = order.status;
+      }
+    }
+
+    writeStoredNotifiedMap(storedMap);
+    initializedRef.current = true;
+  }, [
+    allCatalogOrders,
+    currentUser?.orderHistory,
+    userId,
+    enabled,
+    permissionState,
+    dispatchBrowserOrderNotification,
+    toast,
+  ]);
+
+  // Escuta eventos instantâneos (BroadcastChannel entre abas e CustomEvent na mesma janela)
+  useEffect(() => {
+    if (!enabled || permissionState !== 'granted') return;
+
+    const handleStatusEvent = (payload?: OrderStatusPushEventPayload) => {
+      if (!payload?.orderId || !payload?.toStatus) return;
+      // Filtra se houver usuário logado diferente do dono do pedido (exceto admin testando na própria conta)
+      if (userId && payload.customerId && payload.customerId !== userId) return;
+
+      const storedMap = readStoredNotifiedMap();
+      if (storedMap[payload.orderId] === payload.toStatus) return;
+
+      storedMap[payload.orderId] = payload.toStatus;
+      knownStatusesRef.current.set(payload.orderId, payload.toStatus);
+      writeStoredNotifiedMap(storedMap);
+
+      const copy = buildOrderPushNotificationCopy(
+        payload.toStatus,
+        payload.referenceId,
+        payload.deliveryType
+      );
+      toast.info(`${copy.title}: ${copy.body}`);
+      void dispatchBrowserOrderNotification({
+        orderId: payload.orderId,
+        referenceId: payload.referenceId,
+        status: payload.toStatus,
+        deliveryType: payload.deliveryType,
+      });
+    };
+
+    const onCustomEvent = (e: Event) => {
+      const custom = e as CustomEvent<OrderStatusPushEventPayload>;
+      handleStatusEvent(custom.detail);
+    };
+
+    window.addEventListener(ORDER_STATUS_CHANGED_EVENT, onCustomEvent);
+
+    let bc: BroadcastChannel | null = null;
+    if (typeof BroadcastChannel !== 'undefined') {
+      try {
+        bc = new BroadcastChannel(ORDER_STATUS_PUSH_CHANNEL);
+        bc.onmessage = (ev) => {
+          handleStatusEvent(ev.data as OrderStatusPushEventPayload);
+        };
+      } catch {
+        bc = null;
+      }
+    }
+
+    return () => {
+      window.removeEventListener(ORDER_STATUS_CHANGED_EVENT, onCustomEvent);
+      if (bc) bc.close();
+    };
+  }, [enabled, permissionState, userId, dispatchBrowserOrderNotification, toast]);
+
+  // Escuta Supabase Realtime + Polling em segundo plano para pedidos do cliente autenticado
+  useEffect(() => {
+    if (!userId || !enabled || permissionState !== 'granted' || !isNotificationSupported()) return;
+    const client = supabaseClient || getSupabaseClient();
+    if (!client) return;
+
+    let alive = true;
+    let loading = false;
+    let supabaseInitialized = false;
+
+    const observeSupabaseRow = async (row: {
+      id?: unknown;
+      status?: unknown;
+      customer_id?: unknown;
+      order_code?: unknown;
+      delivery_info?: unknown;
+    }) => {
+      if (
+        !alive ||
+        typeof row.id !== 'string' ||
+        typeof row.status !== 'string' ||
+        row.customer_id !== userId
+      ) {
+        return;
+      }
+
+      const storedMap = readStoredNotifiedMap();
+      const before = knownStatusesRef.current.get(row.id) || storedMap[row.id];
+      knownStatusesRef.current.set(row.id, row.status);
+      storedMap[row.id] = row.status;
+      writeStoredNotifiedMap(storedMap);
+
+      if (!supabaseInitialized || !before || before === row.status) return;
+
+      const info =
+        row.delivery_info && typeof row.delivery_info === 'object'
+          ? (row.delivery_info as Record<string, unknown>)
+          : {};
+      const referenceId =
+        typeof row.order_code === 'string'
+          ? row.order_code
+          : typeof info.referenceId === 'string'
+          ? info.referenceId
+          : row.id;
+      const deliveryType = info.deliveryType === 'pickup' ? 'pickup' : 'delivery';
+
+      const copy = buildOrderPushNotificationCopy(row.status, referenceId, deliveryType);
+      toast.info(`${copy.title}: ${copy.body}`);
+      await dispatchBrowserOrderNotification({
+        orderId: row.id,
+        referenceId,
+        status: row.status,
+        deliveryType,
+      });
+    };
+
+    const refreshFromSupabase = async () => {
+      if (!alive || loading) return;
+      loading = true;
+      try {
+        const { data, error } = await client
+          .from('customer_orders')
+          .select('id,status,customer_id,order_code,delivery_info')
+          .eq('customer_id', userId);
+        if (error || !alive) return;
+        for (const row of data || []) {
+          await observeSupabaseRow(row);
+        }
+        supabaseInitialized = true;
+      } catch {
+        // silent retry on next interval
+      } finally {
+        loading = false;
+      }
+    };
+
+    void refreshFromSupabase();
+    const timer = window.setInterval(() => void refreshFromSupabase(), 30000);
+    const onVisible = () => void refreshFromSupabase();
+    document.addEventListener('visibilitychange', onVisible);
+
+    let channel: ReturnType<typeof client.channel> | undefined;
+    if (/^[a-zA-Z0-9_-]+$/.test(userId)) {
+      channel = client
+        .channel(`order-notifications:${userId}`)
+        .on(
+          'postgres_changes',
+          {
+            event: 'UPDATE',
+            schema: 'public',
+            table: 'customer_orders',
+            filter: `customer_id=eq.${userId}`,
+          },
+          (payload) => {
+            if (payload?.new) {
+              void observeSupabaseRow(payload.new as Record<string, unknown>);
+            } else {
+              void refreshFromSupabase();
+            }
+          }
+        )
+        .subscribe();
+    }
+
+    return () => {
+      alive = false;
+      window.clearInterval(timer);
+      document.removeEventListener('visibilitychange', onVisible);
+      if (channel) void client.removeChannel(channel);
+    };
+  }, [userId, enabled, permissionState, supabaseClient, dispatchBrowserOrderNotification, toast]);
+
+  // Abre modal de pedidos ao clicar na notificação do Service Worker
+  useEffect(() => {
+    if (!('serviceWorker' in navigator)) return;
+    const openOrders = () => {
+      openProfileModal();
+      window.dispatchEvent(new Event('podwave:open-orders'));
+    };
+    const receive = (event: MessageEvent) => {
+      if (event.data?.type === 'podwave:open-orders') openOrders();
+    };
+    navigator.serviceWorker.addEventListener('message', receive);
+    const url = new URL(window.location.href);
+    if (url.searchParams.get('orders') === '1') {
+      url.searchParams.delete('orders');
+      window.history.replaceState(
+        window.history.state,
+        '',
+        url.pathname + url.search + url.hash
+      );
+      openOrders();
+    }
+    return () => navigator.serviceWorker.removeEventListener('message', receive);
+  }, [openProfileModal]);
+
   return (
-    <section className="rounded-xl bg-[#11152A]/70 border border-white/10 px-3 py-2 flex flex-wrap items-center justify-between gap-2 text-xs">
-      <div className="flex items-center gap-2 min-w-0">
-        <span
-          className={`w-2 h-2 rounded-full shrink-0 ${
-            enabled ? 'bg-[#00DFFF] shadow-[0_0_8px_#00DFFF]' : 'bg-gray-500'
-          }`}
-          aria-hidden="true"
-        />
-        <span className="font-semibold text-gray-200 truncate">Avisos de status em 2º plano</span>
-        {message && (
-          <span role="status" className="text-[11px] text-[#A5A5B8] truncate hidden sm:inline">
-            • {message}
-          </span>
-        )}
+    <Context.Provider
+      value={{
+        enabled,
+        busy,
+        permission: permissionState,
+        message,
+        hasPushSubscription,
+        activate,
+        deactivate,
+        sendTestOrderNotification,
+      }}
+    >
+      {children}
+    </Context.Provider>
+  );
+}
+
+export function OrderNotificationSettings({ compact = false }: { compact?: boolean }) {
+  const {
+    enabled,
+    busy,
+    permission,
+    message,
+    activate,
+    deactivate,
+    sendTestOrderNotification,
+  } = useContext(Context);
+
+  return (
+    <section
+      aria-label="Configurações de notificações push do pedido"
+      className={`rounded-2xl border transition-all ${
+        enabled
+          ? 'bg-gradient-to-r from-[#0D152C] via-[#111836] to-[#0D152C] border-[#00DFFF]/40 shadow-[0_0_20px_rgba(0,223,255,0.1)]'
+          : 'bg-[#11152A]/85 border-[#8423DA]/30'
+      } ${compact ? 'p-3 space-y-2' : 'p-3.5 sm:p-4 space-y-2.5'} text-xs`}
+    >
+      <div className="flex flex-wrap items-center justify-between gap-2.5">
+        <div className="flex items-start sm:items-center gap-2.5 min-w-0 flex-1">
+          <div
+            className={`w-8 h-8 rounded-xl flex items-center justify-center shrink-0 border ${
+              enabled
+                ? 'bg-[#00DFFF]/15 border-[#00DFFF]/50 text-[#00DFFF]'
+                : 'bg-white/5 border-white/10 text-gray-400'
+            }`}
+          >
+            {enabled ? (
+              <BellRing className="w-4 h-4 animate-pulse" />
+            ) : (
+              <Bell className="w-4 h-4" />
+            )}
+          </div>
+
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-2 flex-wrap">
+              <span className="font-heading font-extrabold text-white text-xs">
+                Alertas Push do Pedido (Navegador)
+              </span>
+              <span
+                className={`px-2 py-0.5 rounded-full text-[10px] font-bold border ${
+                  enabled
+                    ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-300'
+                    : 'bg-white/5 border-white/15 text-gray-400'
+                }`}
+              >
+                {enabled ? 'Ativo' : 'Desativado'}
+              </span>
+            </div>
+            <p className="text-[11px] text-[#A5A5B8] leading-snug mt-0.5">
+              Receba avisos instantâneos quando seu pedido mudar para{' '}
+              <strong className="text-[#00DFFF]">"Pedido a caminho"</strong> ou{' '}
+              <strong className="text-emerald-300">"Entregue"</strong>.
+            </p>
+          </div>
+        </div>
+
+        <div className="flex items-center gap-1.5 shrink-0">
+          {permission === 'unsupported' ? (
+            <span className="text-[11px] text-amber-300/90 font-medium px-2 py-1 rounded-lg bg-amber-500/10 border border-amber-500/30">
+              Indisponível neste navegador
+            </span>
+          ) : (
+            <button
+              type="button"
+              disabled={busy}
+              onClick={enabled ? deactivate : activate}
+              className={`rounded-xl px-3 py-2 text-[11px] font-heading font-extrabold transition cursor-pointer disabled:opacity-40 flex items-center gap-1.5 ${
+                enabled
+                  ? 'bg-white/5 hover:bg-rose-500/15 border border-white/15 hover:border-rose-400/40 text-gray-300 hover:text-rose-200'
+                  : 'bg-gradient-to-r from-[#8423DA] to-[#00DFFF] text-white shadow-md hover:brightness-110'
+              }`}
+            >
+              {busy ? (
+                <span>Ativando...</span>
+              ) : enabled ? (
+                <>
+                  <BellOff className="w-3.5 h-3.5" />
+                  <span>Desativar</span>
+                </>
+              ) : (
+                <>
+                  <BellRing className="w-3.5 h-3.5" />
+                  <span>Ativar Alertas Push</span>
+                </>
+              )}
+            </button>
+          )}
+        </div>
       </div>
-      {permission === 'unsupported' ? (
-        <span className="text-[11px] text-amber-300/90 font-medium">Requer HTTPS</span>
-      ) : (
-        <button
-          type="button"
-          disabled={busy}
-          onClick={enabled ? deactivate : activate}
-          className={`rounded-lg px-2.5 py-1 text-[11px] font-bold transition cursor-pointer disabled:opacity-40 shrink-0 ${
-            enabled
-              ? 'bg-white/5 hover:bg-rose-500/15 border border-white/15 hover:border-rose-400/40 text-gray-300 hover:text-rose-200'
-              : 'bg-[#00DFFF]/15 hover:bg-[#00DFFF]/25 border border-[#00DFFF]/40 text-[#00DFFF]'
-          }`}
-        >
-          {busy ? 'Ativando...' : enabled ? 'Desativar' : 'Ativar avisos'}
-        </button>
+
+      {/* Botões rápidos para testar como o alerta aparece no celular/PC */}
+      {enabled && (
+        <div className="pt-2 border-t border-white/10 flex flex-wrap items-center justify-between gap-2">
+          <span className="text-[10px] text-[#A5A5B8] flex items-center gap-1">
+            <CheckCircle2 className="w-3 h-3 text-emerald-400 shrink-0" />
+            <span>Simular alerta no seu aparelho:</span>
+          </span>
+          <div className="flex flex-wrap items-center gap-1.5">
+            <button
+              type="button"
+              onClick={() => void sendTestOrderNotification('enviado')}
+              className="px-2.5 py-1 rounded-lg bg-amber-500/15 hover:bg-amber-500/25 border border-amber-400/40 text-amber-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
+            >
+              <Truck className="w-3 h-3" />
+              <span>Testar "Pedido a caminho"</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => void sendTestOrderNotification('entregue')}
+              className="px-2.5 py-1 rounded-lg bg-emerald-500/15 hover:bg-emerald-500/25 border border-emerald-400/40 text-emerald-200 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition"
+            >
+              <Send className="w-3 h-3" />
+              <span>Testar "Entregue"</span>
+            </button>
+          </div>
+        </div>
+      )}
+
+      {message && (
+        <p role="status" className="text-[11px] text-[#00DFFF] font-medium pt-0.5">
+          {message}
+        </p>
       )}
     </section>
   );
