@@ -1,4 +1,5 @@
 import React, { useState, useMemo } from 'react';
+import { useToast } from '../../context/ToastContext';
 import { useCatalog } from '../../context/CatalogContext';
 import { PeriodPreset, DateRange, CashAccountChannel } from '../../types/catalog';
 import {
@@ -47,6 +48,8 @@ type ReportCategory =
   | 'resultados';
 
 export const BusinessReportsSection: React.FC = () => {
+  const { error: notifyError } = useToast();
+  const [exportingExcel, setExportingExcel] = useState(false);
   const {
     manualSales,
     manualExpenses,
@@ -530,7 +533,7 @@ export const BusinessReportsSection: React.FC = () => {
   // ROTINAS DE EXPORTAÇÃO EXCEL E CSV
   // --------------------------------------------------------------------------
 
-  const handleExportCurrentReport = (format: 'xlsx' | 'csv') => {
+  const handleExportCurrentReport = async (format: 'xlsx' | 'csv') => {
     // 1. FECHAMENTO MENSAL GERENCIAL
     if (activeCategory === 'fechamento_mensal') {
       const columns: ExportColumnDefinition[] = [
@@ -562,7 +565,7 @@ export const BusinessReportsSection: React.FC = () => {
       const subtitle = `${formatDateBR(monthRange.startDate)} até ${formatDateBR(monthRange.endDate)}`;
 
       if (format === 'xlsx') {
-        exportReportToExcel(title, subtitle, columns, data, undefined, 'Fechamento Mensal');
+        await exportReportToExcel(title, subtitle, columns, data, undefined, 'Fechamento Mensal');
       } else {
         exportReportToCSV(title, subtitle, columns, data);
       }
@@ -617,7 +620,7 @@ export const BusinessReportsSection: React.FC = () => {
       const subtitle = activePeriodLabel;
 
       if (format === 'xlsx') {
-        exportReportToExcel(title, subtitle, columns, data, totalsRow, 'Vendas');
+        await exportReportToExcel(title, subtitle, columns, data, totalsRow, 'Vendas');
       } else {
         exportReportToCSV(title, subtitle, columns, data, totalsRow);
       }
@@ -661,7 +664,7 @@ export const BusinessReportsSection: React.FC = () => {
 
       const title = 'Relatório de Despesas Operacionais';
       if (format === 'xlsx') {
-        exportReportToExcel(title, activePeriodLabel, columns, data, totalsRow, 'Despesas');
+        await exportReportToExcel(title, activePeriodLabel, columns, data, totalsRow, 'Despesas');
       } else {
         exportReportToCSV(title, activePeriodLabel, columns, data, totalsRow);
       }
@@ -710,7 +713,7 @@ export const BusinessReportsSection: React.FC = () => {
 
       const title = 'Relatório de Compras de Mercadorias (Estoque)';
       if (format === 'xlsx') {
-        exportReportToExcel(title, activePeriodLabel, columns, data, totalsRow, 'Compras');
+        await exportReportToExcel(title, activePeriodLabel, columns, data, totalsRow, 'Compras');
       } else {
         exportReportToCSV(title, activePeriodLabel, columns, data, totalsRow);
       }
@@ -748,7 +751,7 @@ export const BusinessReportsSection: React.FC = () => {
 
       const title = 'Relatório de Fluxo de Caixa Real';
       if (format === 'xlsx') {
-        exportReportToExcel(title, activePeriodLabel, columns, data, totalsRow, 'Fluxo de Caixa');
+        await exportReportToExcel(title, activePeriodLabel, columns, data, totalsRow, 'Fluxo de Caixa');
       } else {
         exportReportToCSV(title, activePeriodLabel, columns, data, totalsRow);
       }
@@ -788,7 +791,7 @@ export const BusinessReportsSection: React.FC = () => {
 
       const title = 'Relatório de Contas Pendentes e Inadimplência';
       if (format === 'xlsx') {
-        exportReportToExcel(title, 'Posição Global de Pendências', columns, data, totalsRow, 'Pendências');
+        await exportReportToExcel(title, 'Posição Global de Pendências', columns, data, totalsRow, 'Pendências');
       } else {
         exportReportToCSV(title, 'Posição Global de Pendências', columns, data, totalsRow);
       }
@@ -820,10 +823,22 @@ export const BusinessReportsSection: React.FC = () => {
 
       const title = 'Demonstrativo de Resultados Operacionais (DRE Estimado)';
       if (format === 'xlsx') {
-        exportReportToExcel(title, activePeriodLabel, columns, data, undefined, 'DRE');
+        await exportReportToExcel(title, activePeriodLabel, columns, data, undefined, 'DRE');
       } else {
         exportReportToCSV(title, activePeriodLabel, columns, data);
       }
+    }
+  };
+
+  const handleExcel = async () => {
+    if (exportingExcel) return;
+    setExportingExcel(true);
+    try {
+      await handleExportCurrentReport('xlsx');
+    } catch {
+      notifyError('Falha ao exportar Excel', 'Confira a conexão e tente novamente.');
+    } finally {
+      setExportingExcel(false);
     }
   };
 
@@ -857,12 +872,13 @@ export const BusinessReportsSection: React.FC = () => {
         {/* Botões de Ação para Exportação */}
         <div className="flex items-center gap-2 self-start sm:self-auto">
           <button
-            onClick={() => handleExportCurrentReport('xlsx')}
+            onClick={handleExcel}
+            disabled={exportingExcel}
             className="px-3.5 py-2 rounded-xl bg-gradient-to-r from-[#10B981] to-[#00DFFF] hover:brightness-110 text-black text-xs font-black shadow-lg shadow-[#10B981]/20 transition-all flex items-center gap-1.5 cursor-pointer"
             title="Exportar para planilha Excel (.xlsx)"
           >
             <Download className="w-4 h-4 stroke-[2.5]" />
-            <span>Exportar Excel (.xlsx)</span>
+            <span>{exportingExcel ? 'Exportando…' : 'Exportar Excel (.xlsx)'}</span>
           </button>
 
           <button

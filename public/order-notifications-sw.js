@@ -49,7 +49,7 @@ function buildOrderNotificationOptions(payload = {}) {
       icon: payload.icon || '/pwa-192x192.png',
       badge: payload.badge || '/apple-touch-icon.png',
       tag: payload.tag || (payload.orderId ? `podwave-order-${payload.orderId}-${statusKey || 'update'}` : 'podwave-webpush-notification'),
-      renotify: true,
+      renotify: false,
       data: {
         url: payload.url || '/?orders=1',
         type: payload.type || 'podwave-order',
@@ -82,35 +82,14 @@ self.addEventListener('push', (event) => {
   }
 
   const { title, options } = buildOrderNotificationOptions(payload);
-  event.waitUntil(self.registration.showNotification(title, options));
-});
-
-// 2. Escuta mensagens internas via postMessage da aplicação (Status de Pedido em Tempo Real e Testes Admin)
-self.addEventListener('message', (event) => {
-  if (!event.data || typeof event.data !== 'object') return;
-
-  if (event.data.type === 'SHOW_ORDER_STATUS_NOTIFICATION') {
-    const { title, options } = buildOrderNotificationOptions(event.data.payload || {});
-    event.waitUntil(self.registration.showNotification(title, options));
-    return;
-  }
-
-  if (event.data.type === 'SHOW_TEST_NOTIFICATION') {
-    const { title, options } = event.data;
-    event.waitUntil(
-      self.registration.showNotification(title || 'PodWave — Teste Push', {
-        icon: '/pwa-192x192.png',
-        badge: '/apple-touch-icon.png',
-        vibrate: [200, 100, 200],
-        ...options,
-        data: {
-          url: options?.data?.url || '/',
-          type: options?.data?.type || 'podwave-admin-test',
-          ...options?.data,
-        },
-      })
-    );
-  }
+  event.waitUntil((async () => {
+    const show = async () => {
+      if ((await self.registration.getNotifications({ tag: options.tag })).length) return;
+      await self.registration.showNotification(title, options);
+    };
+    if (self.navigator.locks) await self.navigator.locks.request(options.tag, show);
+    else await show();
+  })());
 });
 
 // 3. Gerenciamento do clique na notificação: foca na janela existente ou abre nova guia em Meus Pedidos

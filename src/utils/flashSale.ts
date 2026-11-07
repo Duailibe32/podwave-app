@@ -25,7 +25,8 @@ export function calculateFlashSaleDiscount(sale: FlashSale | undefined, cart: Ca
     && active.availableFlavors.some(flavor => flavor.id === item.flavorId)
     && Number.isSafeInteger(item.quantity) && item.quantity > 0 && Number.isFinite(item.price) && item.price >= 0)
     .reduce((total, item) => total + Math.round(item.price * 100) * item.quantity, 0);
-  return Math.round(cents * active.sale.percent / 100) / 100;
+  const discount = cents * active.sale.percent / 100;
+  return Math.round(discount + Number.EPSILON * discount) / 100;
 }
 
 export function formatFlashCountdown(milliseconds: number) {

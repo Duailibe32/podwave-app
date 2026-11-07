@@ -50,12 +50,12 @@ export const CheckoutDrawer: React.FC = () => {
     isCheckoutOpen,
     setIsCheckoutOpen,
     submitOrderViaWhatsapp,
+    isSubmittingOrder,
     settings,
     currentUser,
     openAuthModal,
     openProfileModal,
     updateCustomerProfile,
-    recordCustomerOrder,
   } = useCatalog();
 
   const progCfg = {
@@ -172,6 +172,12 @@ export const CheckoutDrawer: React.FC = () => {
   const handleSubmit = (e: React.FormEvent) => {
     e.preventDefault();
     setErrorMessage(null);
+    if (isSubmittingOrder) return;
+    if (!currentUser) {
+      setIsCheckoutOpen(false);
+      openAuthModal('login');
+      return;
+    }
 
     if (!fullName.trim()) {
       setErrorMessage('Por favor informe seu nome completo.');
@@ -825,10 +831,11 @@ type="text"
             </div>
               <button
                 type="submit" form="podwave-checkout-form"
+                disabled={isSubmittingOrder}
                 className="w-full py-4 px-6 rounded-2xl bg-[#10B981] hover:bg-[#059669] text-white font-heading font-black text-sm tracking-wide shadow-[0_0_25px_rgba(16,185,129,0.4)] transition-all flex items-center justify-center gap-2.5 cursor-pointer active:scale-98"
               >
                 <Send className="w-4 h-4" />
-                <span>Confirmar e Enviar no WhatsApp</span>
+                <span>{isSubmittingOrder ? 'Salvando pedido…' : currentUser ? 'Confirmar e Enviar no WhatsApp' : 'Entrar para finalizar'}</span>
               </button>
 
           </div>

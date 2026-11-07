@@ -1,6 +1,5 @@
 import tailwindcss from '@tailwindcss/vite';
 import react from '@vitejs/plugin-react';
-import path from 'path';
 import { defineConfig } from 'vite';
 import { VitePWA } from 'vite-plugin-pwa';
 
@@ -59,7 +58,7 @@ export default defineConfig(() => {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,svg,woff,woff2}'],
           // Load the admin bundle and product images only when they are used.
-          globIgnores: ['**/AdminPanel-*.js', '**/CheckoutDrawer-*.js', '**/AuthModal-*.js', '**/CustomerProfileModal-*.js', '**/ProductDetailModal-*.js'],
+          globIgnores: ['**/AdminPanel-*.js', '**/CheckoutDrawer-*.js', '**/AuthModal-*.js', '**/CustomerProfileModal-*.js', '**/ProductDetailModal-*.js', '**/xlsx-*.js'],
           runtimeCaching: [
             {
               urlPattern: ({ request, url }) => request.destination === 'script' && url.origin === self.location.origin && url.pathname.startsWith('/assets/'),
@@ -165,7 +164,7 @@ export default defineConfig(() => {
     ],
     resolve: {
       alias: {
-        '@': path.resolve(__dirname, '.'),
+        '@': import.meta.dirname,
       },
     },
     server: {

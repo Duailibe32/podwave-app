@@ -11,7 +11,7 @@ export const InfoSection: React.FC = () => {
       icon: CreditCard,
       question: 'Posso pagar na entrega?',
       answer:
-        'Pode. Aceitamos Pix, dinheiro e cartão na hora da entrega. No cartão de crédito há acréscimo de 5%.',
+        'Pode. Aceitamos Pix, dinheiro e cartão na hora da entrega.',
     },
     {
       icon: Gift,

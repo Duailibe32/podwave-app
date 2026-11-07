@@ -9,7 +9,7 @@ const tests=[
   'test-product-images',
   'test-diagnostic-no-replay',
   'test-progressive-discount-regression',
-  'test-checkout-shipping',
+  'test-checkout-shipping','test-checkout-pricing',
   'test-addon-visibility',
   'test-discount-exclusivity',
   'test-mobile-scroll-lock',

@@ -1,0 +1,25 @@
+name: Verificações PodWave
+
+on:
+  pull_request:
+  push:
+    branches: [main]
+
+permissions:
+  contents: read
+
+jobs:
+  audit:
+    name: Tipos, regras e build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: 24
+      - uses: oven-sh/setup-bun@v2
+      - run: bun install --frozen-lockfile
+      - run: npm run lint
+      - run: npm run test:audit
+      - run: npm run build -- --manifest
+      - run: node scripts/check-mobile-build.cjs

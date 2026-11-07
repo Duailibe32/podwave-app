@@ -1,5 +1,6 @@
 import React, { useState, useEffect } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
+import { savePromotionsConfigToSupabase } from '../../services/supabase';
 import { UserProfile, UserRole, CatalogOrderStatus } from '../../types/catalog';
 import { getUserLoyaltyCard } from '../../utils/loyaltyCard';
 import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
@@ -364,9 +365,19 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
     e.preventDefault();
     setIsSavingSettings(true);
     const val = Number(defaultVipDiscountInput) || 10;
-    updateSettings({ vipDiscountPercent: val });
-    setIsSavingSettings(false);
-    showToast('success', `Desconto padrão para Clientes VIP atualizado para ${val}%!`);
+    try {
+      const result = await savePromotionsConfigToSupabase(
+        settings.progressiveDiscountConfig, settings.complementaryAddons, val
+      );
+      if (!result.success) {
+        showToast('error', result.error || 'Não foi possível salvar o desconto VIP.');
+        return;
+      }
+      updateSettings({ vipDiscountPercent: val }, { persistPromotions: false });
+      showToast('success', `Desconto padrão para Clientes VIP atualizado para ${val}%!`);
+    } finally {
+      setIsSavingSettings(false);
+    }
   };
 
   return (

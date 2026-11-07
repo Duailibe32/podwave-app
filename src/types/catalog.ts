@@ -273,6 +273,7 @@ export interface CustomerOrderHistoryItem {
   paymentStatus?: CatalogOrderPaymentStatus;
   amountPaid?: number;
   deliveryType: 'delivery' | 'pickup';
+  destinationCity?: string;
   addressSummary?: string;
   customerNotes?: string;
   status: CatalogOrderStatus;

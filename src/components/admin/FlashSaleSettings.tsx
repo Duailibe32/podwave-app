@@ -31,7 +31,7 @@ export function FlashSaleSettings() {
     setBusy(true); setFeedback(null);
     const config = { ...DEFAULT_PROGRESSIVE_DISCOUNT_CONFIG, ...settings.progressiveDiscountConfig, flashSale: offer };
     try {
-      const result = await savePromotionsConfigToSupabase(config, settings.complementaryAddons);
+      const result = await savePromotionsConfigToSupabase(config, settings.complementaryAddons, settings.vipDiscountPercent);
       if (!result.success) throw new Error(result.error || 'Confira a conexão e tente novamente.');
       updateSettings({ progressiveDiscountConfig: config }, { persistPromotions: false });
       setFeedback({ ok: true, text: offer.enabled ? 'Oferta salva no banco. O término é fixo e não reinicia ao atualizar a loja.' : 'Oferta desativada no banco.' });
