@@ -24,12 +24,14 @@ const CheckoutDrawer = lazy(() => import('./components/CheckoutDrawer').then(mod
 const AuthModal = lazy(() => import('./components/auth/AuthModal').then(module => ({ default: module.AuthModal })));
 const CustomerProfileModal = lazy(() => import('./components/auth/CustomerProfileModal').then(module => ({ default: module.CustomerProfileModal })));
 
+const OrderTicketModal = lazy(() => import('./components/OrderTicketModal').then(module => ({ default: module.OrderTicketModal })));
+
 const AdminPanel = lazy(() => import('./components/admin/AdminPanel').then((module) => ({ default: module.AdminPanel })));
 
 const AppContent: React.FC = () => {
   const { currentView, activeModalProduct, setActiveModalProduct, isCartOpen, isCheckoutOpen,
-    setIsCheckoutOpen, isAuthModalOpen, closeAuthModal, isProfileModalOpen, closeProfileModal } = useCatalog();
-  const overlayOpen = !!activeModalProduct || isCartOpen || isCheckoutOpen || isAuthModalOpen || isProfileModalOpen;
+    setIsCheckoutOpen, isAuthModalOpen, closeAuthModal, isProfileModalOpen, closeProfileModal, activeOrderTicket, closeOrderTicket } = useCatalog();
+  const overlayOpen = !!activeModalProduct || isCartOpen || isCheckoutOpen || isAuthModalOpen || isProfileModalOpen || !!activeOrderTicket;
   useBodyScrollLock(overlayOpen);
 
   return (
@@ -65,6 +67,7 @@ const AppContent: React.FC = () => {
       <OfflineIndicator />
       <DeferredOverlay component={AuthModal} active={isAuthModalOpen} label="Acesso à conta" onClose={closeAuthModal} />
       <DeferredOverlay component={CustomerProfileModal} active={isProfileModalOpen} label="Minha conta" onClose={closeProfileModal} />
+      <DeferredOverlay component={OrderTicketModal} active={!!activeOrderTicket} label="Ticket digital" onClose={closeOrderTicket} />
       <ToastContainer />
     </div>
   );

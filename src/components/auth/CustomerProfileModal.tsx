@@ -28,6 +28,7 @@ import {
   Mail,
   Search,
   RefreshCw,
+  ReceiptText,
   CheckCircle2,
   ExternalLink,
   ShieldCheck,
@@ -59,6 +60,7 @@ export const CustomerProfileModal: React.FC = () => {
     settings,
     isProfileModalOpen,
     profileModalTab,
+    openOrderTicket,
     closeProfileModal,
     logoutUser,
     updateCustomerProfile,
@@ -1060,6 +1062,13 @@ type="text"
                             </div>
                           ))}
                         </div>
+
+                        {order._syncStatus === 'synced' && (
+                          <button type="button" onClick={() => openOrderTicket(order)}
+                            className="w-full min-h-11 rounded-xl border border-cyan-300/50 bg-cyan-300/10 px-3 py-2 text-sm font-bold text-cyan-200 flex items-center justify-center gap-2">
+                            <ReceiptText size={17} aria-hidden="true" /> Ver Ticket Digital
+                          </button>
+                        )}
 
                         <button type="button" className="w-full min-h-11 px-4 py-3 rounded-xl border border-[#00DFFF]/40 bg-[#00DFFF]/10 text-[#00DFFF] font-bold text-sm flex items-center justify-center gap-2 cursor-pointer"
                           onClick={() => {

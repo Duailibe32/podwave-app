@@ -30,7 +30,7 @@ export async function removeOrderPush(client?: SupabaseClient | null, ownerId?: 
   });
 }
 
-export async function registerOrderPush(client: SupabaseClient, ownerId: string, stillActive: () => boolean) {
+export async function registerOrderPush(client: SupabaseClient, ownerId: string, stillActive: () => boolean, orderIds?: string[]) {
   const key = import.meta.env.VITE_ORDER_PUSH_PUBLIC_KEY?.trim();
   if (!key || !('serviceWorker' in navigator)) return false;
   return lockDevice(async () => {
@@ -50,9 +50,14 @@ export async function registerOrderPush(client: SupabaseClient, ownerId: string,
       if (!stillActive()) { await sub.unsubscribe(); return false; }
       localStorage.setItem(OWNER_KEY, ownerId);
       const keys = sub.toJSON().keys || {};
-      const { data, error } = await client.rpc('podwave_register_order_push', {
-        p_endpoint: sub.endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth,
+      const device = { p_endpoint: sub.endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth };
+      let { data, error } = await client.rpc('podwave_register_order_push_scope', {
+        ...device, p_order_ids: orderIds ?? null,
       }).abortSignal(AbortSignal.timeout(5000));
+      if (!orderIds && (error?.code === 'PGRST202' || error?.code === '42883')) {
+        ({ data, error } = await client.rpc('podwave_register_order_push', device)
+          .abortSignal(AbortSignal.timeout(5000)));
+      }
       if (!stillActive()) { await sub.unsubscribe(); return false; }
       return !error && data === true;
     } catch {

@@ -11,7 +11,7 @@ O cupom de frete consome um uso quando elimina um frete positivo. O cupom de pro
 
 A configuração a seguir é opcional. O checkout e os alertas com a loja aberta funcionam separadamente.
 
-1. Aplique [20261107_order_push.sql](proposals/20261107_order_push.sql).
+1. Aplique [20261107_order_push.sql](proposals/20261107_order_push.sql) e depois [20261107_order_push_scope.sql](proposals/20261107_order_push_scope.sql), que habilita a inscrição por pedido no Ticket Digital. Se o envio remoto já estiver instalado, basta aplicar o segundo arquivo.
 2. Gere o par de chaves VAPID com `npx web-push generate-vapid-keys`. Configure `ORDER_PUSH_VAPID_PUBLIC_KEY`, `ORDER_PUSH_VAPID_PRIVATE_KEY`, `ORDER_PUSH_VAPID_SUBJECT` (um contato `mailto:`) e um segredo aleatório longo `ORDER_PUSH_DISPATCH_SECRET` como secrets da Edge Function. Coloque apenas a chave pública `VITE_ORDER_PUSH_PUBLIC_KEY` na Vercel e faça um novo deploy.
 3. Publique `order-push` com `supabase functions deploy order-push --no-verify-jwt`. A função autentica cada execução pelo segredo `x-order-push-secret`. Guarde o mesmo segredo no Vault para a chamada agendada.
 4. Agende um POST para `/functions/v1/order-push` pelo Supabase Cron, enviando o header `x-order-push-secret` a partir do Vault. Comece com um intervalo de 5 minutos e ajuste de acordo com o atraso desejado e a cota do projeto.

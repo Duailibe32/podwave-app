@@ -1,0 +1,294 @@
+.order-ticket-dialog {
+  color-scheme: dark;
+  position: fixed;
+  inset: 0;
+  width: min(100% - 1.25rem, 34rem);
+  max-width: none;
+  max-height: min(94dvh, calc(100dvh - env(safe-area-inset-top) - env(safe-area-inset-bottom) - 1rem));
+  margin: auto;
+  padding: 0;
+  overflow: hidden;
+  background: transparent;
+  border: none;
+  color: #f2f6ff;
+  scrollbar-width: thin;
+  scrollbar-color: #495480 transparent;
+}
+.order-ticket-dialog[open] { display: flex; flex-direction: column; }
+.order-ticket-dialog::backdrop {
+  background: #060811d9;
+  backdrop-filter: blur(8px);
+}
+.order-ticket-shell {
+  --ticket-bg: #0a0d1d;
+  min-height: 0;
+  overflow: auto;
+  overscroll-behavior: contain;
+  scrollbar-width: thin;
+  padding: .25rem;
+}
+.order-ticket {
+  overflow: hidden;
+  border: 1px solid #4b5787;
+  border-radius: 1.65rem;
+  background: var(--ticket-bg);
+  box-shadow: 0 0 2.25rem #6a4be72c;
+}
+.order-ticket-head {
+  padding: 1.25rem 1.35rem 1.4rem;
+  background:
+    radial-gradient(ellipse at 80% 12%, #667ef739, transparent 65%),
+    radial-gradient(ellipse at 8% 80%, #a348ee39, transparent 66%),
+    repeating-linear-gradient(132deg, #ffffff05 0 1px, transparent 1px 13px),
+    linear-gradient(132deg, #151938, #202354 63%, #111a38);
+}
+.order-ticket-brand {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  margin-bottom: 1.35rem;
+  letter-spacing: .14em;
+  font-size: .84rem;
+}
+.order-ticket-brand small {
+  display: block;
+  margin-top: .1rem;
+  color: #c5c8ec;
+  font-size: .55rem;
+  letter-spacing: .16em;
+}
+.order-ticket-mark {
+  display: grid;
+  width: 2.55rem;
+  aspect-ratio: 1;
+  place-items: center;
+  border: 1px solid #67e8f980;
+  border-radius: .85rem;
+  color: #91f3ff;
+  background: #67e8f92a;
+}
+.order-ticket-close,
+.order-ticket-reference-row button {
+  display: grid;
+  min-width: 2.75rem;
+  min-height: 2.75rem;
+  place-items: center;
+  border: 1px solid #8b97d44f;
+  border-radius: .8rem;
+  background: #0c102c7f;
+  color: #e3eaff;
+  cursor: pointer;
+}
+.order-ticket-close { margin-left: auto; }
+.order-ticket-kicker {
+  color: #90efff;
+  font-weight: 850;
+  font-size: .63rem;
+  letter-spacing: .2em;
+}
+.order-ticket-head h2 {
+  font: 900 clamp(2rem, 10vw, 3rem)/1.06 var(--font-heading, system-ui);
+  margin: .17rem 0 .55rem;
+  letter-spacing: -.05em;
+}
+.order-ticket-reference-row {
+  display: flex;
+  align-items: center;
+  gap: .55rem;
+  margin-bottom: .22rem;
+}
+.order-ticket-reference-row strong {
+  min-width: 0;
+  overflow-wrap: anywhere;
+  font: 800 clamp(.9rem, 4vw, 1.24rem)/1.2 ui-monospace, monospace;
+  letter-spacing: .045em;
+  color: #d6c7ff;
+}
+.order-ticket-reference-row button { color: #9beefe; }
+.order-ticket-head time { color: #c5ccea; font-size: .76rem; }
+.order-ticket-tear {
+  position: relative;
+  z-index: 1;
+  height: 0;
+  margin-inline: 1.25rem;
+  border-top: 1px dashed #626c96;
+}
+.order-ticket-tear::before,
+.order-ticket-tear::after {
+  content: '';
+  position: absolute;
+  top: -.65rem;
+  width: 1.3rem;
+  height: 1.3rem;
+  border: 1px solid #4b5787;
+  border-radius: 50%;
+  background: #070a15;
+}
+.order-ticket-tear::before { left: -1.9rem; }
+.order-ticket-tear::after { right: -1.9rem; }
+.order-ticket-body {
+  padding: 1.25rem 1.35rem;
+  background: linear-gradient(160deg, #12152c, #0c1225 85%);
+}
+.order-ticket-delivery {
+  display: flex;
+  align-items: center;
+  gap: .65rem;
+  padding: .75rem;
+  color: #a4f3ff;
+  border: 1px solid #4ac6e355;
+  border-radius: .85rem;
+  background: #4ac6e314;
+}
+.order-ticket-delivery svg, .order-ticket-canceled svg { flex-shrink: 0; }
+.order-ticket-delivery strong { display: block; font-size: .84rem; }
+.order-ticket-delivery small { display: block; color: #c0dbed; font-size: .7rem; margin-top: .12rem; }
+.order-ticket-tracking { margin: 1.25rem 0; }
+.order-ticket-status-row {
+  display: flex;
+  gap: .5rem;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: space-between;
+}
+.order-ticket-status-row strong { color: #8deafb; font-size: .9rem; }
+.order-ticket-status-row strong[data-status="confirmado"] { color: #a8c7ff; }
+.order-ticket-status-row strong[data-status="em_separacao"] { color: #d2bdff; }
+.order-ticket-status-row strong[data-status="enviado"] { color: #ffd393; }
+.order-ticket-status-row strong[data-status="entregue"] { color: #9af7d4; }
+.order-ticket-status-row strong[data-status="cancelado"], .order-ticket-canceled { color: #ffb1c1; }
+.order-ticket-live {
+  display: inline-flex;
+  align-items: center;
+  gap: .28rem;
+  border-radius: 1rem;
+  padding: .18rem .52rem;
+  font-size: .57rem;
+  font-weight: 850;
+  letter-spacing: .06em;
+  color: #cad1ee;
+  background: #29334e;
+}
+.order-ticket-live[data-live="true"] { color: #9af7d4; background: #163636; }
+.order-ticket-live[data-live="true"]::before {
+  content: '';
+  width: .36rem;
+  aspect-ratio: 1;
+  border-radius: 50%;
+  background: #76f8c4;
+  box-shadow: 0 0 .45rem #76f8c4aa;
+}
+.order-ticket-steps {
+  display: grid;
+  grid-template-columns: repeat(5, minmax(0, 1fr));
+  padding: 0;
+  margin: .75rem 0 0;
+  list-style: none;
+  text-align: center;
+}
+.order-ticket-steps li { position: relative; min-width: 0; }
+.order-ticket-steps li + li::before {
+  content: '';
+  position: absolute;
+  top: .78rem;
+  right: 50%;
+  width: 100%;
+  height: 2px;
+  background: #303a60;
+}
+.order-ticket-steps li[data-reached="true"]::before { background: #5c9fae; }
+.order-ticket-steps li > span {
+  position: relative;
+  display: grid;
+  width: 1.65rem;
+  aspect-ratio: 1;
+  place-items: center;
+  margin: 0 auto .32rem;
+  color: #aab5d6;
+  border: 1px solid #4b557b;
+  border-radius: 50%;
+  background: #182039;
+  font-size: .63rem;
+  font-weight: 800;
+}
+.order-ticket-steps li[data-reached="true"] > span { color: #9aeff8; border-color: #63c9d7; background: #193346; }
+.order-ticket-steps li[aria-current] > span { background: #9aeff8; color: #0b2030; box-shadow: 0 0 .8rem #76e6f08a; }
+.order-ticket-steps small { display: block; font-size: clamp(.48rem, 2.1vw, .68rem); overflow-wrap: anywhere; color: #c0c9e9; }
+.order-ticket-canceled { display: flex; gap: .4rem; font-size: .78rem; margin-top: .65rem; }
+.order-ticket-items { border-top: 1px solid #2b3459; padding-top: 1rem; }
+.order-ticket-items h3 {
+  display: flex;
+  gap: .4rem;
+  align-items: center;
+  color: #becbf2;
+  font-size: .68rem;
+  text-transform: uppercase;
+  letter-spacing: .08em;
+  font-weight: 850;
+}
+.order-ticket-items ul { margin: .52rem 0 0; padding: 0; list-style: none; }
+.order-ticket-items li { display: flex; gap: .55rem; align-items: baseline; justify-content: space-between; }
+.order-ticket-items li, .order-ticket-items p { padding: .4rem 0; font-size: .77rem; overflow-wrap: anywhere; }
+.order-ticket-items li strong { color: #c0ccef; white-space: nowrap; font-size: .72rem; }
+.order-ticket-details { margin: .65rem 0 0; display: grid; grid-template-columns: 1fr 1fr; gap: .45rem; }
+.order-ticket-details div { min-width: 0; padding: .6rem; border-radius: .65rem; background: #1a223d; }
+.order-ticket-details dt { font-size: .64rem; font-weight: 750; color: #aebce3; }
+.order-ticket-details dd { margin: .2rem 0 0; font-size: .73rem; overflow-wrap: anywhere; }
+.order-ticket-total {
+  margin-top: .85rem;
+  display: grid;
+  grid-template-columns: 1fr auto;
+  align-items: center;
+  gap: .18rem .45rem;
+  padding: .7rem 0 .2rem;
+  color: #9af7d4;
+}
+.order-ticket-total span { font-size: .66rem; letter-spacing: .08em; font-weight: 800; color: #c0c9e9; }
+.order-ticket-total strong { font: 900 clamp(1.25rem, 6vw, 2rem)/1.1 var(--font-heading, system-ui); }
+.order-ticket-total small { grid-column: 1 / -1; text-align: right; font-size: .72rem; }
+.order-ticket-stub { padding: 1rem 1.35rem 1.15rem; color: #cdbdff; background: #131630; }
+.order-ticket-stub > div:first-child { display: flex; align-items: center; gap: .4rem; font-size: .74rem; }
+.order-ticket-stub strong { margin-left: auto; color: #f1eaff; white-space: nowrap; }
+.order-ticket-bars {
+  height: 1rem;
+  max-width: 12rem;
+  margin: .9rem auto .35rem;
+  background: repeating-linear-gradient(90deg,#a2aad8 0 2px,transparent 2px 6px,#a2aad8 6px 10px,transparent 10px 12px,#a2aad8 12px 13px,transparent 13px 19px);
+  opacity: .68;
+}
+.order-ticket-stub small { display: block; text-align: center; letter-spacing: .1em; font-size: .57rem; }
+.order-ticket-actions { display: grid; gap: .5rem; padding-top: .85rem; }
+.order-ticket-pinned { flex: 0 0 auto; padding: .55rem .25rem .25rem; background: #0a0d1df5; }
+.order-ticket-pinned a, .order-ticket-actions button {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: .4rem;
+  min-height: 2.85rem;
+  padding: .35rem .5rem;
+  border-radius: .8rem;
+  text-align: center;
+  font-weight: 750;
+  font-size: .78rem;
+  cursor: pointer;
+}
+.order-ticket-actions button:disabled { cursor: default; opacity: .8; }
+.order-ticket-whatsapp { text-decoration: none; color: #052e23; background: linear-gradient(110deg, #a7f8d6, #48dcac); }
+.order-ticket-alert { color: #aeefff; background: #19283e; border: 1px solid #54899f; }
+.order-ticket-secondary { display: grid; grid-template-columns: repeat(3, 1fr); gap: .4rem; }
+.order-ticket-secondary button { color: #e1e7ff; background: #1a203b; border: 1px solid #46517c; }
+.order-ticket-feedback, .order-ticket-note { text-align: center; font-size: .71rem; color: #d0d7ed; }
+.order-ticket-feedback:empty { display: none; }
+.order-ticket-note { display: flex; justify-content: center; align-items: center; gap: .28rem; }
+.order-ticket-actions textarea { color: #f2f6ff; background: #202747; border: 1px solid #53608e; border-radius: .55rem; padding: .5rem; }
+.order-ticket-dialog :focus-visible { outline: 2px solid #a5f3fc; outline-offset: 2px; }
+
+@media (width <= 360px) {
+  .order-ticket-head, .order-ticket-body, .order-ticket-stub { padding-inline: .9rem; }
+  .order-ticket-secondary button { flex-direction: column; font-size: .68rem; }
+}
+
+@media print {
+  .order-ticket-dialog { overflow: visible; max-height: none; }
+  .order-ticket-actions, .order-ticket-pinned, .order-ticket-close, .order-ticket-reference-row button { display: none; }
+}

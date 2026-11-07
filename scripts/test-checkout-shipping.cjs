@@ -83,8 +83,8 @@ assert.equal((message.match(/Cabo USB Tipo C Turbo 1m/g)||[]).length,0,'No dupli
 const admin=fs.readFileSync('src/components/admin/CombosAndAddonsTab.tsx','utf8');
 (async()=>{
  const submitHandler=ctx.match(/  const submitOrderViaWhatsapp = [\s\S]*?^  };/m)[0];
- const placed = [], shared = [], errors = [];
- let quote = {...unknown, discountAmount:summary.discountAmount}, resolveOrder, clearCount = 0;
+ const placed = [], shared = [], errors = [], tickets = [];
+ let quote = {...unknown, discountAmount:summary.discountAmount}, resolveOrder, clearCount = 0, blockWhatsapp = false;
  const send = compile(submitHandler+'\nmodule.exports=submitOrderViaWhatsapp;', {
    cart, currentUser:{id:'client'}, submittingOrderRef:{current:false}, checkoutAttemptRef:{current:null},
    authenticatedIdentityRef:{current:{id:'client'}}, setIsSubmittingOrder:()=>{},
@@ -92,8 +92,11 @@ const admin=fs.readFileSync('src/components/admin/CombosAndAddonsTab.tsx','utf8'
    couponDiscountAmount:0, cartSubtotal:200, isCouponEligibleForCart:totals.isCouponEligibleForCart, cartStockError:()=>null,
    discountAmount:summary.discountAmount, getCheckoutSummary:()=>quote,
    crypto:{randomUUID:()=>String(placed.length)}, generateReferenceId:()=> 'PW-QA', getBrasiliaDateTime:()=>({}),
-   formatAttendanceRecord:()=> 'message', openWhatsAppShare:(...args)=>shared.push(args), setIsCheckoutOpen:()=>{},
-   openAuthModal:()=>assert.fail('Authenticated flow must not prompt for login'), clearCart:()=>clearCount++, getLastSupabaseOrderDiagnostic:()=>null,
+   formatAttendanceRecord:()=> 'message', openWhatsAppShare:(...args)=>{
+     if (blockWhatsapp) throw Error('Bloqueio de popup simulado');
+     shared.push(args);
+   }, setIsCheckoutOpen:()=>{},
+   openOrderTicket:order=>tickets.push(order), openAuthModal:()=>assert.fail('Authenticated flow must not prompt for login'), clearCart:()=>clearCount++, getLastSupabaseOrderDiagnostic:()=>null,
    recordCustomerOrder: row => { placed.push(row); return new Promise(resolve=>{resolveOrder=resolve;}); },
    toast:{warning:()=>{}, error:(...args)=>errors.push(args), success:()=>{}},
  });
@@ -107,6 +110,7 @@ const admin=fs.readFileSync('src/components/admin/CombosAndAddonsTab.tsx','utf8'
  resolveOrder(null);
  assert.equal(await first, false);
  assert.equal(shared.length, 0);
+ assert.equal(tickets.length, 0);
  assert.equal(clearCount, 0);
  const retry = send(form);
  assert.equal(placed[0].id, placed[1].id, 'Retry uses the same id');
@@ -114,11 +118,33 @@ const admin=fs.readFileSync('src/components/admin/CombosAndAddonsTab.tsx','utf8'
  assert.equal(await retry, true);
  assert.equal(clearCount, 1);
  assert.equal(shared.length, 1);
+ assert.equal(tickets[0].id, placed[1].id);
  const persisted = placed[0];
  assert.equal(persisted.deliveryFee, summary.deliveryFee);
  assert.equal(persisted.total, summary.totalAmount);
  assert.equal(persisted.subtotal, 263);
  assert.equal(persisted.discount, 20);
+ blockWhatsapp = true;
+ const confirmedWithoutWhatsApp = send(form);
+ resolveOrder({id:placed.at(-1).id});
+ assert.equal(await confirmedWithoutWhatsApp,true,'Popup failure cannot undo a confirmed order');
+ assert.equal(tickets.at(-1).id,placed.at(-1).id);
+ assert.equal(clearCount,2);
+ assert.equal(shared.length,1);
+ const ticket = compile(fs.readFileSync('src/utils/orderTicket.ts','utf8'),{require:name=>{
+   assert.equal(name,'./pricing');
+   return pricing;
+ }});
+ const ticketOrder = {referenceId:'PW-QA',id:'id',customerId:'client',createdAt:'2026-11-07T13:54:00Z',
+   items:summary.items,deliveryType:'delivery',addressSummary:'Rua QA - Vizinha - MA',destinationCity:'Vizinha - MA',
+   paymentMethod:'Pix',total:243,discount:20,status:'recebido',version:1};
+ assert.match(ticket.ticketDelivery(ticketOrder).title,/10 a 20/);
+ assert.match(ticket.ticketDelivery(ticketOrder,distanceConfig).detail,/Prazo a confirmar/);
+ assert.equal(ticket.ticketDelivery({...ticketOrder,deliveryType:'pickup'},distanceConfig).title,'Retirada no local');
+ assert.ok(!ticket.ticketSummary(ticketOrder).includes('Rua QA'));
+ assert.ok(ticket.ticketSummary(ticketOrder,true).includes('Rua QA'));
+ assert.equal(ticket.newestTicketOrder(ticketOrder,{...ticketOrder,version:2,status:'enviado'}).status,'enviado');
+ assert.equal(ticket.newestTicketOrder(ticketOrder,{...ticketOrder,customerId:'other',version:2,status:'enviado'}).status,'recebido');
  // Execute the actual save handler: one confirmed DB write before applying local settings.
  const handler=admin.match(/  const handleSaveAll = [\s\S]*?^  };/m)[0];
  for(const success of [true,false]){

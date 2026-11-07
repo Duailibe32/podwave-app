@@ -207,6 +207,9 @@ interface CatalogContextType {
   openAuthModal: (mode?: 'login' | 'signup') => void;
   closeAuthModal: () => void;
   isProfileModalOpen: boolean;
+  activeOrderTicket: CustomerOrderHistoryItem | null;
+  openOrderTicket: (order: CustomerOrderHistoryItem) => void;
+  closeOrderTicket: () => void;
   profileModalTab: 'profile' | 'loyalty' | 'orders' | 'security';
   openProfileModal: (tab?: CatalogContextType['profileModalTab']) => void;
   closeProfileModal: () => void;
@@ -784,6 +787,19 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
   const closeAuthModal = () => setIsAuthModalOpen(false);
 
+  const [ticketSelection, setTicketSelection] = useState<CustomerOrderHistoryItem | null>(null);
+  const activeOrderTicket = ticketSelection?.customerId && ticketSelection.customerId === currentUser?.id
+    ? ticketSelection : null;
+  const openOrderTicket = (order: CustomerOrderHistoryItem) => {
+    if (order.customerId === authenticatedIdentityRef.current?.id && order.customerId
+      && order._syncStatus !== 'pending_sync' && order._syncStatus !== 'sync_error') {
+      setTicketSelection(order);
+    }
+  };
+  const closeOrderTicket = () => setTicketSelection(null);
+  useEffect(() => {
+    setTicketSelection(previous => previous?.customerId === currentUser?.id ? previous : null);
+  }, [currentUser?.id]);
   const [profileModalTab, setProfileModalTab] = useState<'profile' | 'loyalty' | 'orders' | 'security'>('profile');
   const openProfileModal = React.useCallback((tab: typeof profileModalTab = 'profile') => {
     setProfileModalTab(tab);
@@ -3195,23 +3211,27 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       checkoutAttemptRef.current = null;
       if (authenticatedIdentityRef.current?.id !== customerId) return false;
-      const message = customMessage
-        ? customMessage.replace(/#PW-[A-Z0-9-]+/, '#' + refId)
-        : formatAttendanceRecord({
-          referenceId: refId,
-          dateTimeBrasilia: getBrasiliaDateTime(),
-          form,
-          cart: checkoutSummary.items,
-          isUsbCableAdded: false,
-          cablePrice,
-          appliedCoupon,
-          financials: checkoutSummary,
-        });
-
-      // Universal robust WhatsApp opening with NFC normalization, surrogate validation, and popup resilience
-      openWhatsAppShare(cleanPhone, message);
+      openOrderTicket(order);
       setIsCheckoutOpen(false);
       clearCart();
+      try {
+        const message = customMessage
+          ? customMessage.replace(/#PW-[A-Z0-9-]+/, '#' + refId)
+          : formatAttendanceRecord({
+            referenceId: refId,
+            dateTimeBrasilia: getBrasiliaDateTime(),
+            form,
+            cart: checkoutSummary.items,
+            isUsbCableAdded: false,
+            cablePrice,
+            appliedCoupon,
+            financials: checkoutSummary,
+          });
+
+        openWhatsAppShare(cleanPhone, message);
+      } catch (error) {
+        console.warn('[Catalog] WhatsApp do pedido confirmado:', error);
+      }
       toast.success(
         'Pedido gerado com sucesso!',
         `Referência ${refId} criada e salva na Central de Pedidos!`,
@@ -4915,6 +4935,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         openAuthModal,
         closeAuthModal,
         isProfileModalOpen,
+        activeOrderTicket,
+        openOrderTicket,
+        closeOrderTicket,
         profileModalTab,
         openProfileModal,
         closeProfileModal,
