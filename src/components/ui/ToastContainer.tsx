@@ -128,7 +128,7 @@ export const ToastContainer: React.FC = () => {
   return (
     <div
       aria-live="polite"
-      className="fixed bottom-5 right-4 left-4 sm:left-auto sm:right-6 sm:bottom-6 z-50 flex flex-col-reverse gap-2.5 max-w-sm w-auto pointer-events-none"
+      className="storefront-toasts fixed bottom-5 right-4 left-4 sm:left-auto sm:right-6 sm:bottom-6 z-50 flex flex-col-reverse gap-2.5 max-w-sm w-auto pointer-events-none"
     >
       <style>{`
         @keyframes shrinkWidth {

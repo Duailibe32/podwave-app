@@ -58,6 +58,7 @@ export const CustomerProfileModal: React.FC = () => {
     isVip,
     settings,
     isProfileModalOpen,
+    profileModalTab,
     closeProfileModal,
     logoutUser,
     updateCustomerProfile,
@@ -75,17 +76,10 @@ export const CustomerProfileModal: React.FC = () => {
   React.useEffect(() => {
     if (reorderError) document.getElementById('reorder-error')?.focus();
   }, [reorderError]);
-  const [activeTab, setActiveTab] = useState<'profile' | 'loyalty' | 'orders' | 'security'>('profile');
+  const [activeTab, setActiveTab] = useState(profileModalTab ?? 'profile');
   React.useEffect(() => {
-    const openOrders = () => setActiveTab('orders');
-    const openLoyalty = () => setActiveTab('loyalty');
-    window.addEventListener('podwave:open-orders',openOrders);
-    window.addEventListener('podwave:open-loyalty',openLoyalty);
-    return () => {
-      window.removeEventListener('podwave:open-orders',openOrders);
-      window.removeEventListener('podwave:open-loyalty',openLoyalty);
-    };
-  },[]);
+    if (isProfileModalOpen && profileModalTab) setActiveTab(profileModalTab);
+  }, [isProfileModalOpen, profileModalTab]);
   const [fullName, setFullName] = useState(currentUser?.fullName || '');
   const [phoneWhatsapp, setPhoneWhatsapp] = useState(currentUser?.phoneWhatsapp || '');
   const [cpf, setCpf] = useState(currentUser?.cpf || '');

@@ -3,24 +3,29 @@ import { useCatalog } from '../context/CatalogContext';
 import { Zap, X, ShieldAlert, Cpu, BatteryCharging, Droplets, Check, ShoppingBag, AlertTriangle, CheckCircle2, XCircle, HelpCircle, Layers } from 'lucide-react';
 import { FlavorVariant } from '../types/catalog';
 import { calculateVariantAvailability, calculateVariantsSummary } from '../utils/availability';
+import { flavorNotes, lastUnitsLabel } from '../utils/flavorPresentation';
+import { useCartFeedback } from '../hooks/useCartFeedback';
 
 export const ProductDetailModal: React.FC = () => {
   const {
-    activeModalProduct,
+    activeModalProduct: openedProduct,
+    models,
     setActiveModalProduct,
-    activeSelectedFlavor,
+    activeSelectedFlavor: selectedFlavor,
     setActiveSelectedFlavor,
     addToCart,
     setIsCartOpen,
   } = useCatalog();
 
+  const activeModalProduct = models?.find(product => product.id === openedProduct?.id) || openedProduct;
+  const activeSelectedFlavor = activeModalProduct?.flavors.find(flavor => flavor.id === selectedFlavor?.id);
   const [activeImage, setActiveImage] = useState<string>('');
+  const [imageResult, setImageResult] = useState<{ url: string; ok: boolean }>();
+  const { added, confirm } = useCartFeedback();
 
   useEffect(() => {
-    if (activeModalProduct) {
-      setActiveImage(activeModalProduct.imageUrl);
-    }
-  }, [activeModalProduct]);
+    setActiveImage('');
+  }, [activeModalProduct?.id, activeSelectedFlavor?.id]);
 
   useEffect(() => {
     const handleKeyDown = (e: KeyboardEvent) => {
@@ -34,13 +39,14 @@ export const ProductDetailModal: React.FC = () => {
 
   if (!activeModalProduct) return null;
 
-  const currentDisplayImage = activeImage || activeModalProduct.imageUrl || '/assets/images/logo.png';
+  const currentDisplayImage = activeImage || activeSelectedFlavor?.customImage || activeModalProduct.imageUrl || '/assets/images/logo.png';
+
+  const imageFinished = imageResult?.url === currentDisplayImage;
+  const imageFailed = imageFinished && !imageResult.ok;
 
   const handleFlavorSelect = (flavor: FlavorVariant) => {
     setActiveSelectedFlavor(flavor);
-    if (flavor.customImage) {
-      setActiveImage(flavor.customImage);
-    }
+    setActiveImage('');
   };
 
   const imagesList = [
@@ -55,6 +61,8 @@ export const ProductDetailModal: React.FC = () => {
   );
 
   const currentFlavor = activeSelectedFlavor || activeModalProduct.flavors[0];
+  const notes = currentFlavor && flavorNotes(currentFlavor.name);
+  const lastUnits = lastUnitsLabel(currentFlavor);
 
   const selectedFlavorAvail = currentFlavor
     ? calculateVariantAvailability(
@@ -64,7 +72,7 @@ export const ProductDetailModal: React.FC = () => {
     : null;
 
   const isFlavorSoldOut = Boolean(
-    !currentFlavor ||
+    !activeModalProduct.active || !currentFlavor ||
     currentFlavor.inStock === false ||
     currentFlavor.demoQuantity === 0 ||
     selectedFlavorAvail?.status === 'esgotado'
@@ -84,7 +92,7 @@ export const ProductDetailModal: React.FC = () => {
         {/* Close Button */}
         <button
           onClick={() => setActiveModalProduct(null)}
-          className="absolute top-3 right-3 sm:top-5 sm:right-5 p-2 rounded-full bg-[#181C38] light:bg-slate-100 hover:bg-[#8423DA] text-gray-300 hover:text-white transition-all cursor-pointer z-20 shadow-lg"
+          className="absolute top-3 right-3 sm:top-5 sm:right-5 min-h-11 min-w-11 grid place-items-center p-2 rounded-full bg-[#181C38] light:bg-slate-100 hover:bg-[#8423DA] text-gray-300 hover:text-white transition-all cursor-pointer z-20 shadow-lg"
           title="Fechar janela (Esc)"
         >
           <X className="w-5 h-5" />
@@ -94,13 +102,16 @@ export const ProductDetailModal: React.FC = () => {
           {/* Left Column: Visual Gallery */}
           <div className="md:col-span-5 space-y-3 sm:space-y-4 w-full">
             {/* Main Product Frame */}
-            <div className="relative aspect-square rounded-xl sm:rounded-2xl bg-white p-4 sm:p-6 flex items-center justify-center shadow-lg border border-slate-200 overflow-hidden">
-              <img
+            <div data-loaded={imageFinished} className="product-photo relative aspect-square rounded-xl sm:rounded-2xl p-4 sm:p-6 flex items-center justify-center shadow-lg border border-slate-200 overflow-hidden">
+              {imageFailed ? <span className="text-xs text-slate-400">Imagem indisponível</span> : <img
+                key={currentDisplayImage}
                 src={currentDisplayImage}
                 alt={activeModalProduct.modelName}
-                className="w-full h-full object-contain transform hover:scale-105 transition-transform duration-300"
+                onLoad={() => setImageResult({ url: currentDisplayImage, ok: true })}
+                onError={() => setImageResult({ url: currentDisplayImage, ok: false })}
+                className="product-photo-image w-full h-full object-contain transform hover:scale-105 transition-transform duration-300"
                 referrerPolicy="no-referrer"
-              />
+              />}
 
               {/* Puffs floating badge */}
               <div className="absolute top-2.5 left-2.5 inline-flex items-center gap-1.5 px-2.5 py-1 rounded-full bg-[#080811] text-[#00DFFF] text-[11px] sm:text-xs font-bold border border-[#00DFFF]/40 shadow-md">
@@ -231,6 +242,8 @@ export const ProductDetailModal: React.FC = () => {
                   return (
                     <button
                       key={flavor.id}
+                      type="button"
+                      aria-pressed={isSelected}
                       onClick={() => handleFlavorSelect(flavor)}
                       className={`flex items-center justify-between gap-2 p-2.5 rounded-xl text-xs font-medium transition-all cursor-pointer border text-left ${
                         isSelected
@@ -284,6 +297,26 @@ export const ProductDetailModal: React.FC = () => {
                   <span className={`px-2 py-1 rounded-lg text-[10px] font-black uppercase ${selectedFlavorAvail.badgeBg} ${selectedFlavorAvail.badgeText} border ${selectedFlavorAvail.badgeBorder}`}>
                     {selectedFlavorAvail.label}
                   </span>
+                </div>
+              )}
+              {lastUnits && <span className="flavor-last-units">{lastUnits}</span>}
+              {notes && (
+                <div className="mt-3 rounded-xl border border-violet-500/25 bg-[#121633] p-3 text-white">
+                  <p className="mb-2 text-xs font-bold">Perfil do sabor <span className="font-normal text-slate-300">· estimativa pelo nome</span></p>
+                  <div className="grid grid-cols-3 gap-2">
+                    {notes.map(note => (
+                      <div key={note.label} className="min-w-0">
+                        <span className="block text-[10px] text-slate-200">{note.label}</span>
+                        {note.value === null ? <span className="text-[10px] text-slate-400">Sem indicação</span> : (
+                          <div className="mt-1 grid grid-cols-3 gap-1" role="meter" aria-label={note.label}
+                            aria-valuemin={0} aria-valuemax={3} aria-valuenow={note.value}>
+                            {[1, 2, 3].map(step => <span key={step} className="h-1.5 rounded-full"
+                              style={{ background: step <= note.value! ? note.color : '#313959' }} />)}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
                 </div>
               )}
             </div>
@@ -365,11 +398,9 @@ export const ProductDetailModal: React.FC = () => {
                 <button
                   type="button"
                   disabled={isFlavorSoldOut}
-                  onClick={() => {
+                  onClick={event => {
                     if (isFlavorSoldOut || !currentFlavor) return;
-                    addToCart(activeModalProduct, currentFlavor);
-                    setActiveModalProduct(null);
-                    setIsCartOpen(true);
+                    if (addToCart(activeModalProduct, currentFlavor)) confirm(event.currentTarget, currentFlavor.iconEmoji);
                   }}
                   className={`flex-1 sm:flex-initial px-4 py-2.5 rounded-xl text-xs font-bold transition-all flex items-center justify-center gap-1.5 ${
                     isFlavorSoldOut
@@ -385,17 +416,17 @@ export const ProductDetailModal: React.FC = () => {
                     </>
                   ) : (
                     <>
-                      <ShoppingBag className="w-3.5 h-3.5" />
-                      <span>Adicionar ao Carrinho ⚡</span>
+                      {added ? <Check className="w-4 h-4" /> : <ShoppingBag className="w-4 h-4" />}
+                      <span aria-live="polite">{added ? 'Adicionado!' : 'Adicionar à sacola'}</span>
                     </>
                   )}
                 </button>
 
                 <button
-                  onClick={() => setActiveModalProduct(null)}
+                  onClick={() => { setActiveModalProduct(null); setIsCartOpen(true); }}
                   className="px-3.5 py-2.5 rounded-xl bg-[#1F2650] light:bg-slate-300 hover:bg-[#8423DA] text-white text-xs font-bold transition-all cursor-pointer"
                 >
-                  Fechar
+                  Ver sacola
                 </button>
               </div>
             </div>

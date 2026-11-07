@@ -178,7 +178,7 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
 
       {/* 5. Smart Banner Variant (Bottom Install Bar for Mobile & Desktop) */}
       {variant === 'smart-banner' && (
-        <div className="fixed bottom-4 left-3 right-20 sm:left-6 sm:right-auto sm:max-w-md z-40 animate-in slide-in-from-bottom-4 duration-300">
+        <div className="pwa-install-float fixed bottom-4 left-3 right-20 sm:left-6 sm:right-auto sm:max-w-md z-40 animate-in slide-in-from-bottom-4 duration-300">
           <div className="relative w-full rounded-2xl bg-gradient-to-r from-[#0F1329]/95 via-[#131836]/95 to-[#0D1022]/95 border border-[#00DFFF]/45 p-3 sm:p-3.5 shadow-[0_8px_32px_rgba(0,223,255,0.22)] backdrop-blur-xl flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#8423DA] to-[#00DFFF] p-0.5 shrink-0 shadow-md">

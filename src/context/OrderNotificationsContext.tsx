@@ -279,8 +279,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
           });
           directNotif.onclick = () => {
             window.focus();
-            openProfileModal();
-            window.dispatchEvent(new Event('podwave:open-orders'));
+            openProfileModal('orders');
             directNotif.close();
           };
           return true;
@@ -597,8 +596,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
   useEffect(() => {
     if (!('serviceWorker' in navigator)) return;
     const openOrders = () => {
-      openProfileModal();
-      window.dispatchEvent(new Event('podwave:open-orders'));
+      openProfileModal('orders');
     };
     const receive = (event: MessageEvent) => {
       if (event.data?.type === 'podwave:open-orders') openOrders();

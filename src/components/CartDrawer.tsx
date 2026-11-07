@@ -127,10 +127,16 @@ export const CartDrawer: React.FC = () => {
     setTimeout(() => setCouponFeedback(null), 4000);
   };
 
-  const freeShippingProgress = Math.min(
-    100,
-    Math.round(((freeShippingGoal - freeShippingRemaining) / freeShippingGoal) * 100)
-  );
+  const stampProgress = freeShippingGoal > 0
+    ? Math.min(100, Math.max(0, Math.round((1 - freeShippingRemaining / freeShippingGoal) * 100)))
+    : 100;
+  const comboAtTier2 = totalPodUnits < tier2Min && tier2Min < tier3Min;
+  const comboTarget = comboAtTier2 ? tier2Min : tier3Min;
+  const comboReward = comboAtTier2 ? formattedTier2Discount : formattedTier3Discount;
+  const comboHasDiscount = (comboAtTier2 ? tier2Percent : tier3Percent) > 0;
+  const comboRemaining = Math.max(0, Math.ceil(comboTarget - totalPodUnits));
+  const comboProgress = Math.min(100, totalPodUnits / comboTarget * 100);
+  const showCombo = progCfg.enabled !== false && (comboHasDiscount || progressiveDiscountAmount > 0);
 
   return (
     <div role="dialog" aria-modal="true" aria-label="Seu carrinho" className="mobile-cart fixed inset-0 z-50 overflow-hidden animate-in fade-in duration-200">
@@ -166,6 +172,38 @@ export const CartDrawer: React.FC = () => {
 
           {/* MAIN SCROLLABLE CONTENT */}
           <div className="min-h-0 min-w-0 w-full max-w-full flex-1 overflow-y-auto overflow-x-hidden overscroll-contain p-4 sm:p-5 space-y-5">
+            {cart.length > 0 && (
+              <section aria-label="Benefícios da sacola" className="cart-goals rounded-2xl border border-cyan-400/30 bg-[#121633] p-3.5 text-white space-y-3">
+                <h3 className="text-sm font-heading font-extrabold">Benefícios da sua sacola</h3>
+                {showCombo && (
+                  <div className="space-y-1.5">
+                    <p className="flex items-center gap-2 text-xs" aria-live="polite">
+                      <Flame className="size-4 shrink-0 text-amber-300" />
+                      <span>{comboRemaining > 0 && comboHasDiscount
+                        ? <>{progressiveDiscountAmount > 0 && <>Combo atual aplicado. </>}Adicione mais <strong>{comboRemaining} {comboRemaining === 1 ? 'pod' : 'pods'}</strong> para liberar <strong>{comboReward}</strong> no combo.</>
+                        : progressiveDiscountAmount > 0
+                          ? <strong>Combo {comboReward} aplicado!</strong>
+                          : 'Meta do combo atingida. O maior desconto elegível vale na sacola.'}</span>
+                    </p>
+                    <div className="neon-meter" role="progressbar" aria-label="Meta do combo" aria-valuemin={0} aria-valuemax={100} aria-valuenow={Math.round(comboProgress)}>
+                      <div className="neon-meter-fill" data-complete={progressiveDiscountAmount > 0 || comboRemaining === 0} style={{ width: comboProgress + '%' }} />
+                    </div>
+                  </div>
+                )}
+                <div className="space-y-1.5">
+                  <p className="flex items-center gap-2 text-xs" aria-live="polite">
+                    {freeShippingRemaining === 0 ? <CheckCircle2 className="size-4 shrink-0 text-emerald-300" /> : <Sparkles className="size-4 shrink-0 text-cyan-300" />}
+                    <span>{freeShippingRemaining > 0
+                      ? <>Faltam <strong>R$ {freeShippingRemaining.toFixed(2).replace('.', ',')}</strong> para a meta de <strong>+1 selo</strong>.</>
+                      : <strong className="text-emerald-200">Você atingiu a meta de +1 selo!</strong>}</span>
+                  </p>
+                  <div className="neon-meter" role="progressbar" aria-label="Meta de fidelidade" aria-valuemin={0} aria-valuemax={100} aria-valuenow={stampProgress}>
+                    <div className="neon-meter-fill" data-complete={freeShippingRemaining === 0} style={{ width: stampProgress + '%' }} />
+                  </div>
+                  <p className="text-[11px] text-slate-300">O selo é creditado após o pagamento e a entrega confirmados.</p>
+                </div>
+              </section>
+            )}
             {reorderFeedback && <div role="status" className="p-3 rounded-xl border border-cyan-400/30 bg-cyan-400/10 text-xs text-cyan-100 space-y-2">
               <div className="flex items-center justify-between gap-2"><strong>{reorderFeedback.addedUnits} {reorderFeedback.addedUnits === 1 ? 'unidade adicionada' : 'unidades adicionadas'} do pedido anterior</strong><button type="button" aria-label="Dispensar aviso de recompra" onClick={clearReorderFeedback} className="min-h-11 min-w-11 flex items-center justify-center shrink-0"><X className="w-4 h-4" /></button></div>
               <p>Preços atuais aplicados. Revise acessórios, cupom e frete na finalização.</p>
@@ -265,69 +303,6 @@ export const CartDrawer: React.FC = () => {
                     </div>
                   ))}
                 </div>
-
-                {/* COMBO & DESCONTO PROGRESSIVO */}
-                {progCfg.enabled !== false && (
-                  <div className="p-3.5 rounded-2xl bg-gradient-to-br from-[#121636] to-[#0D1022] border border-[#00DFFF]/35 space-y-2.5 shadow-md">
-                    <div className="flex items-center justify-between text-xs">
-                      <span className="font-extrabold flex items-center gap-1.5 text-white">
-                        <Flame className="w-4 h-4 text-amber-400 fill-amber-400" />
-                        <span>{progCfg.title || 'Desconto Progressivo • Leve Mais, Pague Menos'}</span>
-                      </span>
-                      <span className="text-[10px] font-mono font-bold text-[#00DFFF] px-2 py-0.5 rounded-full bg-[#00DFFF]/10 border border-[#00DFFF]/30">
-                        {totalPodUnits} {totalPodUnits === 1 ? 'Pod' : 'Pods'}
-                      </span>
-                    </div>
-
-                    {/* Stepper Visual */}
-                    <div className="grid grid-cols-3 gap-1.5 text-center text-[10px]">
-                      <div className={`p-2 rounded-xl border transition-all ${totalPodUnits >= 1 ? 'bg-[#00DFFF]/15 border-[#00DFFF] text-white font-bold' : 'bg-white/5 border-white/10 text-gray-400'}`}>
-                        <span className="block font-mono text-[9px] text-[#00DFFF]">1 POD</span>
-                        <span>{progCfg.tier1Label || 'Catálogo'}</span>
-                      </div>
-                      <div className={`p-2 rounded-xl border transition-all ${totalPodUnits >= tier2Min ? 'bg-emerald-500/15 border-emerald-400 text-emerald-300 font-bold shadow-[0_0_10px_rgba(16,185,129,0.2)]' : 'bg-white/5 border-white/10 text-gray-400'}`}>
-                        <span className="block font-mono text-[9px] text-emerald-400">{tier2Min} PODS</span>
-                        <span>{progCfg.tier2Label || `${formattedTier2Discount} ✓`}</span>
-                      </div>
-                      <div className={`p-2 rounded-xl border transition-all ${totalPodUnits >= tier3Min ? 'bg-amber-400/20 border-amber-300 text-amber-200 font-bold shadow-[0_0_12px_rgba(251,191,36,0.25)]' : 'bg-white/5 border-white/10 text-gray-400'}`}>
-                        <span className="block font-mono text-[9px] text-amber-300">{tier3Min}+ PODS</span>
-                        <span>{progCfg.tier3Label || `${formattedTier3Discount} Total 🔥`}</span>
-                      </div>
-                    </div>
-
-                    {/* Dynamic Alert Banner */}
-                    <div className="text-[11px] leading-snug">
-                      {totalPodUnits === 0 && (
-                        <p className="text-gray-300">Adicione pods ao carrinho para desbloquear descontos progressivos automáticos (5% e 10% OFF).</p>
-                      )}
-                      {totalPodUnits > 0 && totalPodUnits < tier2Min && (
-                        <p className="text-cyan-200 font-medium flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-[#00DFFF] shrink-0" />
-                          <span>
-                            Falta{tier2Min - totalPodUnits > 1 ? 'm' : ''}{' '}
-                            <strong>apenas {tier2Min - totalPodUnits} pod{tier2Min - totalPodUnits > 1 ? 's' : ''}</strong> para você destravar <strong>{progCfg.tier2Label || formattedTier2Discount}</strong> em todos os pods!
-                          </span>
-                        </p>
-                      )}
-                      {totalPodUnits >= tier2Min && totalPodUnits < tier3Min && (
-                        <p className="text-emerald-300 font-medium flex items-center gap-1.5">
-                          <CheckCircle2 className="w-3.5 h-3.5 text-emerald-400 shrink-0" />
-                          <span>
-                            <strong>{progCfg.tier2Label || `${formattedTier2Discount} ativado!`}</strong> Adicione +{tier3Min - totalPodUnits} pod{tier3Min - totalPodUnits > 1 ? 's' : ''} de qualquer marca para subir para <strong>{formattedTier3Discount} em todos os pods</strong>!
-                          </span>
-                        </p>
-                      )}
-                      {totalPodUnits >= tier3Min && (
-                        <p className="text-amber-300 font-bold flex items-center gap-1.5">
-                          <Sparkles className="w-3.5 h-3.5 text-amber-400 shrink-0" />
-                          <span>
-                            Super Combo {tier3Min}+ Ativado: <strong>{formattedTier3Discount} automático</strong> garantido em todos os pods!
-                          </span>
-                        </p>
-                      )}
-                    </div>
-                  </div>
-                )}
 
                 {/* COMPRE JUNTO: PRODUTOS COMPLEMENTARES */}
                 {hasAnyActiveAddon && (
@@ -492,29 +467,6 @@ export const CartDrawer: React.FC = () => {
                   <Plus className="w-4 h-4 text-[#00DFFF]" />
                   <span>Adicionar um novo produto</span>
                 </button>
-
-                {/* COMPRA MÍNIMA PARA PONTUAR SELO FIDELIDADE PROGRESS BAR */}
-                <div className="p-3.5 rounded-2xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/20 space-y-2">
-                  <div className="flex items-center gap-2 text-xs">
-                    <Sparkles className="w-4 h-4 text-[#00DFFF] flex-shrink-0" />
-                    {freeShippingRemaining > 0 ? (
-                      <p className="text-gray-300 light:text-slate-700">
-                        Faltam <strong className="text-[#00DFFF]">R$ {freeShippingRemaining.toFixed(2).replace('.', ',')}</strong> para atingir a compra mínima (R$ {freeShippingGoal.toFixed(2).replace('.', ',')}) e <strong>pontuar +1 Selo Fidelidade</strong>
-                      </p>
-                    ) : (
-                      <p className="text-emerald-400 font-bold flex items-center gap-1">
-                        <CheckCircle2 className="w-3.5 h-3.5" /> Parabéns! Sua compra já garante +1 Selo no Cartão Fidelidade 🎁
-                      </p>
-                    )}
-                  </div>
-
-                  <div className="w-full h-2 rounded-full bg-[#0D1022] light:bg-slate-200 overflow-hidden">
-                    <div
-                      className="h-full bg-gradient-to-r from-[#007BFF] via-[#00DFFF] to-emerald-400 rounded-full transition-all duration-500"
-                      style={{ width: `${freeShippingProgress}%` }}
-                    />
-                  </div>
-                </div>
 
                 {/* COUPON SECTION */}
                 <div className="space-y-2">

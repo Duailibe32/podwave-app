@@ -220,7 +220,7 @@ export const Header: React.FC = () => {
             {/* User Account Button (Customer / Owner) */}
             {currentUser ? (
               <button
-                onClick={openProfileModal}
+                onClick={() => openProfileModal()}
                 className="flex items-center gap-2 p-1.5 sm:px-3 sm:py-1.5 rounded-xl bg-[#11152A] hover:bg-[#181D3D] border border-[#8423DA]/35 hover:border-[#00DFFF]/50 text-white transition-all cursor-pointer shadow-md group"
                 title="Minha Conta, Dados Salvos e Pedidos"
               >

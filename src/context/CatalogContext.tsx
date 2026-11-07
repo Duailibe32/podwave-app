@@ -207,7 +207,8 @@ interface CatalogContextType {
   openAuthModal: (mode?: 'login' | 'signup') => void;
   closeAuthModal: () => void;
   isProfileModalOpen: boolean;
-  openProfileModal: () => void;
+  profileModalTab: 'profile' | 'loyalty' | 'orders' | 'security';
+  openProfileModal: (tab?: CatalogContextType['profileModalTab']) => void;
   closeProfileModal: () => void;
   loginUser: (email: string, password?: string) => Promise<{ success: boolean; message: string; isOwner: boolean }>;
   registerUser: (data: { email: string; fullName: string; phoneWhatsapp?: string; password?: string; address?: CustomerAddress }) => Promise<{ success: boolean; message: string; isOwner: boolean; requiresEmailConfirmation?: boolean }>;
@@ -316,7 +317,7 @@ interface CatalogContextType {
 
   // Cart & Drawers
   cart: CartItem[];
-  addToCart: (product: ProductModel, flavor: FlavorVariant, quantity?: number) => void;
+  addToCart: (product: ProductModel, flavor: FlavorVariant, quantity?: number) => boolean;
   repeatOrder: (items: CartItem[]) => ReorderFeedback;
   reorderFeedback: ReorderFeedback | null;
   clearReorderFeedback: () => void;
@@ -783,7 +784,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
   const closeAuthModal = () => setIsAuthModalOpen(false);
 
-  const openProfileModal = React.useCallback(() => setIsProfileModalOpen(true), []);
+  const [profileModalTab, setProfileModalTab] = useState<'profile' | 'loyalty' | 'orders' | 'security'>('profile');
+  const openProfileModal = React.useCallback((tab: typeof profileModalTab = 'profile') => {
+    setProfileModalTab(tab);
+    setIsProfileModalOpen(true);
+  }, []);
   const closeProfileModal = () => setIsProfileModalOpen(false);
 
   // Verify identity remotely. An outdated async response cannot restore a signed-out user.
@@ -1306,20 +1311,35 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     []
   );
 
+  const currentUserId = currentUser?.id;
   // History refresh is read-only. Only explicitly tracked unsent checkout drafts survive an empty snapshot.
   useEffect(() => {
-    if (!currentUser?.id || !(supabaseCreds.isConfigured || activeSupabaseClient)) return;
+    if (!currentUserId || !(supabaseCreds.isConfigured || activeSupabaseClient)) return;
     let cancelled = false;
-    const requestedId = currentUser.id;
-    const deletedIds = getDeletedOrderIds();
-    void fetchCustomerOrdersFromSupabase(requestedId).then(remote => {
-      if (cancelled || remote === null) return;
-      const local = loadSharedCatalogOrders().filter(order => !deletedIds.has(order.id) && order.customerId === requestedId);
-      const orders = reconcileOrderSnapshot(remote.filter(order => !deletedIds.has(order.id)), local, requestedId);
-      setCurrentUser(previous => previous?.id === requestedId ? {...previous, orderHistory: orders} : previous);
-    });
-    return () => { cancelled = true; };
-  }, [currentUser?.id, supabaseStatus, supabaseCreds.isConfigured, activeSupabaseClient]);
+    let reading = false;
+    const requestedId = currentUserId;
+    const refresh = async () => {
+      if (reading) return;
+      reading = true;
+      try {
+        const remote = await fetchCustomerOrdersFromSupabase(requestedId);
+        if (cancelled || remote === null) return;
+        const deletedIds = getDeletedOrderIds();
+        const local = loadSharedCatalogOrders().filter(order => !deletedIds.has(order.id) && order.customerId === requestedId);
+        const orders = reconcileOrderSnapshot(remote.filter(order => !deletedIds.has(order.id)), local, requestedId);
+        setCurrentUser(previous => previous?.id === requestedId ? {...previous, orderHistory: orders} : previous);
+      } finally {
+        reading = false;
+      }
+    };
+    const onVisible = () => { if (document.visibilityState === 'visible') void refresh(); };
+    void refresh();
+    document.addEventListener('visibilitychange', onVisible);
+    return () => {
+      cancelled = true;
+      document.removeEventListener('visibilitychange', onVisible);
+    };
+  }, [currentUserId, supabaseStatus, supabaseCreds.isConfigured, activeSupabaseClient]);
 
   useEffect(() => {
     if (isAdmin) {
@@ -1334,11 +1354,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Supabase Realtime para atualização imediata da Central de Pedidos (Admin) e Meus Pedidos (Cliente)
   useEffect(() => {
     const client = activeSupabaseClient || getSupabaseClient();
-    if (!client || (!currentUser?.id && !isAdmin)) return;
+    if (!client || (!currentUserId && !isAdmin)) return;
 
     const channelName = isAdmin
-      ? `orders-center-admin:${currentUser?.id || 'admin'}`
-      : `orders-customer:${currentUser?.id}`;
+      ? `orders-center-admin:${currentUserId || 'admin'}`
+      : `orders-customer:${currentUserId}`;
 
     const handleRealtimeOrderPayload = (payload: any) => {
       if (payload.eventType === 'DELETE' && payload.old && typeof payload.old === 'object') {
@@ -1350,14 +1370,14 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
             persistSharedCatalogOrders(next);
             return next;
           });
-          if (currentUser?.id) {
+          if (currentUserId) {
             setCurrentUser((prev) =>
-              prev
+              prev?.id === currentUserId
                 ? {
                     ...prev,
                     orderHistory: (prev.orderHistory || []).filter((o) => o.id !== deletedId),
                   }
-                : null
+                : prev
             );
           }
         }
@@ -1390,9 +1410,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
             return sorted;
           });
 
-          if (currentUser && doesOrderBelongToUser(mapped, currentUser)) {
+          if (currentUserId && mapped.customerId === currentUserId) {
             setCurrentUser((prev) => {
-              if (!prev) return null;
+              if (!prev || mapped.customerId !== prev.id) return prev;
               const prevHist = prev.orderHistory || [];
               const exists = prevHist.some(
                 (o) => o.id === mapped.id || (o.referenceId && o.referenceId === mapped.referenceId)
@@ -1442,12 +1462,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
   }, [
     isAdmin,
-    currentUser,
+    currentUserId,
     activeSupabaseClient,
     fetchAllCatalogOrders,
     allUsers,
     enrichOrderWithProfile,
-    doesOrderBelongToUser,
   ]);
 
   // Supabase Realtime para sincronização de estoque e disponibilidade de sabores (flavor_variants)
@@ -2658,11 +2677,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   const [activeSelectedFlavor, setActiveSelectedFlavor] = useState<FlavorVariant | null>(null);
 
   useEffect(() => {
-    if (activeModalProduct && activeModalProduct.flavors.length > 0) {
-      setActiveSelectedFlavor(activeModalProduct.flavors[0]);
-    } else {
-      setActiveSelectedFlavor(null);
-    }
+    setActiveSelectedFlavor(previous => {
+      if (!activeModalProduct) return null;
+      return activeModalProduct.flavors.find(flavor => flavor.id === previous?.id)
+        || activeModalProduct.flavors[0] || null;
+    });
   }, [activeModalProduct]);
 
   // ================= CART STATE =================
@@ -2720,14 +2739,14 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       (hasNumericStock && existingQuantity + quantity > (currentFlavor.demoQuantity ?? 0))
     ) {
       toast.error('Estoque indisponível', 'A quantidade solicitada não está disponível.');
-      return;
+      return false;
     }
     // Check if the flavor is sold out (status === 'esgotado', demoQuantity === 0, or inStock === false)
     const threshold = flavor.lowQuantityThreshold ?? product.lowQuantityThreshold ?? 3;
     const avail = calculateVariantAvailability(flavor.demoQuantity, threshold);
     if (avail.status === 'esgotado' || flavor.demoQuantity === 0 || flavor.inStock === false) {
       toast.error('Sabor indisponível', `${product.modelName} (${flavor.name}) está esgotado.`);
-      return;
+      return false;
     }
 
     const itemId = `${product.id}-${flavor.id}`;
@@ -2761,12 +2780,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       {
         action: {
           label: 'Ver Carrinho',
-          onClick: () => setIsCartOpen(true),
+          onClick: () => {
+            setActiveModalProduct(null);
+            setIsCartOpen(true);
+          },
         },
       }
     );
 
-    setIsCartOpen(true);
+    return true;
   };
 
   const removeFromCart = (cartItemId: string) => {
@@ -4893,6 +4915,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         openAuthModal,
         closeAuthModal,
         isProfileModalOpen,
+        profileModalTab,
         openProfileModal,
         closeProfileModal,
         loginUser,

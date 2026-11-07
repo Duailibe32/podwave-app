@@ -1,9 +1,11 @@
-import React from 'react';
+import React, { useState } from 'react';
 import { ProductModel, FlavorVariant } from '../types/catalog';
 import { useCatalog } from '../context/CatalogContext';
-import { Zap, Plus, CheckCircle2 } from 'lucide-react';
+import { Zap, Plus, Check, CheckCircle2 } from 'lucide-react';
 import { calculateVariantAvailability } from '../utils/availability';
 import { productCardImage } from '../utils/productImage';
+import { flavorColor, lastUnitsLabel } from '../utils/flavorPresentation';
+import { useCartFeedback } from '../hooks/useCartFeedback';
 
 interface ProductCardProps {
   product: ProductModel;
@@ -15,20 +17,25 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
   const originalImage = product.imageUrl || '/assets/images/logo.png';
   const cardImage = productCardImage(originalImage);
 
+  const [selectedId, setSelectedId] = useState<string>();
+  const [loadedImage, setLoadedImage] = useState<string>();
+  const [failedImage, setFailedImage] = useState<string>();
+  const { added, confirm } = useCartFeedback();
+  const selected = product.flavors.find(flavor => flavor.id === selectedId);
+  const leadFlavor = selected || product.flavors.find(flavor => flavor.inStock && flavor.demoQuantity !== 0) || product.flavors[0];
+  const lastUnits = lastUnitsLabel(leadFlavor);
+  const isImageReady = loadedImage === cardImage.src;
+  const imageFailed = failedImage === cardImage.src;
+
   const handleCardClick = () => {
+    setActiveSelectedFlavor(leadFlavor || null);
     setActiveModalProduct(product);
   };
 
-  const handleFlavorClick = (e: React.MouseEvent, flavor: FlavorVariant) => {
-    e.stopPropagation();
-    setActiveModalProduct(product);
-    setActiveSelectedFlavor(flavor);
+  const handleFlavorClick = (event: React.MouseEvent, flavor: FlavorVariant) => {
+    event.stopPropagation();
+    setSelectedId(flavor.id);
   };
-
-  // Up to first flavor with colored dot and emoji, plus count for remaining
-  const visibleFlavors = product.flavors.slice(0, 1);
-  const remainingCount = product.flavors.length - visibleFlavors.length;
-  const leadFlavor = visibleFlavors[0];
 
   // Check if all flavors of this product are sold out
   const isAllFlavorsSoldOut = product.flavors.length > 0 && product.flavors.every((f) => {
@@ -43,10 +50,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
   return (
     <div
       onClick={handleCardClick}
-      className="product-card group relative flex flex-col justify-between h-full rounded-[24px] sm:rounded-[26px] p-3 sm:p-4 transition-all duration-300 cursor-pointer bg-[#0A0D1E] border border-[#1E2348] hover:border-[#00DFFF]/70 hover:shadow-[0_10px_35px_rgba(0,223,255,0.22)] hover:-translate-y-1.5 overflow-hidden w-full select-none"
+      data-flavor-selected={selected ? 'true' : undefined}
+      style={{ '--flavor-color': flavorColor(leadFlavor) } as React.CSSProperties}
+      className="product-card flavor-product-card group relative flex flex-col justify-between h-full rounded-[24px] sm:rounded-[26px] p-3 sm:p-4 transition-all duration-300 cursor-pointer bg-[#0A0D1E] border border-[#1E2348] hover:border-[#00DFFF]/70 hover:shadow-[0_10px_35px_rgba(0,223,255,0.22)] hover:-translate-y-1.5 overflow-hidden w-full select-none"
     >
       {/* Subtle neon gradient ambient background */}
-      <div className="absolute inset-0 rounded-[24px] sm:rounded-[26px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-b from-[#00DFFF]/10 via-transparent to-[#9333EA]/10" />
+      <div className="flavor-hover-light absolute inset-0 rounded-[24px] sm:rounded-[26px] opacity-0 group-hover:opacity-100 transition-opacity duration-300 pointer-events-none bg-gradient-to-b from-[#00DFFF]/10 via-transparent to-[#9333EA]/10" />
 
       {/* TOP ZONE: Badges and White Product Box */}
       <div className="w-full">
@@ -78,14 +87,18 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
         </div>
 
         {/* Clean Centered White Product Container */}
-        <div className="relative w-full aspect-square rounded-2xl bg-white p-3 sm:p-4 flex items-center justify-center overflow-hidden shadow-inner group-hover:shadow-md transition-shadow">
-          <img
+        <div data-loaded={isImageReady || imageFailed} className="product-photo relative w-full aspect-square rounded-2xl p-3 sm:p-4 flex items-center justify-center overflow-hidden shadow-inner group-hover:shadow-md transition-shadow">
+          {imageFailed ? (
+            <span className="text-center text-xs font-semibold text-slate-400">Imagem indisponível</span>
+          ) : <img
+            key={cardImage.src}
+            onLoad={() => setLoadedImage(cardImage.src)}
             src={cardImage.src}
             srcSet={cardImage.srcSet}
             sizes="(min-width: 1280px) 280px, (min-width: 1024px) 25vw, (min-width: 768px) 33vw, 50vw"
             alt={`${product.brandName} ${product.modelName}`}
             width={320} height={320}
-            className="w-full h-full object-contain transform transition-transform duration-500 group-hover:scale-105"
+            className="product-photo-image w-full h-full object-contain transform transition-transform duration-500 group-hover:scale-105"
             loading={priority ? 'eager' : 'lazy'}
             fetchPriority={priority ? 'high' : 'auto'}
             decoding="async"
@@ -95,10 +108,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
                 image.dataset.originalFallback = originalImage;
                 image.srcset = '';
                 image.src = originalImage;
+              } else {
+                setFailedImage(cardImage.src);
               }
             }}
             referrerPolicy="no-referrer"
-          />
+          />}
 
           {/* Quick hover indicator tag */}
           <div className="absolute bottom-1.5 right-1.5 px-2 py-0.5 rounded-md bg-black/80 text-[9px] text-white backdrop-blur-sm opacity-0 group-hover:opacity-100 transition-opacity flex items-center gap-1">
@@ -117,36 +132,26 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
 
         {/* Model Name: Bold crisp white */}
         <h3 className="font-heading text-sm sm:text-base md:text-lg font-black text-white tracking-tight leading-snug line-clamp-2 min-h-[2.75rem] break-words">
-          {product.modelName}
+          <button type="button" onClick={event => { event.stopPropagation(); handleCardClick(); }} className="min-h-11 w-full">
+            {product.modelName}
+          </button>
         </h3>
 
-        {/* Flavors Pill (Dark capsule with colored dot, emoji, flavor name, and cyan +X count) */}
-        <div className="pt-0.5 flex justify-center w-full overflow-hidden">
-          {leadFlavor ? (
-            <div
-              onClick={(e) => handleFlavorClick(e, leadFlavor)}
-              className="inline-flex items-center gap-1.5 px-2.5 sm:px-3 py-1 rounded-full bg-[#131733] border border-[#232958] hover:border-[#00DFFF]/60 text-gray-200 text-[10px] sm:text-xs transition-colors max-w-full overflow-hidden cursor-pointer"
-              title="Clique para ver todos os sabores deste modelo"
-            >
-              {/* Colored Dot */}
-              <span
-                className="w-2 h-2 rounded-full inline-block shrink-0 shadow-sm"
-                style={{ backgroundColor: leadFlavor.colorHex }}
-              />
-              <span className="shrink-0">{leadFlavor.iconEmoji}</span>
-              <span className="font-medium text-gray-200 truncate max-w-[65px] sm:max-w-[100px]">
-                {leadFlavor.name}
-              </span>
-              {remainingCount > 0 && (
-                <span className="text-[#00DFFF] font-bold text-[10px] sm:text-[11px] shrink-0 ml-0.5">
-                  +{remainingCount}
-                </span>
-              )}
-            </div>
-          ) : (
-            <span className="text-[10px] text-gray-400">Sabores sob consulta</span>
-          )}
-        </div>
+        {product.flavors.length > 0 ? (
+          <div className="flavor-chip-list" role="group" aria-label="Sabores">
+            {product.flavors.map(flavor => (
+              <button key={flavor.id} type="button" className="flavor-chip"
+                aria-pressed={leadFlavor?.id === flavor.id}
+                style={{ '--chip-color': flavorColor(flavor) } as React.CSSProperties}
+                onClick={event => handleFlavorClick(event, flavor)}>
+                <span aria-hidden="true">{flavor.iconEmoji}</span>
+                <span>{flavor.name}</span>
+                {(!flavor.inStock || flavor.demoQuantity === 0) && <span className="sr-only"> (esgotado)</span>}
+              </button>
+            ))}
+          </div>
+        ) : <span className="text-[10px] text-gray-400">Sabores sob consulta</span>}
+        {lastUnits && <span className="flavor-last-units" title={leadFlavor?.name}>{lastUnits}</span>}
       </div>
 
       {/* BOTTOM ZONE: Availability + Price and Round Gradient '+' Button */}
@@ -177,20 +182,15 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
 
         {/* Right Side: Round '+' Button with Cyan-to-Purple Neon Gradient */}
         <button
-          onClick={(e) => {
-            e.stopPropagation();
-            if (product.flavors.length === 1) {
-              const singleFlavor = product.flavors[0];
-              const threshold = singleFlavor.lowQuantityThreshold ?? product.lowQuantityThreshold ?? 3;
-              const avail = calculateVariantAvailability(singleFlavor.demoQuantity, threshold);
-              if (avail.status === 'esgotado' || singleFlavor.demoQuantity === 0 || singleFlavor.inStock === false) {
-                handleCardClick();
-                return;
-              }
-              addToCart(product, singleFlavor);
-            } else {
+          type="button"
+          onClick={(event) => {
+            event.stopPropagation();
+            if (!leadFlavor || !leadFlavor.inStock || leadFlavor.demoQuantity === 0
+              || (!selected && product.flavors.length !== 1)) {
               handleCardClick();
+              return;
             }
+            if (addToCart(product, leadFlavor)) confirm(event.currentTarget, leadFlavor.iconEmoji);
           }}
           className={`min-w-11 min-h-11 w-11 h-11 rounded-full flex items-center justify-center text-white transition-all duration-200 cursor-pointer shrink-0 ${
             isAllFlavorsSoldOut
@@ -198,9 +198,9 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
               : 'bg-gradient-to-br from-[#00DFFF] via-[#7C3AED] to-[#A855F7] shadow-[0_0_15px_rgba(0,223,255,0.4)] hover:shadow-[0_0_22px_rgba(168,85,247,0.6)] hover:scale-105 active:scale-95'
           }`}
           title={isAllFlavorsSoldOut ? 'Produto esgotado - ver detalhes' : 'Ver detalhes ou adicionar ao carrinho'}
-          aria-label={`Abrir detalhes de ${product.modelName}`}
+          aria-label={added ? 'Adicionado à sacola' : leadFlavor?.inStock && leadFlavor.demoQuantity !== 0 && (selected || product.flavors.length === 1) ? 'Adicionar ' + leadFlavor.name + ' à sacola' : 'Abrir detalhes de ' + product.modelName}
         >
-          <Plus className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.8]" />
+          {added ? <Check className="w-5 h-5 stroke-[2.8]" /> : <Plus className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.8]" />}
         </button>
       </div>
     </div>
