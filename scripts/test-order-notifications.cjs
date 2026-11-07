@@ -4,7 +4,7 @@ const vm = require('node:vm');
 const {transformSync}=require('esbuild');
 const flush=()=>new Promise(setImmediate);
 
-function setup({ userId = 'user-a', optedIn = true } = {}) {
+function setup({ userId = 'user-a', optedIn = true, orderIds } = {}) {
   const effects = [], notices = [], storage = new Map();
   let stateIndex = 0, timer, callback, queries = 0, removed = 0, requested = 0, rows = [];
   const win = new EventTarget();
@@ -40,7 +40,7 @@ function setup({ userId = 'user-a', optedIn = true } = {}) {
   const fakeReact = {
     createContext: () => ({Provider:'provider'}),
     createElement: (tag, props) => props,
-    useState: () => [[optedIn ? 'user-a' : undefined, false, 'granted', '', false][stateIndex++], () => {}],
+    useState: () => [[optedIn ? 'user-a' : undefined, false, 'granted', '', false, orderIds && { userId, ids: orderIds }][stateIndex++], () => {}],
     useRef: value => ({current:value}),
     useCallback: fn => fn,
     useEffect: fn => effects.push(fn),
@@ -113,6 +113,14 @@ function setup({ userId = 'user-a', optedIn = true } = {}) {
     assert.equal(off.startEvents(),undefined);
     assert.equal(off.stats().queries,0);
   }
+  const scoped = setup({orderIds:['selected-order']});
+  const closeScoped = scoped.startEvents();
+  scoped.event('unselected-order', 'enviado', 'user-a');
+  scoped.event('selected-order', 'enviado', 'user-a');
+  await flush();
+  assert.equal(scoped.notices.length,1,'A ticket subscription excludes other orders from the same account');
+  assert.equal(scoped.notices[0].data.orderId,'selected-order');
+  closeScoped();
   // Worker only handles our own notification type and opens a fixed same-origin route.
   let clickHandler,opened;
   const self={location:{origin:'https://example.test'},addEventListener:(name,fn)=>{if(name==='notificationclick')clickHandler=fn;},clients:{matchAll:async()=>[],openWindow:async(url)=>{opened=url;}}};

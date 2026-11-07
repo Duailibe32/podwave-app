@@ -58,7 +58,7 @@ export default defineConfig(() => {
           maximumFileSizeToCacheInBytes: 6 * 1024 * 1024,
           globPatterns: ['**/*.{js,css,html,ico,svg,woff,woff2}'],
           // Load the admin bundle and product images only when they are used.
-          globIgnores: ['**/AdminPanel-*.js', '**/CheckoutDrawer-*.js', '**/AuthModal-*.js', '**/CustomerProfileModal-*.js', '**/ProductDetailModal-*.js', '**/xlsx-*.js'],
+          globIgnores: ['**/AdminPanel-*.js', '**/CheckoutDrawer-*.js', '**/AuthModal-*.js', '**/CustomerProfileModal-*.js', '**/ProductDetailModal-*.js', '**/xlsx-*.js', '**/OrderTicketModal-*.*'],
           runtimeCaching: [
             {
               urlPattern: ({ request, url }) => request.destination === 'script' && url.origin === self.location.origin && url.pathname.startsWith('/assets/'),

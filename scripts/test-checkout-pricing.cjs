@@ -116,6 +116,18 @@ async function main() {
     assert.equal((await register(endpoint)).rows[0].ok,true);
     await db.exec('RESET ROLE');
     assert.equal((await db.query('SELECT * FROM order_push_queue')).rows.length,0,'Account transfer removes stale jobs');
+    await db.exec(fs.readFileSync('supabase/proposals/20261107_order_push_scope.sql','utf8'));
+    await db.exec("SET request.test_uid='client'; SET ROLE authenticated");
+    const scoped = async ids => (await db.query('SELECT podwave_register_order_push_scope($1,$2,$3,$4) AS ok',
+      [endpoint,'a'.repeat(87),'b'.repeat(22),ids])).rows[0].ok;
+    assert.equal(await scoped(['vip-ok']),false,'Cannot subscribe to an order from another account');
+    assert.equal(await scoped(['regular','vip-ok']),true);
+    await db.exec("RESET ROLE; UPDATE customer_orders SET status='enviado' WHERE id IN ('regular','flash')");
+    assert.deepEqual((await db.query('SELECT order_id FROM order_push_queue')).rows.map(row => row.order_id), ['regular']);
+    await db.exec("SET ROLE authenticated");
+    assert.equal(await scoped(null),true,'Global alerts can be restored');
+    await db.exec("RESET ROLE; UPDATE customer_orders SET status='entregue' WHERE id='flash'");
+    assert.equal((await db.query("SELECT count(*)::int AS count FROM order_push_queue WHERE order_id='flash'")).rows[0].count,1);
     console.log('PASS: push device ownership, approved endpoints, restricted queue and job leasing.');
     console.log('PASS: checkout rejects manipulated prices, mismatched flavors and stock; applies exclusive VIP/flash, freight and atomic coupon limits.');
   } finally {

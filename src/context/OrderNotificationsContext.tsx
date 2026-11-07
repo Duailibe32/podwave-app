@@ -113,7 +113,8 @@ interface OrderNotificationsContextValue {
   permission: NotificationPermission | 'unsupported';
   message: string;
   hasPushSubscription: boolean;
-  activate: () => Promise<void>;
+  activate: (orderId?: string) => Promise<void>;
+  isEnabledForOrder: (orderId: string) => boolean;
   deactivate: () => void;
   sendTestOrderNotification: (sampleStatus?: CatalogOrderStatus) => Promise<void>;
 }
@@ -125,6 +126,7 @@ const Context = createContext<OrderNotificationsContextValue>({
   message: '',
   hasPushSubscription: false,
   activate: async () => {},
+  isEnabledForOrder: () => false,
   deactivate: () => {},
   sendTestOrderNotification: async () => {},
 });
@@ -148,6 +150,12 @@ export function OrderNotificationsProvider({ children }: { children: React.React
   );
   const [message, setMessage] = useState('');
   const [hasPushSubscription, setHasPushSubscription] = useState(false);
+  const [scope, setScope] = useState<{ userId: string; ids: string[] }>();
+  const orderIds = scope?.userId === userId ? scope?.ids : undefined;
+  const isEnabledForOrder = useCallback(
+    (orderId: string) => enabled && (!orderIds || orderIds.includes(orderId)),
+    [enabled, orderIds]
+  );
 
   const knownStatusesRef = useRef<Map<string, string>>(new Map());
   const initializedRef = useRef(false);
@@ -157,9 +165,13 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     initializedRef.current = false;
     setHasPushSubscription(false);
     try {
-      const optedIn = userId && localStorage.getItem(preferenceKey(userId)) === 'on';
-      setEnabledUser(optedIn && getCurrentPermission() === 'granted' ? userId : undefined);
+      const preference = userId ? localStorage.getItem(preferenceKey(userId)) : null;
+      const stored = preference && preference !== 'on' ? JSON.parse(preference) : null;
+      const ids = Array.isArray(stored) ? stored.filter((id): id is string => typeof id === 'string' && id.length > 0).slice(-50) : [];
+      setScope(userId && ids.length ? { userId, ids } : undefined);
+      setEnabledUser((preference === 'on' || ids.length > 0) && getCurrentPermission() === 'granted' ? userId : undefined);
     } catch {
+      setScope(undefined);
       setEnabledUser(undefined);
     }
     setMessage('');
@@ -193,7 +205,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       if (registering) return;
       registering = true;
       try {
-        const registered = await registerOrderPush(client, userId, () => active && activeUserRef.current === userId);
+        const registered = await registerOrderPush(client, userId, () => active && activeUserRef.current === userId, orderIds);
         if (active) setHasPushSubscription(registered);
       } finally {
         registering = false;
@@ -205,7 +217,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       active = false;
       navigator.serviceWorker.removeEventListener('controllerchange', connect);
     };
-  }, [enabled, userId, permissionState, supabaseClient]);
+  }, [enabled, userId, permissionState, supabaseClient, orderIds]);
 
   // Dispara a notificação nativa via Service Worker (Push API) ou Notification API fallback
   const dispatchBrowserOrderNotification = useCallback(
@@ -295,7 +307,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
   );
 
   // Ativar notificações Push do navegador
-  const activate = async () => {
+  const activate = async (orderId?: string) => {
     if (busy || !userId) return;
     if (!isNotificationSupported()) {
       setMessage(
@@ -318,10 +330,15 @@ export function OrderNotificationsProvider({ children }: { children: React.React
 
       if (activeUserRef.current !== userId) return;
 
+      const selected = orderId && (!enabled || orderIds)
+        ? Array.from(new Set([...(orderIds || []), orderId])).slice(-50)
+        : undefined;
+      setScope(selected ? { userId, ids: selected } : undefined);
+      setHasPushSubscription(false);
       try {
-        localStorage.setItem(preferenceKey(userId), 'on');
+        localStorage.setItem(preferenceKey(userId), selected ? JSON.stringify(selected) : 'on');
       } catch {
-        // ignore storage errors
+        // Alerts can still work in the current tab.
       }
 
       setEnabledUser(userId);
@@ -342,6 +359,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       // ignore
     }
     setEnabledUser(undefined);
+    setScope(undefined);
     setHasPushSubscription(false);
     void removeOrderPush(supabaseClient || getSupabaseClient(), userId);
     setMessage('Alertas de pedido desativados neste dispositivo.');
@@ -381,7 +399,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     const relevantOrders = [
       ...(currentUser?.orderHistory || []),
       ...(allCatalogOrders || []),
-    ].filter(order => order.customerId === userId);
+    ].filter(order => order.customerId === userId && isEnabledForOrder(order.id));
 
     const seenIds = new Set<string>();
     for (const order of relevantOrders) {
@@ -422,6 +440,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     permissionState,
     dispatchBrowserOrderNotification,
     notifyInfo,
+    isEnabledForOrder,
   ]);
 
   // Escuta eventos instantâneos (BroadcastChannel entre abas e CustomEvent na mesma janela)
@@ -429,7 +448,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     if (!userId || !enabled || permissionState !== 'granted') return;
 
     const handleStatusEvent = (payload?: OrderStatusPushEventPayload) => {
-      if (!payload?.orderId || !payload?.toStatus) return;
+      if (!payload?.orderId || !payload?.toStatus || !isEnabledForOrder(payload.orderId)) return;
       if (activeUserRef.current !== userId || payload.customerId !== userId) return;
 
       const storedMap = readStoredNotifiedMap(userId);
@@ -476,7 +495,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       window.removeEventListener(ORDER_STATUS_CHANGED_EVENT, onCustomEvent);
       if (bc) bc.close();
     };
-  }, [enabled, permissionState, userId, dispatchBrowserOrderNotification, notifyInfo]);
+  }, [enabled, permissionState, userId, dispatchBrowserOrderNotification, notifyInfo, isEnabledForOrder]);
 
   // Escuta Supabase Realtime + Polling em segundo plano para pedidos do cliente autenticado
   useEffect(() => {
@@ -499,7 +518,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
         !alive || activeUserRef.current !== userId ||
         typeof row.id !== 'string' ||
         typeof row.status !== 'string' ||
-        row.customer_id !== userId
+        row.customer_id !== userId || !isEnabledForOrder(row.id)
       ) {
         return;
       }
@@ -538,10 +557,9 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       if (!alive || loading) return;
       loading = true;
       try {
-        const { data, error } = await client
-          .from('customer_orders')
-          .select('id,status,customer_id,order_code,delivery_info')
-          .eq('customer_id', userId);
+        const query = client.from('customer_orders')
+          .select('id,status,customer_id,order_code,delivery_info').eq('customer_id', userId);
+        const { data, error } = await (orderIds ? query.in('id', orderIds) : query);
         if (error || !alive) return;
         for (const row of data || []) {
           await observeSupabaseRow(row);
@@ -590,7 +608,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       document.removeEventListener('visibilitychange', onVisible);
       if (channel) void client.removeChannel(channel);
     };
-  }, [userId, enabled, permissionState, supabaseClient, dispatchBrowserOrderNotification, notifyInfo]);
+  }, [userId, enabled, permissionState, supabaseClient, dispatchBrowserOrderNotification, notifyInfo, isEnabledForOrder, orderIds]);
 
   // Abre modal de pedidos ao clicar na notificação do Service Worker
   useEffect(() => {
@@ -624,6 +642,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
         message,
         hasPushSubscription,
         activate,
+        isEnabledForOrder,
         deactivate,
         sendTestOrderNotification,
       }}
@@ -702,7 +721,7 @@ export function OrderNotificationSettings({ compact = false }: { compact?: boole
             <button
               type="button"
               disabled={busy}
-              onClick={enabled ? deactivate : activate}
+              onClick={enabled ? deactivate : () => void activate()}
               className={`rounded-xl px-3 py-2 text-[11px] font-heading font-extrabold transition cursor-pointer disabled:opacity-40 flex items-center gap-1.5 ${
                 enabled
                   ? 'bg-white/5 hover:bg-rose-500/15 border border-white/15 hover:border-rose-400/40 text-gray-300 hover:text-rose-200'
