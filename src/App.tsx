@@ -13,6 +13,7 @@ import { InfoSection } from './components/InfoSection';
 import { Footer } from './components/Footer';
 import { CartDrawer } from './components/CartDrawer';
 import { FloatingActions } from './components/FloatingActions';
+import { MobileStorefrontBar } from './components/StorefrontShortcuts';
 import { OfflineIndicator } from './components/OfflineIndicator';
 import { PWAInstallButton } from './components/PWAInstallButton';
 import { DeferredOverlay } from './components/DeferredOverlay';
@@ -32,7 +33,7 @@ const AppContent: React.FC = () => {
   useBodyScrollLock(overlayOpen);
 
   return (
-    <div className="min-h-screen flex flex-col bg-[#080811] text-white">
+    <div className={`min-h-screen flex flex-col bg-[#080811] text-white ${currentView === 'catalog' ? 'storefront-layout' : ''}`}>
       <Header />
       {currentView === 'catalog' && <FlashSaleBanner />}
 
@@ -60,6 +61,7 @@ const AppContent: React.FC = () => {
       <DeferredOverlay component={CheckoutDrawer} active={isCheckoutOpen} label="Finalização do pedido" onClose={() => setIsCheckoutOpen(false)} />
       <PWAInstallButton variant="smart-banner" />
       <FloatingActions />
+      {currentView === 'catalog' && <MobileStorefrontBar inactive={overlayOpen} />}
       <OfflineIndicator />
       <DeferredOverlay component={AuthModal} active={isAuthModalOpen} label="Acesso à conta" onClose={closeAuthModal} />
       <DeferredOverlay component={CustomerProfileModal} active={isProfileModalOpen} label="Minha conta" onClose={closeProfileModal} />

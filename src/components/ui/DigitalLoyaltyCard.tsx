@@ -52,9 +52,30 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
   const showMilestoneGlow = milestoneInfo.isMilestone || isCelebratingGain;
   const slots = Array.from({ length: goal }, (_, idx) => idx + 1);
 
+  const tilt = (event: React.PointerEvent<HTMLDivElement>) => {
+    if (!event.isPrimary || window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
+    const element = event.currentTarget;
+    const bounds = element.getBoundingClientRect();
+    const x = Math.max(0, Math.min(1, (event.clientX - bounds.left) / bounds.width));
+    const y = Math.max(0, Math.min(1, (event.clientY - bounds.top) / bounds.height));
+    element.style.setProperty('--foil-x', x * 100 + '%');
+    element.style.setProperty('--foil-y', y * 100 + '%');
+    element.style.setProperty('--tilt-x', (0.5 - y) * 6 + 'deg');
+    element.style.setProperty('--tilt-y', (x - 0.5) * 6 + 'deg');
+    element.dataset.tilt = 'on';
+  };
+  const resetTilt = (event: React.PointerEvent<HTMLDivElement>) => {
+    delete event.currentTarget.dataset.tilt;
+  };
+
   return (
     <div
-      className={`relative rounded-3xl overflow-hidden border-2 transition-all duration-500 shadow-2xl ${
+      onPointerDown={tilt}
+      onPointerMove={tilt}
+      onPointerLeave={resetTilt}
+      onPointerUp={resetTilt}
+      onPointerCancel={resetTilt}
+      className={`loyalty-foil relative rounded-3xl overflow-hidden border-2 transition-all duration-500 shadow-2xl ${
         isComplete
           ? 'bg-gradient-to-br from-[#122624] via-[#0D1022] to-[#1E1938] border-emerald-400/80 shadow-[0_0_38px_rgba(16,185,129,0.32)]'
           : showMilestoneGlow
@@ -62,6 +83,7 @@ export const DigitalLoyaltyCard: React.FC<DigitalLoyaltyCardProps> = ({
           : 'bg-gradient-to-br from-[#141838] via-[#0D1022] to-[#191536] border-[#8423DA]/50 shadow-[0_12px_35px_rgba(0,0,0,0.5)]'
       } ${compact ? 'p-4 sm:p-5' : 'p-5 sm:p-6'}`}
     >
+      <span className="loyalty-foil-reflection" aria-hidden="true" />
       {/* Smooth Pulsing Milestone Aura Ring */}
       {showMilestoneGlow && (
         <div

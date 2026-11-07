@@ -26,10 +26,7 @@ export const LoyaltyHomeSection: React.FC = () => {
 
   const handleOpenLoyalty = () => {
     if (currentUser) {
-      openProfileModal();
-      setTimeout(() => {
-        window.dispatchEvent(new Event('podwave:open-loyalty'));
-      }, 30);
+      openProfileModal('loyalty');
     } else {
       openAuthModal('login');
     }
