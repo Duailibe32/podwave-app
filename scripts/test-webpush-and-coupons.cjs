@@ -36,16 +36,6 @@ assert.ok(
 );
 
 assert.ok(
-  catalogContextContent.includes('const reachedLimit = Boolean(c.maxUses && c.maxUses > 0 && nextUsed >= c.maxUses);'),
-  'submitOrderViaWhatsapp should evaluate reachedLimit when coupon is used'
-);
-
-assert.ok(
-  catalogContextContent.includes('active: reachedLimit ? false : c.active'),
-  'submitOrderViaWhatsapp should set active: false when reachedLimit is true'
-);
-
-assert.ok(
   catalogContextContent.includes('O cupom ${coupon.code} atingiu o limite máximo de ${coupon.maxUses} usos e está inativo.'),
   'applyCoupon should return that the coupon reached limit and is inactive'
 );
@@ -70,16 +60,13 @@ assert.ok(
   'Service worker must have a notificationclick event listener'
 );
 
-assert.ok(
-  swContent.includes("self.addEventListener('message',"),
-  'Service worker must have a message event listener for test push notifications'
-);
+assert.ok(!swContent.includes('SHOW_ORDER_STATUS_NOTIFICATION'), 'The worker must not display a second local notification');
 
 assert.ok(
   swContent.includes("showNotification"),
   'Service worker must call showNotification'
 );
-console.log('  ✓ Service Worker includes push, notificationclick, and message handlers.');
+console.log('  ✓ Service Worker includes push and notificationclick handlers.');
 
 // 4. Check WebPushSettingsSection and AdminPanel mounting
 console.log('\n4. Checking WebPushSettingsSection in AdminPanel...');
@@ -103,38 +90,4 @@ assert.ok(
 );
 console.log('  ✓ WebPushSettingsSection fully implemented and mounted in AdminPanel.');
 
-// Simulation of Coupon limit inactivation unit test
-console.log('\n5. Executing unit test simulation for coupon inactivation math...');
-const sampleCoupons = [
-  { id: 'c1', code: 'PROMO10', maxUses: 3, usedCount: 2, active: true },
-  { id: 'c2', code: 'EXHAUSTED', maxUses: 5, usedCount: 5, active: true },
-  { id: 'c3', code: 'UNLIMITED', usedCount: 100, active: true }
-];
-
-// Test normalization on load
-const normalized = sampleCoupons.map((c) =>
-  c.maxUses && c.maxUses > 0 && c.usedCount >= c.maxUses ? { ...c, active: false } : c
-);
-assert.strictEqual(normalized[0].active, true, 'c1 should still be active');
-assert.strictEqual(normalized[1].active, false, 'c2 should be auto-inactivated because 5 >= 5');
-assert.strictEqual(normalized[2].active, true, 'c3 should remain active (no maxUses)');
-
-// Test order placement usage increment
-const updatedAfterOrder = normalized.map((c) => {
-  if (c.code === 'PROMO10') {
-    const nextUsed = (c.usedCount || 0) + 1; // 2 + 1 = 3
-    const reachedLimit = Boolean(c.maxUses && c.maxUses > 0 && nextUsed >= c.maxUses);
-    return {
-      ...c,
-      usedCount: nextUsed,
-      active: reachedLimit ? false : c.active,
-    };
-  }
-  return c;
-});
-
-assert.strictEqual(updatedAfterOrder[0].usedCount, 3);
-assert.strictEqual(updatedAfterOrder[0].active, false, 'c1 should now be inactive because 3 >= 3');
-console.log('  ✓ Math & logic unit test simulation passed successfully.');
-
-console.log('\nALL TESTS PASSED! 🎉');
+console.log('\nALL TESTS PASSED!');

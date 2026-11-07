@@ -24,6 +24,7 @@ export const OrderRecordPreviewModal: React.FC<OrderRecordPreviewModalProps> = (
     cablePrice,
     appliedCoupon,
     submitOrderViaWhatsapp,
+    isSubmittingOrder,
     settings,
     getCheckoutSummary,
   } = useCatalog();
@@ -171,6 +172,7 @@ export const OrderRecordPreviewModal: React.FC<OrderRecordPreviewModalProps> = (
 
             <button
               onClick={handleSendWhatsapp}
+              disabled={isSubmittingOrder}
               className="px-5 py-2.5 rounded-xl bg-gradient-to-r from-[#25D366] to-[#128C7E] hover:brightness-110 text-white text-xs font-black uppercase tracking-wider shadow-lg flex items-center gap-2 cursor-pointer transition-all active:scale-95"
             >
               <Send className="w-4 h-4 fill-white stroke-none" />

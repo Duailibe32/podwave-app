@@ -1,3 +1,4 @@
+import { removeOrderPush } from '../services/orderPush';
 import { prepareReorder, type ReorderFeedback } from '../utils/reorder';
 import { selectProductDiscount } from '../utils/productDiscount';
 import { calculateFlashSaleDiscount } from '../utils/flashSale';
@@ -222,23 +223,6 @@ interface CatalogContextType {
   logoutUser: () => void;
   resetPassword: (email: string) => Promise<{ success: boolean; message: string }>;
   updateCustomerProfile: (data: Partial<UserProfile>) => Promise<boolean>;
-  recordCustomerOrder: (order: {
-    referenceId: string;
-    subtotal: number;
-    discount: number;
-    deliveryFee?: number;
-    total: number;
-    paymentMethod: string;
-    deliveryType: 'delivery' | 'pickup';
-    addressSummary?: string;
-    customerNotes?: string;
-    couponCode?: string;
-    vipDiscountApplied?: boolean;
-    vipDiscountAmount?: number;
-    customerName?: string;
-    customerPhone?: string;
-    items?: CartItem[];
-  }) => Promise<CustomerOrderHistoryItem | void>;
   allCatalogOrders: CustomerOrderHistoryItem[];
   isLoadingCatalogOrders: boolean;
   catalogOrdersError: string | null;
@@ -369,6 +353,7 @@ interface CatalogContextType {
   setIsCheckoutOpen: (open: boolean) => void;
 
   // Checkout & WhatsApp
+  isSubmittingOrder: boolean;
   submitOrderViaWhatsapp: (form: OrderForm, customMessage?: string) => Promise<boolean>;
 
   // Admin Actions: Brands
@@ -548,6 +533,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // User State (strictly authenticated via Supabase Auth)
   const [currentUser, setCurrentUser] = useState<UserProfile | null>(null);
 
+  const [isSubmittingOrder, setIsSubmittingOrder] = useState(false);
+  const submittingOrderRef = useRef(false);
+  const checkoutAttemptRef = useRef<{ key: string; id: string; referenceId: string } | null>(null);
   const authenticatedIdentityRef = useRef(currentUser);
   authenticatedIdentityRef.current = currentUser;
   const businessCacheKey = (key: string) => 'podwave_private:' + encodeURIComponent(supabaseCreds.url) + ':' + (currentUser?.id || 'signed-out') + ':' + key;
@@ -795,7 +783,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
   const closeAuthModal = () => setIsAuthModalOpen(false);
 
-  const openProfileModal = () => setIsProfileModalOpen(true);
+  const openProfileModal = React.useCallback(() => setIsProfileModalOpen(true), []);
   const closeProfileModal = () => setIsProfileModalOpen(false);
 
   // Verify identity remotely. An outdated async response cannot restore a signed-out user.
@@ -1106,6 +1094,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // LOGOUT SEGURO
   const logoutUser = async () => {
+    await removeOrderPush(activeSupabaseClient, currentUser?.id);
     await supabaseSignOut();
     setCurrentUser(null);
     if (typeof window !== 'undefined') {
@@ -1516,7 +1505,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // REGISTRAR PEDIDO DO CLIENTE (UNIVERSAL: VISITANTE / CLIENTE)
   const recordCustomerOrder = async (orderData: {
+    id: string;
+    customerId: string;
     referenceId: string;
+    destinationCity?: string;
     subtotal: number;
     discount: number;
     deliveryFee?: number;
@@ -1531,12 +1523,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     customerName?: string;
     customerPhone?: string;
     items?: CartItem[];
-  }): Promise<CustomerOrderHistoryItem> => {
+  }): Promise<CustomerOrderHistoryItem | null> => {
     const nowIso = new Date().toISOString();
-    const fallbackGuestId = orderData.customerPhone
-      ? `guest-${orderData.customerPhone.replace(/\D/g, '')}`
-      : `guest-${orderData.referenceId || Date.now()}`;
-    const customerId = currentUser?.id || fallbackGuestId;
+    const customerId = orderData.customerId;
     const authorName = orderData.customerName || currentUser?.fullName || currentUser?.email || 'Cliente';
 
     const initialHistory: OrderStatusHistoryEntry = {
@@ -1551,7 +1540,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     };
 
     const orderItem: CustomerOrderHistoryItem = {
-      id: `ord-${Date.now()}-${Math.random().toString(36).substring(2, 6)}`,
+      id: orderData.id,
       referenceId: orderData.referenceId,
       customerId,
       customerName: orderData.customerName || currentUser?.fullName || undefined,
@@ -1570,6 +1559,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       amountPaid: 0,
       deliveryType: orderData.deliveryType,
       addressSummary: orderData.addressSummary,
+      destinationCity: orderData.destinationCity,
       customerNotes: orderData.customerNotes,
       couponCode: orderData.couponCode,
       vipDiscountApplied: orderData.vipDiscountApplied,
@@ -1579,88 +1569,27 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       loyaltyEligible: true,
       loyaltyStampGranted: false,
       version: 1,
-      _syncStatus: 'pending_sync',
+      _syncStatus: 'synced',
     };
 
-    // 1. Sempre salva localmente primeiro (Garantia de que o pedido nunca se perde!)
-    const currentShared = loadSharedCatalogOrders();
-    const updatedShared = [
+    if (!await saveCustomerOrderToSupabase(orderItem, customerId, { createOnly: true })) return null;
+
+    const addToHistory = (orders: CustomerOrderHistoryItem[]) => [
       orderItem,
-      ...currentShared.filter(
-        (o) => o.id !== orderItem.id && o.referenceId !== orderItem.referenceId
-      ),
+      ...orders.filter(order => order.id !== orderItem.id && order.referenceId !== orderItem.referenceId),
     ];
-    persistSharedCatalogOrders(updatedShared);
-
-    // Atualiza estado allCatalogOrders na memória (para que o Admin veja imediatamente na aba Pedidos)
-    setAllCatalogOrders(updatedShared);
-
-    // Se estiver logado, atualiza também o histórico pessoal do cliente
-    if (currentUser) {
-      const updatedOrders = [
-        orderItem,
-        ...(currentUser.orderHistory || []).filter(
-          (o) => o.id !== orderItem.id && o.referenceId !== orderItem.referenceId
-        ),
-      ];
-      setCurrentUser({
-        ...currentUser,
-        orderHistory: updatedOrders,
-      });
-    }
-
-    // 2. Dispara evento customizado para notificar abas abertas
-    if (typeof window !== 'undefined') {
-      window.dispatchEvent(
-        new CustomEvent('podwave_new_order_placed', { detail: { order: orderItem } })
-      );
-    }
-
-    // 3. Registra no log de auditoria simples de pedidos (Data e Horário)
-    const formattedDateTime = new Date(nowIso).toLocaleString('pt-BR', {
-      day: '2-digit',
-      month: '2-digit',
-      year: 'numeric',
-      hour: '2-digit',
-      minute: '2-digit',
-      second: '2-digit',
-    });
-    addActivityLog({
-      action: 'PEDIDO_ATUALIZADO',
-      actionLabel: 'Pedido Recebido (Checkout)',
-      entity: 'customer_orders',
-      entityName: `#${orderItem.referenceId}`,
-      details: `[${formattedDateTime}] Pedido #${orderItem.referenceId} criado por ${authorName} com status inicial "RECEBIDO" • Total: R$ ${orderItem.total.toFixed(2).replace('.', ',')}.`,
-      status: 'sucesso',
-    });
-
-    // 4. Tenta persistir no Supabase (se conectado) sem travar a experiência do usuário caso falhe
     try {
-      const savedRemotely = await saveCustomerOrderToSupabase(orderItem, customerId);
-      if (savedRemotely) {
-        orderItem._syncStatus = 'synced';
-        const markSynced = (items: CustomerOrderHistoryItem[]) => items.map(item => item.id === orderItem.id ? {...item, _syncStatus: 'synced' as const} : item);
-        persistSharedCatalogOrders(markSynced(loadSharedCatalogOrders()));
-        setAllCatalogOrders(markSynced);
-        setCurrentUser(previous => previous?.id === customerId ? {...previous, orderHistory: markSynced(previous.orderHistory || [])} : previous);
-      }
-      if (!savedRemotely) {
-        const diag = getLastSupabaseOrderDiagnostic();
-        console.warn('[Catalog] Pedido mantido localmente; falha ao gravar em customer_orders:', diag);
-        if (diag?.category === 'unconfigured') {
-          toast.warning(
-            'Pedido salvo neste aparelho! Para sincronizar entre celular e PC, conecte o Supabase (VITE_SUPABASE_URL e VITE_SUPABASE_ANON_KEY).'
-          );
-        } else if (diag?.message) {
-          toast.warning(
-            `Pedido salvo no aparelho, mas o banco Supabase recusou o envio (${diag.code || diag.category}): ${diag.message}`
-          );
-        }
-      }
-    } catch (e) {
-      console.warn('[Catalog] Aviso ao salvar pedido no Supabase (pedido mantido localmente):', e);
+      persistSharedCatalogOrders(addToHistory(loadSharedCatalogOrders()));
+    } catch (error) {
+      console.warn('[Catalog] Cache do pedido confirmado:', error);
     }
-
+    if (authenticatedIdentityRef.current?.id === customerId) {
+      setAllCatalogOrders(addToHistory);
+      setCurrentUser(previous => previous?.id === customerId
+        ? { ...previous, orderHistory: addToHistory(previous.orderHistory || []) }
+        : previous);
+      window.dispatchEvent(new CustomEvent('podwave_new_order_placed', { detail: { order: orderItem } }));
+    }
     return orderItem;
   };
 
@@ -3165,128 +3094,116 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Reference implementation for WhatsApp sharing with exact Unicode string
   const submitOrderViaWhatsapp = async (form: OrderForm, customMessage?: string): Promise<boolean> => {
-    if (!cart.length) { toast.error('Adicione produtos ao carrinho.'); return false; }
-    const checkoutSummary = getCheckoutSummary(form.isPickup, form.city);
-    if (checkoutSummary.discountAmount !== discountAmount) {
-      toast.warning('Oferta atualizada', 'O prazo da oferta mudou. Revise o total e confirme novamente.');
+    if (submittingOrderRef.current) return false;
+    const customerId = currentUser?.id;
+    if (!customerId) {
+      setIsCheckoutOpen(false);
+      openAuthModal('login');
       return false;
     }
-    if (checkoutSummary.shippingNeedsQuote) {
-      toast.error('Frete a combinar', 'A cidade/UF não possui uma estimativa cadastrada. Confira o destino ou fale com a loja antes de enviar.');
-      return false;
-    }
-
-    let modelsForValidation = models;
+    submittingOrderRef.current = true;
+    setIsSubmittingOrder(true);
     try {
-      const stock = await fetchStockAvailability();
-      if (stock && stock.length > 0) {
-        const latestModels = models.map((m) => ({
-          ...m,
-          flavors: m.flavors.map((f) => {
-            const current = stock.find((s) => s.id === f.id && s.modelId === m.id);
-            if (!current) return f;
-            return {
-              ...f,
-              demoQuantity: current.quantity,
-              inStock: current.inStock,
-            };
-          }),
-        }));
-        setModels(latestModels);
-        modelsForValidation = latestModels;
+      if (!cart.length) { toast.error('Adicione produtos ao carrinho.'); return false; }
+      const checkoutSummary = getCheckoutSummary(form.isPickup, form.city);
+      if (checkoutSummary.discountAmount !== discountAmount) {
+        toast.warning('Oferta atualizada', 'O prazo da oferta mudou. Revise o total e confirme novamente.');
+        return false;
       }
-    } catch {
-      // Se não houver conexão com o banco ou tabela ausente, valida com o estado atual do catálogo
-      modelsForValidation = models;
-    }
+      if (checkoutSummary.shippingNeedsQuote) {
+        toast.error('Frete a combinar', 'A cidade/UF não possui uma estimativa cadastrada. Confira o destino ou fale com a loja antes de enviar.');
+        return false;
+      }
 
-    const error = cartStockError(cart, modelsForValidation);
-    if (error) {
-      toast.error('Pedido não enviado', error);
-      return false;
-    }
+      const error = cartStockError(cart, models);
+      if (error) {
+        toast.error('Pedido não enviado', error);
+        return false;
+      }
+      const cleanPhone = (settings.whatsappNumber || '5586999014685').replace(/\D/g, '');
 
-    const phone = settings.whatsappNumber || '5586999014685';
-    const refreshedSummary = getCheckoutSummary(form.isPickup, form.city);
-    if (refreshedSummary.totalAmount !== checkoutSummary.totalAmount) {
-      toast.warning('Oferta encerrada', 'A oferta terminou enquanto o estoque era conferido. Revise o total e confirme novamente.');
-      return false;
-    }
-    const cleanPhone = phone.replace(/\D/g, '');
+      const couponWasUsed = isCouponEligibleForCart(appliedCoupon, cart, cartSubtotal)
+        && (appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' : (checkoutSummary.couponDiscountAmount ?? couponDiscountAmount) > 0);
+      const addressSummary = form.isPickup
+        ? 'Retirada no Local'
+        : [form.address, form.numberAndComplement, form.bairro, form.city].filter(Boolean).join(' - ');
 
-    // If coupon used, increment its count and automatically inactivate if limit is reached
-    const couponWasUsed = isCouponEligibleForCart(appliedCoupon, cart, cartSubtotal)
-      && (appliedCoupon.discountType === 'free_shipping' ? checkoutSummary.freeShippingSource === 'coupon' : (checkoutSummary.couponDiscountAmount ?? couponDiscountAmount) > 0);
-    if (appliedCoupon && couponWasUsed) {
-      setCoupons((prev) =>
-        prev.map((c) => {
-          if (c.code.toUpperCase() === appliedCoupon.code.toUpperCase()) {
-            const nextUsed = (c.usedCount || 0) + 1;
-            const reachedLimit = Boolean(c.maxUses && c.maxUses > 0 && nextUsed >= c.maxUses);
-            return {
-              ...c,
-              usedCount: nextUsed,
-              active: reachedLimit ? false : c.active,
-            };
-          }
-          return c;
-        })
+      const orderItemsWithAddons = checkoutSummary.items;
+
+      const key = JSON.stringify([customerId, form, checkoutSummary]);
+      if (checkoutAttemptRef.current?.key !== key) {
+        checkoutAttemptRef.current = { key, id: 'ord-' + crypto.randomUUID(), referenceId: generateReferenceId() };
+      }
+      const { id, referenceId: refId } = checkoutAttemptRef.current;
+      const order = await recordCustomerOrder({
+        id,
+        customerId,
+        referenceId: refId,
+        destinationCity: form.isPickup ? undefined : form.city,
+        subtotal: Math.round((checkoutSummary.itemsSubtotal + checkoutSummary.addonAmount) * 100) / 100,
+        discount: checkoutSummary.discountAmount,
+        deliveryFee: checkoutSummary.deliveryFee,
+        total: checkoutSummary.totalAmount,
+        paymentMethod: form.paymentMethod,
+        deliveryType: form.isPickup ? 'pickup' : 'delivery',
+        addressSummary,
+        customerNotes: [form.notes?.trim(), checkoutSummary.deliveryEstimate
+          ? `Frete estimado por cidade: ${checkoutSummary.deliveryDistanceKm} km; origem: ${checkoutSummary.deliveryOriginCity}.`
+          : ''].filter(Boolean).join(' | ') || undefined,
+        couponCode: couponWasUsed ? appliedCoupon?.code : undefined,
+        vipDiscountApplied: Boolean(isVip && (checkoutSummary.vipDiscountAmount ?? vipDiscountAmount) > 0),
+        vipDiscountAmount: checkoutSummary.vipDiscountAmount ?? vipDiscountAmount ?? 0,
+        customerName: form.fullName?.trim() || undefined,
+        customerPhone: form.phoneWhatsapp?.trim() || undefined,
+        items: orderItemsWithAddons,
+      });
+
+      if (!order) {
+        const diagnostic = getLastSupabaseOrderDiagnostic();
+        if (diagnostic?.code === 'PWA01' || diagnostic?.code === 'PWA02') {
+          checkoutAttemptRef.current = null;
+          setAppliedCoupon(null);
+          toast.warning('Revise o pedido', diagnostic.message);
+          await loadFromSupabase();
+        } else {
+          toast.error('Envio sem confirmação', 'Seu carrinho foi mantido. Confira a conexão e tente novamente.');
+        }
+        return false;
+      }
+
+      checkoutAttemptRef.current = null;
+      if (authenticatedIdentityRef.current?.id !== customerId) return false;
+      const message = customMessage
+        ? customMessage.replace(/#PW-[A-Z0-9-]+/, '#' + refId)
+        : formatAttendanceRecord({
+          referenceId: refId,
+          dateTimeBrasilia: getBrasiliaDateTime(),
+          form,
+          cart: checkoutSummary.items,
+          isUsbCableAdded: false,
+          cablePrice,
+          appliedCoupon,
+          financials: checkoutSummary,
+        });
+
+      // Universal robust WhatsApp opening with NFC normalization, surrogate validation, and popup resilience
+      openWhatsAppShare(cleanPhone, message);
+      setIsCheckoutOpen(false);
+      clearCart();
+      toast.success(
+        'Pedido gerado com sucesso!',
+        `Referência ${refId} criada e salva na Central de Pedidos!`,
+        { durationMs: 5000 }
       );
+      return true;
+    } catch (error) {
+      console.warn('[Catalog] Checkout:', error);
+      toast.error('Envio sem confirmação', 'Seu carrinho foi mantido. Confira a conexão e tente novamente.');
+      return false;
+    } finally {
+      submittingOrderRef.current = false;
+      setIsSubmittingOrder(false);
     }
-
-    // Extrai o referenceId consistente se já veio pré-formatado na ficha ou gera novo
-    const matchedRef = customMessage?.match(/#(?:PW-[A-Z0-9]+|[A-Z0-9-]+)/)?.[0]?.replace('#', '');
-    const refId = matchedRef || generateReferenceId();
-
-    const addressSummary = form.isPickup
-      ? 'Retirada no Local'
-      : [form.address, form.numberAndComplement, form.bairro, form.city].filter(Boolean).join(' - ');
-
-    const orderItemsWithAddons = checkoutSummary.items;
-
-    // Persistir SEMPRE o pedido (seja cliente autenticado ou visitante no catálogo)
-    await recordCustomerOrder({
-      referenceId: refId,
-      subtotal: checkoutSummary.itemsSubtotal + checkoutSummary.addonAmount,
-      discount: checkoutSummary.discountAmount,
-      deliveryFee: checkoutSummary.deliveryFee,
-      total: checkoutSummary.totalAmount,
-      paymentMethod: form.paymentMethod,
-      deliveryType: form.isPickup ? 'pickup' : 'delivery',
-      addressSummary,
-      customerNotes: [form.notes?.trim(), checkoutSummary.deliveryEstimate
-        ? `Frete estimado por cidade: ${checkoutSummary.deliveryDistanceKm} km; origem: ${checkoutSummary.deliveryOriginCity}.`
-        : ''].filter(Boolean).join(' | ') || undefined,
-      couponCode: couponWasUsed ? appliedCoupon?.code : undefined,
-      vipDiscountApplied: Boolean(isVip && (checkoutSummary.vipDiscountAmount ?? vipDiscountAmount) > 0),
-      vipDiscountAmount: checkoutSummary.vipDiscountAmount ?? vipDiscountAmount ?? 0,
-      customerName: form.fullName?.trim() || undefined,
-      customerPhone: form.phoneWhatsapp?.trim() || undefined,
-      items: orderItemsWithAddons,
-    });
-
-    // Use the exact same Unicode string from the preview modal or generate using the unified formatter
-    const message = customMessage || formatAttendanceRecord({
-      referenceId: refId,
-      dateTimeBrasilia: getBrasiliaDateTime(),
-      form,
-      cart: checkoutSummary.items,
-      isUsbCableAdded: false,
-      cablePrice,
-      appliedCoupon,
-      financials: checkoutSummary,
-    });
-
-    // Universal robust WhatsApp opening with NFC normalization, surrogate validation, and popup resilience
-    openWhatsAppShare(cleanPhone, message);
-    setIsCheckoutOpen(false);
-    clearCart();
-    toast.success(
-      'Pedido gerado com sucesso!',
-      `Referência ${refId} criada e salva na Central de Pedidos!`,
-      { durationMs: 5000 }
-    );
-    return true;
   };
 
   // Admin CRUD operations: Brands
@@ -3895,9 +3812,10 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Settings & Reset
   const updateSettings = (updated: Partial<StoreSettings>, options?: { persistPromotions?: boolean }) => {
-    if (options?.persistPromotions !== false && (updated.progressiveDiscountConfig || updated.complementaryAddons)) {
+    if (options?.persistPromotions !== false && (updated.progressiveDiscountConfig || updated.complementaryAddons || updated.vipDiscountPercent !== undefined)) {
       void savePromotionsConfigToSupabase(updated.progressiveDiscountConfig ?? settings.progressiveDiscountConfig,
-        updated.complementaryAddons ?? settings.complementaryAddons);
+        updated.complementaryAddons ?? settings.complementaryAddons,
+        updated.vipDiscountPercent ?? settings.vipDiscountPercent);
     }
     setSettings(prev => ({ ...prev, ...updated }));
   };
@@ -3970,6 +3888,11 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
             flavors: m.flavors.filter((f) => !tombstoneFlavorIds.has(f.id)),
           }));
         setModels(filteredModels);
+        const modelPrices = new Map(filteredModels.map(model => [model.id, model.startingPrice]));
+        setCart(previous => previous.map(item => {
+          const price = modelPrices.get(item.modelId);
+          return price === undefined || price === item.price ? item : { ...item, price };
+        }));
       }
       if (data.banners) {
         setBanners(data.banners.filter((bn) => !tombstoneBannerIds.has(bn.id)));
@@ -4986,7 +4909,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         logoutUser,
         resetPassword,
         updateCustomerProfile,
-        recordCustomerOrder,
         allCatalogOrders,
         isLoadingCatalogOrders,
         catalogOrdersError,
@@ -5067,6 +4989,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setIsCartOpen,
         isCheckoutOpen,
         setIsCheckoutOpen,
+        isSubmittingOrder,
         submitOrderViaWhatsapp,
         addBrand,
         updateBrand,

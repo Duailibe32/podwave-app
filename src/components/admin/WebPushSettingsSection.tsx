@@ -182,9 +182,9 @@ export const WebPushSettingsSection: React.FC<{
       // Obtém o registro ativo do Service Worker
       let reg = swRegistration;
       if (!reg && 'serviceWorker' in navigator) {
-        reg = await navigator.serviceWorker.ready;
+        reg = await navigator.serviceWorker.getRegistration() ?? null;
         setSwRegistration(reg);
-        setSwActive(true);
+        setSwActive(Boolean(reg?.active));
       }
 
       const notifOptions: NotificationOptions & { vibrate?: number[] } = {
@@ -205,14 +205,6 @@ export const WebPushSettingsSection: React.FC<{
         // Envio via ServiceWorkerRegistration (Padrão Web Push PWA)
         await reg.showNotification(title.trim(), notifOptions);
 
-        // Comunica também via postMessage para garantir compatibilidade com o worker ativo
-        if (reg.active) {
-          reg.active.postMessage({
-            type: 'SHOW_TEST_NOTIFICATION',
-            title: title.trim(),
-            options: notifOptions,
-          });
-        }
       } else {
         // Fallback para new Notification direto se o SW ainda estiver inicializando
         new Notification(title.trim(), {
@@ -648,7 +640,7 @@ export const WebPushSettingsSection: React.FC<{
               {isSending ? (
                 <>
                   <RefreshCw className="w-4 h-4 animate-spin" />
-                  <span>Disparando Web Push...</span>
+                  <span>Exibindo teste local...</span>
                 </>
               ) : (
                 <>

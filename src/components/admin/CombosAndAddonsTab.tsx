@@ -272,7 +272,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       };
     });
 
-    const dbRes = await savePromotionsConfigToSupabase(normalizedProg, normalizedAddons);
+    const dbRes = await savePromotionsConfigToSupabase(normalizedProg, normalizedAddons, settings.vipDiscountPercent);
     setIsSavingSupabase(false);
     if (!dbRes.success) {
       const error = 'Não foi possível salvar as promoções no Supabase. A regra anterior continua aplicada. ' + (dbRes.error || 'Tente novamente.');
@@ -329,7 +329,7 @@ export const CombosAndAddonsTab: React.FC<CombosAndAddonsTabProps> = ({ onNotify
       applicableModelName: 'Todos os produtos do catálogo',
     }));
     setIsSavingSupabase(true);
-    const result = await savePromotionsConfigToSupabase(defProg, defAddons);
+    const result = await savePromotionsConfigToSupabase(defProg, defAddons, settings.vipDiscountPercent);
     setIsSavingSupabase(false);
     if (!result.success) {
       const error = 'Não foi possível restaurar os padrões no Supabase. As regras anteriores foram mantidas.';

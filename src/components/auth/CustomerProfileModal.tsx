@@ -198,7 +198,7 @@ export const CustomerProfileModal: React.FC = () => {
     if (!currentUser || retryingOrderId || !isPendingOrderDraft(order, currentUser.id)) return;
     setRetryingOrderId(order.id);
     try {
-      const saved = await saveCustomerOrderToSupabase(order, currentUser.id);
+      const saved = await saveCustomerOrderToSupabase(order, currentUser.id, { createOnly: true });
       if (saved) {
         markOrderCacheSynced(order.id);
         setRemoteOrders(previous => reconcileOrderSnapshot([...previous, {...order, _syncStatus: 'synced'}], [], currentUser.id));

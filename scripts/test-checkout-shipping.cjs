@@ -80,30 +80,51 @@ assert.match(message,/Grátis \(Promoção\)/);
 assert.ok(message.includes(pricing.formatCurrency(summary.totalAmount)));
 for(const addon of addons)assert.ok(message.includes(addon.name),'Every selected accessory must be present');
 assert.equal((message.match(/Cabo USB Tipo C Turbo 1m/g)||[]).length,0,'No duplicate legacy cable');
-const submit=ctx.slice(ctx.indexOf('  const submitOrderViaWhatsapp ='));
-const payload=submit.match(/await recordCustomerOrder\(\{[\s\S]*?\n    }\);/)[0];
 const admin=fs.readFileSync('src/components/admin/CombosAndAddonsTab.tsx','utf8');
 (async()=>{
  const submitHandler=ctx.match(/  const submitOrderViaWhatsapp = [\s\S]*?^  };/m)[0];
- let blocked=0;
- const unknownSubmit=compile(submitHandler+'\nmodule.exports=submitOrderViaWhatsapp;',{
-  cart,discountAmount:unknown.discountAmount,getCheckoutSummary:()=>unknown,toast:{error:()=>blocked++},
-  fetchStockAvailability:async()=>assert.fail('Unknown delivery must stop before any order side effects'),
+ const placed = [], shared = [], errors = [];
+ let quote = {...unknown, discountAmount:summary.discountAmount}, resolveOrder, clearCount = 0;
+ const send = compile(submitHandler+'\nmodule.exports=submitOrderViaWhatsapp;', {
+   cart, currentUser:{id:'client'}, submittingOrderRef:{current:false}, checkoutAttemptRef:{current:null},
+   authenticatedIdentityRef:{current:{id:'client'}}, setIsSubmittingOrder:()=>{},
+   settings:{}, models:[], cablePrice:16, appliedCoupon:null, isVip:false, vipDiscountAmount:0,
+   couponDiscountAmount:0, cartSubtotal:200, isCouponEligibleForCart:totals.isCouponEligibleForCart, cartStockError:()=>null,
+   discountAmount:summary.discountAmount, getCheckoutSummary:()=>quote,
+   crypto:{randomUUID:()=>String(placed.length)}, generateReferenceId:()=> 'PW-QA', getBrasiliaDateTime:()=>({}),
+   formatAttendanceRecord:()=> 'message', openWhatsAppShare:(...args)=>shared.push(args), setIsCheckoutOpen:()=>{},
+   openAuthModal:()=>assert.fail('Authenticated flow must not prompt for login'), clearCart:()=>clearCount++, getLastSupabaseOrderDiagnostic:()=>null,
+   recordCustomerOrder: row => { placed.push(row); return new Promise(resolve=>{resolveOrder=resolve;}); },
+   toast:{warning:()=>{}, error:(...args)=>errors.push(args), success:()=>{}},
  });
- assert.equal(await unknownSubmit(form),false);assert.equal(blocked,1);
- let persisted;
- const save=compile('module.exports=async()=>{'+payload+'};',{
-  checkoutSummary:summary,orderItemsWithAddons:summary.items,refId:'QA',form,addressSummary:'QA',
-  appliedCoupon:null,couponWasUsed:false,isVip:false,vipDiscountAmount:0,recordCustomerOrder:async row=>{persisted=row},
- });
- await save();assert.equal(persisted.deliveryFee,summary.deliveryFee);assert.equal(persisted.total,summary.totalAmount);
- assert.equal(persisted.subtotal,263);assert.equal(persisted.discount,20);
+ assert.equal(await send(form), false);
+ assert.equal(errors[0][0], 'Frete a combinar');
+ assert.equal(placed.length, 0);
+ quote = summary;
+ const first = send(form);
+ assert.equal(await send(form), false, 'A simultaneous tap does not start another save');
+ assert.equal(placed.length, 1);
+ resolveOrder(null);
+ assert.equal(await first, false);
+ assert.equal(shared.length, 0);
+ assert.equal(clearCount, 0);
+ const retry = send(form);
+ assert.equal(placed[0].id, placed[1].id, 'Retry uses the same id');
+ resolveOrder({id:placed[1].id});
+ assert.equal(await retry, true);
+ assert.equal(clearCount, 1);
+ assert.equal(shared.length, 1);
+ const persisted = placed[0];
+ assert.equal(persisted.deliveryFee, summary.deliveryFee);
+ assert.equal(persisted.total, summary.totalAmount);
+ assert.equal(persisted.subtotal, 263);
+ assert.equal(persisted.discount, 20);
  // Execute the actual save handler: one confirmed DB write before applying local settings.
  const handler=admin.match(/  const handleSaveAll = [\s\S]*?^  };/m)[0];
  for(const success of [true,false]){
   const writes=[],updates=[],logs=[];
   const fn=compile(handler+'\nmodule.exports=handleSaveAll;',{
-   progForm:{...config,tier2DiscountPercent:0,tier3DiscountPercent:0,baseDeliveryFee:7.55},addonsForm:[],models:[],
+   settings:{}, progForm:{...config,tier2DiscountPercent:0,tier3DiscountPercent:0,baseDeliveryFee:7.55},addonsForm:[],models:[],
    setIsSavingSupabase:()=>{},setSavedBanner:()=>{},onNotify:()=>{},setTimeout:()=>{},
    savePromotionsConfigToSupabase:async rule=>{writes.push(rule);return {success,error:'denied'}},
    updateSettings:(...args)=>updates.push(args),addActivityLog:()=>logs.push(1),logSupabaseAuditEvent:async()=>{},

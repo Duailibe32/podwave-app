@@ -33,14 +33,15 @@ now-=2000;
 const submit=ctx.match(/  const submitOrderViaWhatsapp = [\s\S]*?^  };/m)[0];
 const warnings=[];
 const send=compile(submit+'\nmodule.exports=submitOrderViaWhatsapp;',{
- ...env,discountAmount:44,getCheckoutSummary:state.getCheckoutSummary,
- fetchStockAvailability:async()=>{now+=2000;return []},cartStockError:()=>null,
+ ...env, currentUser:{id:'client'}, submittingOrderRef:{current:false}, setIsSubmittingOrder:()=>{},
+ discountAmount:44,getCheckoutSummary:state.getCheckoutSummary,
  toast:{warning:(...args)=>warnings.push(args),error:()=>assert.fail('Unexpected error')},
- // Any side effect after the expiration guard would fail because it is intentionally not provided.
 });
 (async()=>{
- assert.equal(await send({isPickup:true}),false);assert.equal(warnings.length,1);assert.equal(warnings[0][0],'Oferta encerrada');
- warnings.length=0;assert.equal(await send({isPickup:true}),false);assert.equal(warnings[0][0],'Oferta atualizada');
+ now+=2000;
+ assert.equal(await send({isPickup:true}),false);
+ assert.equal(warnings.length,1);
+ assert.equal(warnings[0][0],'Oferta atualizada');
  // Real admin persistence handler never announces success or updates local rules on a failed write.
  const admin=fs.readFileSync('src/components/admin/FlashSaleSettings.tsx','utf8');
  const persist=admin.match(/  const persist = [\s\S]*?^  };/m)[0];
@@ -72,5 +73,5 @@ const send=compile(submit+'\nmodule.exports=submitOrderViaWhatsapp;',{
  hook.useFlashSaleBoundary(sale);assert.equal(timers.length,1);assert.equal(timers[0].delay,1010);
  timers[0].fn();assert.equal(revision,1);listeners.get('visibilitychange')();assert.equal(revision,2);cleanup();assert.equal(listeners.size,0);
  now=Date.parse(sale.endsAt);hook.useFlashSaleBoundary(sale);assert.equal(timers.length,1,'Expired offers must not schedule a repeating timer');cleanup();
- console.log('PASS: fixed deadline, bounds, stock/IDs, model/flavor scope, cent rounding, exclusive discounts/ties, fresh quote after expiry, expiry during stock await blocks side effects, confirmed admin save and JSON persistence. No remote requests.');
+ console.log('PASS: fixed deadline, bounds, stock/IDs, model/flavor scope, cent rounding, exclusive discounts/ties, fresh quote after expiry, expired quote blocks side effects, confirmed admin save and JSON persistence. No remote requests.');
 })().catch(error=>{console.error(error);process.exitCode=1});

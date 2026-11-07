@@ -3,12 +3,10 @@ import { Bell, BellOff, BellRing, CheckCircle2, Send, Truck } from 'lucide-react
 import { useCatalog } from './CatalogContext';
 import { useToast } from './ToastContext';
 import { getSupabaseClient } from '../services/supabase';
+import { orderPushOwner, registerOrderPush, removeOrderPush } from '../services/orderPush';
 import { CatalogOrderStatus } from '../types/catalog';
 
-const DEVICE_PREFERENCE_KEY = 'podwave_order_notifications:device';
 const LAST_NOTIFIED_STATUS_KEY = 'podwave_order_last_notified_status_v1';
-const PUSH_VAPID_KEY = 'podwave_webpush_vapid_public_key_v1';
-const PUSH_SUBSCRIPTION_STORAGE_KEY = 'podwave_customer_push_subscription_v1';
 export const ORDER_STATUS_PUSH_CHANNEL = 'podwave_order_status_push';
 export const ORDER_STATUS_CHANGED_EVENT = 'podwave:order-status-changed';
 
@@ -21,25 +19,13 @@ export interface OrderStatusPushEventPayload {
   deliveryType?: 'delivery' | 'pickup';
 }
 
-const preferenceKey = (id?: string) =>
-  id ? `podwave_order_notifications:${id}` : DEVICE_PREFERENCE_KEY;
+const preferenceKey = (id: string) => 'podwave_order_notifications:' + id;
 
 const isNotificationSupported = () =>
   typeof window !== 'undefined' && 'Notification' in window;
 
 const getCurrentPermission = (): NotificationPermission | 'unsupported' =>
   isNotificationSupported() ? Notification.permission : 'unsupported';
-
-function urlBase64ToUint8Array(base64String: string): Uint8Array {
-  const padding = '='.repeat((4 - (base64String.length % 4)) % 4);
-  const base64 = (base64String + padding).replace(/-/g, '+').replace(/_/g, '/');
-  const rawData = window.atob(base64);
-  const outputArray = new Uint8Array(rawData.length);
-  for (let i = 0; i < rawData.length; ++i) {
-    outputArray[i] = rawData.charCodeAt(i);
-  }
-  return outputArray;
-}
 
 export function buildOrderPushNotificationCopy(
   status: CatalogOrderStatus | string,
@@ -102,20 +88,20 @@ export function buildOrderPushNotificationCopy(
   }
 }
 
-function readStoredNotifiedMap(): Record<string, string> {
+function readStoredNotifiedMap(userId: string): Record<string, string> {
   if (typeof window === 'undefined') return {};
   try {
-    const raw = sessionStorage.getItem(LAST_NOTIFIED_STATUS_KEY);
+    const raw = sessionStorage.getItem(LAST_NOTIFIED_STATUS_KEY + ':' + userId);
     return raw ? JSON.parse(raw) : {};
   } catch {
     return {};
   }
 }
 
-function writeStoredNotifiedMap(map: Record<string, string>) {
+function writeStoredNotifiedMap(userId: string, map: Record<string, string>) {
   if (typeof window === 'undefined') return;
   try {
-    sessionStorage.setItem(LAST_NOTIFIED_STATUS_KEY, JSON.stringify(map));
+    sessionStorage.setItem(LAST_NOTIFIED_STATUS_KEY + ':' + userId, JSON.stringify(map));
   } catch {
     // ignore storage errors
   }
@@ -149,10 +135,13 @@ export function useOrderNotifications() {
 
 export function OrderNotificationsProvider({ children }: { children: React.ReactNode }) {
   const { currentUser, allCatalogOrders, supabaseClient, openProfileModal } = useCatalog();
-  const toast = useToast();
+  const { info: notifyInfo, success: notifySuccess } = useToast();
   const userId = currentUser?.id;
 
-  const [enabled, setEnabled] = useState<boolean>(false);
+  const [enabledUser, setEnabledUser] = useState<string | undefined>();
+  const enabled = Boolean(userId && enabledUser === userId);
+  const activeUserRef = useRef(userId);
+  activeUserRef.current = userId;
   const [busy, setBusy] = useState(false);
   const [permissionState, setPermission] = useState<NotificationPermission | 'unsupported'>(
     getCurrentPermission
@@ -163,14 +152,15 @@ export function OrderNotificationsProvider({ children }: { children: React.React
   const knownStatusesRef = useRef<Map<string, string>>(new Map());
   const initializedRef = useRef(false);
 
-  // Carrega a preferência salva do usuário (ou do dispositivo)
   useEffect(() => {
+    knownStatusesRef.current.clear();
+    initializedRef.current = false;
+    setHasPushSubscription(false);
     try {
-      const userPref = userId ? localStorage.getItem(preferenceKey(userId)) === 'on' : false;
-      const devicePref = localStorage.getItem(DEVICE_PREFERENCE_KEY) === 'on';
-      setEnabled(Boolean((userPref || devicePref) && getCurrentPermission() === 'granted'));
+      const optedIn = userId && localStorage.getItem(preferenceKey(userId)) === 'on';
+      setEnabledUser(optedIn && getCurrentPermission() === 'granted' ? userId : undefined);
     } catch {
-      setEnabled(false);
+      setEnabledUser(undefined);
     }
     setMessage('');
   }, [userId]);
@@ -181,51 +171,41 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       const perm = getCurrentPermission();
       setPermission(perm);
       if (perm !== 'granted') {
-        setEnabled(false);
+        setEnabledUser(undefined);
       }
     };
     window.addEventListener('focus', update);
     return () => window.removeEventListener('focus', update);
   }, []);
 
-  // Garante registro do Service Worker e verifica PushManager subscription existente
-  const ensureServiceWorkerAndPushSubscription = useCallback(async () => {
-    if (typeof window === 'undefined' || !('serviceWorker' in navigator)) return null;
-    try {
-      let reg = await navigator.serviceWorker.getRegistration();
-      if (!reg) {
-        reg = await navigator.serviceWorker.register('/order-notifications-sw.js');
-      }
-      const readyReg = await navigator.serviceWorker.ready;
+  useEffect(() => {
+    const owner = orderPushOwner();
+    if (owner && owner !== userId) void removeOrderPush(undefined, owner);
+  }, [userId]);
 
-      if ('pushManager' in readyReg) {
-        let sub = await readyReg.pushManager.getSubscription();
-        if (!sub) {
-          const vapidKey = localStorage.getItem(PUSH_VAPID_KEY)?.trim();
-          const subOptions: PushSubscriptionOptionsInit = { userVisibleOnly: true };
-          if (vapidKey) {
-            subOptions.applicationServerKey = urlBase64ToUint8Array(vapidKey) as unknown as BufferSource;
-          }
-          try {
-            sub = await readyReg.pushManager.subscribe(subOptions);
-          } catch {
-            // Sem servidor VAPID externo configurado, o Service Worker continua disparando notificações nativas locais/Realtime
-          }
-        }
-        if (sub) {
-          setHasPushSubscription(true);
-          try {
-            localStorage.setItem(PUSH_SUBSCRIPTION_STORAGE_KEY, JSON.stringify(sub));
-          } catch {
-            // ignore
-          }
-        }
+  useEffect(() => {
+    if (!userId || !enabled || permissionState !== 'granted') return;
+    const client = supabaseClient || getSupabaseClient();
+    if (!client || !('serviceWorker' in navigator)) return;
+    let active = true;
+    let registering = false;
+    const connect = async () => {
+      if (registering) return;
+      registering = true;
+      try {
+        const registered = await registerOrderPush(client, userId, () => active && activeUserRef.current === userId);
+        if (active) setHasPushSubscription(registered);
+      } finally {
+        registering = false;
       }
-      return readyReg;
-    } catch {
-      return null;
-    }
-  }, []);
+    };
+    void connect();
+    navigator.serviceWorker.addEventListener('controllerchange', connect);
+    return () => {
+      active = false;
+      navigator.serviceWorker.removeEventListener('controllerchange', connect);
+    };
+  }, [enabled, userId, permissionState, supabaseClient]);
 
   // Dispara a notificação nativa via Service Worker (Push API) ou Notification API fallback
   const dispatchBrowserOrderNotification = useCallback(
@@ -236,7 +216,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       deliveryType?: 'delivery' | 'pickup';
       isTest?: boolean;
     }) => {
-      if (!isNotificationSupported() || Notification.permission !== 'granted') return false;
+      if (!userId || !isNotificationSupported() || Notification.permission !== 'granted') return false;
 
       const copy = buildOrderPushNotificationCopy(
         params.status,
@@ -256,66 +236,68 @@ export function OrderNotificationsProvider({ children }: { children: React.React
         orderId: params.orderId,
         referenceId: params.referenceId,
         status: params.status,
-        ownerId: userId || 'device',
+        ownerId: userId,
         url: '/?orders=1',
         vibrate: copy.urgent ? [250, 100, 250, 100, 300] : [200, 100, 200],
         requireInteraction: copy.urgent,
       };
 
-      try {
-        const reg = await ensureServiceWorkerAndPushSubscription();
-        if (reg && 'showNotification' in reg) {
-          await reg.showNotification(copy.title, {
+      const display = async () => {
+        try {
+          const reg = 'serviceWorker' in navigator ? await navigator.serviceWorker.getRegistration() : null;
+          if (activeUserRef.current !== userId) return false;
+          if (reg?.active && 'showNotification' in reg) {
+            if (!params.isTest && (await reg.getNotifications({ tag })).length) return true;
+            if (activeUserRef.current !== userId) return false;
+            await reg.showNotification(copy.title, {
+              body: copy.body,
+              icon: payload.icon,
+              badge: payload.badge,
+              tag: payload.tag,
+              data: {
+                type: 'podwave-order',
+                ownerId: payload.ownerId,
+                orderId: params.orderId,
+                referenceId: params.referenceId,
+                status: params.status,
+                url: '/?orders=1',
+              },
+              vibrate: payload.vibrate,
+              requireInteraction: payload.requireInteraction,
+              actions: [{ action: 'open-orders', title: 'Acompanhar Pedido' }],
+            } as NotificationOptions);
+
+            return true;
+          }
+
+          // Fallback direto para API Notification do navegador
+          const directNotif = new Notification(copy.title, {
             body: copy.body,
             icon: payload.icon,
             badge: payload.badge,
             tag: payload.tag,
-            data: {
-              type: 'podwave-order',
-              ownerId: payload.ownerId,
-              orderId: params.orderId,
-              referenceId: params.referenceId,
-              status: params.status,
-              url: '/?orders=1',
-            },
-            vibrate: payload.vibrate,
-            requireInteraction: payload.requireInteraction,
-            actions: [{ action: 'open-orders', title: 'Acompanhar Pedido' }],
-          } as NotificationOptions);
-
-          if (reg.active) {
-            reg.active.postMessage({
-              type: 'SHOW_ORDER_STATUS_NOTIFICATION',
-              payload,
-            });
-          }
+          });
+          directNotif.onclick = () => {
+            window.focus();
+            openProfileModal();
+            window.dispatchEvent(new Event('podwave:open-orders'));
+            directNotif.close();
+          };
           return true;
+        } catch {
+          return false;
         }
-
-        // Fallback direto para API Notification do navegador
-        const directNotif = new Notification(copy.title, {
-          body: copy.body,
-          icon: payload.icon,
-          badge: payload.badge,
-          tag: payload.tag,
-        });
-        directNotif.onclick = () => {
-          window.focus();
-          openProfileModal();
-          window.dispatchEvent(new Event('podwave:open-orders'));
-          directNotif.close();
-        };
-        return true;
-      } catch {
-        return false;
-      }
+      };
+      return !params.isTest && navigator.locks
+        ? navigator.locks.request(tag, display)
+        : display();
     },
-    [userId, ensureServiceWorkerAndPushSubscription, openProfileModal]
+    [userId, openProfileModal]
   );
 
   // Ativar notificações Push do navegador
   const activate = async () => {
-    if (busy) return;
+    if (busy || !userId) return;
     if (!isNotificationSupported()) {
       setMessage(
         'Este navegador não suporta notificações Web Push. No iPhone/iPad, adicione o app à Tela de Início primeiro.'
@@ -335,30 +317,18 @@ export function OrderNotificationsProvider({ children }: { children: React.React
         return;
       }
 
-      await ensureServiceWorkerAndPushSubscription();
+      if (activeUserRef.current !== userId) return;
 
       try {
-        if (userId) localStorage.setItem(preferenceKey(userId), 'on');
-        localStorage.setItem(DEVICE_PREFERENCE_KEY, 'on');
+        localStorage.setItem(preferenceKey(userId), 'on');
       } catch {
         // ignore storage errors
       }
 
-      setEnabled(true);
-      setMessage('Alertas ativados! Você será avisado quando seu pedido estiver a caminho ou entregue.');
-      toast.success('Alertas Push ativados para acompanhar seu pedido em tempo real!');
+      setEnabledUser(userId);
+      setMessage('Alertas ativados enquanto a loja estiver aberta.');
+      notifySuccess('Alertas de pedido ativados neste navegador.');
 
-      // Envia uma notificação imediata de confirmação de ativação
-      const reg = await ensureServiceWorkerAndPushSubscription();
-      if (reg && 'showNotification' in reg) {
-        await reg.showNotification('🔔 Alertas de Pedido Ativados • PodWave', {
-          body: 'Você receberá notificações assim que seu pedido sair para entrega ou for entregue!',
-          icon: '/pwa-192x192.png',
-          badge: '/apple-touch-icon.png',
-          tag: 'podwave-push-welcome',
-          data: { type: 'podwave-order', url: '/?orders=1' },
-        });
-      }
     } catch {
       setMessage('Não foi possível ativar os alertas neste navegador.');
     } finally {
@@ -369,13 +339,14 @@ export function OrderNotificationsProvider({ children }: { children: React.React
   const deactivate = () => {
     try {
       if (userId) localStorage.removeItem(preferenceKey(userId));
-      localStorage.removeItem(DEVICE_PREFERENCE_KEY);
     } catch {
       // ignore
     }
-    setEnabled(false);
+    setEnabledUser(undefined);
+    setHasPushSubscription(false);
+    void removeOrderPush(supabaseClient || getSupabaseClient(), userId);
     setMessage('Alertas de pedido desativados neste dispositivo.');
-    toast.info('Alertas Push de status do pedido foram desativados.');
+    notifyInfo('Alertas Push de status do pedido foram desativados.');
   };
 
   const sendTestOrderNotification = async (sampleStatus: CatalogOrderStatus = 'enviado') => {
@@ -397,7 +368,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     const copy = buildOrderPushNotificationCopy(sampleStatus, 'PW-2026', 'delivery');
     if (ok) {
       setMessage(`Alerta enviado: "${copy.title}"`);
-      toast.info(`${copy.title} — ${copy.body}`);
+      notifyInfo(`${copy.title} — ${copy.body}`);
     } else {
       setMessage('Não foi possível exibir a notificação de teste.');
     }
@@ -405,13 +376,13 @@ export function OrderNotificationsProvider({ children }: { children: React.React
 
   // Observa mudanças de status nos pedidos locais/compartilhados (allCatalogOrders e currentUser.orderHistory)
   useEffect(() => {
-    if (!enabled || permissionState !== 'granted') return;
+    if (!userId || !enabled || permissionState !== 'granted') return;
 
-    const storedMap = readStoredNotifiedMap();
+    const storedMap = readStoredNotifiedMap(userId);
     const relevantOrders = [
       ...(currentUser?.orderHistory || []),
-      ...(allCatalogOrders || []).filter((o) => !userId || o.customerId === userId),
-    ];
+      ...(allCatalogOrders || []),
+    ].filter(order => order.customerId === userId);
 
     const seenIds = new Set<string>();
     for (const order of relevantOrders) {
@@ -423,14 +394,14 @@ export function OrderNotificationsProvider({ children }: { children: React.React
 
       if (initializedRef.current && prevStatus && prevStatus !== order.status) {
         storedMap[order.id] = order.status;
-        writeStoredNotifiedMap(storedMap);
+        writeStoredNotifiedMap(userId, storedMap);
 
         const copy = buildOrderPushNotificationCopy(
           order.status,
           order.referenceId,
           order.deliveryType
         );
-        toast.info(`${copy.title}: ${copy.body}`);
+        notifyInfo(`${copy.title}: ${copy.body}`);
         void dispatchBrowserOrderNotification({
           orderId: order.id,
           referenceId: order.referenceId,
@@ -442,7 +413,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       }
     }
 
-    writeStoredNotifiedMap(storedMap);
+    writeStoredNotifiedMap(userId, storedMap);
     initializedRef.current = true;
   }, [
     allCatalogOrders,
@@ -451,31 +422,30 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     enabled,
     permissionState,
     dispatchBrowserOrderNotification,
-    toast,
+    notifyInfo,
   ]);
 
   // Escuta eventos instantâneos (BroadcastChannel entre abas e CustomEvent na mesma janela)
   useEffect(() => {
-    if (!enabled || permissionState !== 'granted') return;
+    if (!userId || !enabled || permissionState !== 'granted') return;
 
     const handleStatusEvent = (payload?: OrderStatusPushEventPayload) => {
       if (!payload?.orderId || !payload?.toStatus) return;
-      // Filtra se houver usuário logado diferente do dono do pedido (exceto admin testando na própria conta)
-      if (userId && payload.customerId && payload.customerId !== userId) return;
+      if (activeUserRef.current !== userId || payload.customerId !== userId) return;
 
-      const storedMap = readStoredNotifiedMap();
+      const storedMap = readStoredNotifiedMap(userId);
       if (storedMap[payload.orderId] === payload.toStatus) return;
 
       storedMap[payload.orderId] = payload.toStatus;
       knownStatusesRef.current.set(payload.orderId, payload.toStatus);
-      writeStoredNotifiedMap(storedMap);
+      writeStoredNotifiedMap(userId, storedMap);
 
       const copy = buildOrderPushNotificationCopy(
         payload.toStatus,
         payload.referenceId,
         payload.deliveryType
       );
-      toast.info(`${copy.title}: ${copy.body}`);
+      notifyInfo(`${copy.title}: ${copy.body}`);
       void dispatchBrowserOrderNotification({
         orderId: payload.orderId,
         referenceId: payload.referenceId,
@@ -507,7 +477,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       window.removeEventListener(ORDER_STATUS_CHANGED_EVENT, onCustomEvent);
       if (bc) bc.close();
     };
-  }, [enabled, permissionState, userId, dispatchBrowserOrderNotification, toast]);
+  }, [enabled, permissionState, userId, dispatchBrowserOrderNotification, notifyInfo]);
 
   // Escuta Supabase Realtime + Polling em segundo plano para pedidos do cliente autenticado
   useEffect(() => {
@@ -527,7 +497,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       delivery_info?: unknown;
     }) => {
       if (
-        !alive ||
+        !alive || activeUserRef.current !== userId ||
         typeof row.id !== 'string' ||
         typeof row.status !== 'string' ||
         row.customer_id !== userId
@@ -535,11 +505,11 @@ export function OrderNotificationsProvider({ children }: { children: React.React
         return;
       }
 
-      const storedMap = readStoredNotifiedMap();
+      const storedMap = readStoredNotifiedMap(userId);
       const before = knownStatusesRef.current.get(row.id) || storedMap[row.id];
       knownStatusesRef.current.set(row.id, row.status);
       storedMap[row.id] = row.status;
-      writeStoredNotifiedMap(storedMap);
+      writeStoredNotifiedMap(userId, storedMap);
 
       if (!supabaseInitialized || !before || before === row.status) return;
 
@@ -556,7 +526,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       const deliveryType = info.deliveryType === 'pickup' ? 'pickup' : 'delivery';
 
       const copy = buildOrderPushNotificationCopy(row.status, referenceId, deliveryType);
-      toast.info(`${copy.title}: ${copy.body}`);
+      notifyInfo(`${copy.title}: ${copy.body}`);
       await dispatchBrowserOrderNotification({
         orderId: row.id,
         referenceId,
@@ -586,8 +556,10 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     };
 
     void refreshFromSupabase();
-    const timer = window.setInterval(() => void refreshFromSupabase(), 30000);
-    const onVisible = () => void refreshFromSupabase();
+    const onVisible = () => {
+      if (document.visibilityState === 'visible') void refreshFromSupabase();
+    };
+    const timer = window.setInterval(onVisible, 60000);
     document.addEventListener('visibilitychange', onVisible);
 
     let channel: ReturnType<typeof client.channel> | undefined;
@@ -619,7 +591,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       document.removeEventListener('visibilitychange', onVisible);
       if (channel) void client.removeChannel(channel);
     };
-  }, [userId, enabled, permissionState, supabaseClient, dispatchBrowserOrderNotification, toast]);
+  }, [userId, enabled, permissionState, supabaseClient, dispatchBrowserOrderNotification, notifyInfo]);
 
   // Abre modal de pedidos ao clicar na notificação do Service Worker
   useEffect(() => {
@@ -669,6 +641,7 @@ export function OrderNotificationSettings({ compact = false }: { compact?: boole
     busy,
     permission,
     message,
+    hasPushSubscription,
     activate,
     deactivate,
     sendTestOrderNotification,
@@ -715,9 +688,9 @@ export function OrderNotificationSettings({ compact = false }: { compact?: boole
               </span>
             </div>
             <p className="text-[11px] text-[#A5A5B8] leading-snug mt-0.5">
-              Receba avisos instantâneos quando seu pedido mudar para{' '}
-              <strong className="text-[#00DFFF]">"Pedido a caminho"</strong> ou{' '}
-              <strong className="text-emerald-300">"Entregue"</strong>.
+              {hasPushSubscription
+                ? 'Este aparelho está inscrito para receber avisos de pedidos com a loja fechada.'
+                : 'Acompanhe mudanças no pedido enquanto a loja estiver aberta.'}
             </p>
           </div>
         </div>

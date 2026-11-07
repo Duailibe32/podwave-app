@@ -1,4 +1,3 @@
-import * as XLSX from 'xlsx';
 import {
   ManualSaleEntry,
   ManualExpenseEntry,
@@ -1074,14 +1073,15 @@ export interface ExportColumnDefinition {
 /**
  * Exporta para arquivo Excel (.xlsx) preservando células numéricas com formato monetário
  */
-export function exportReportToExcel(
+export async function exportReportToExcel(
   title: string,
   periodSubtitle: string,
   columns: ExportColumnDefinition[],
   data: Record<string, any>[],
   totalsRow?: Record<string, any>,
   sheetName = 'Relatório'
-): void {
+) {
+  const XLSX = await import('xlsx');
   const wb = XLSX.utils.book_new();
 
   // Cabeçalho institucional e metadados

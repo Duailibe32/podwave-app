@@ -359,6 +359,7 @@ export async function fetchCatalogFromSupabase(): Promise<SupabaseCatalogResult 
     let parsedPromotions: {
       progressiveDiscountConfig?: ProgressiveDiscountConfig;
       complementaryAddons?: ComplementaryAddonItem[];
+      vipDiscountPercent?: number;
     } = {};
 
     if (promotionsRow?.legal_notice) {
@@ -381,6 +382,7 @@ export async function fetchCatalogFromSupabase(): Promise<SupabaseCatalogResult 
         whatsappNumber: settingsData?.whatsapp_number || '',
         legalNotice: settingsData?.legal_notice || '',
         themePreference: 'dark',
+        vipDiscountPercent: parsedPromotions.vipDiscountPercent ?? 10,
         progressiveDiscountConfig:
           parsedPromotions.progressiveDiscountConfig ||
           (settingsData as any)?.progressive_discount_config ||
@@ -536,7 +538,6 @@ export async function syncCatalogToSupabase(
       applicable_model_id: c.applicableModelId || 'all',
       applicable_model_name: c.applicableModelName || null,
       max_uses: c.maxUses ?? null,
-      used_count: c.usedCount || 0,
       min_order_value: c.minOrderValue || 0,
       active: c.active ?? true,
       updated_at: new Date().toISOString(),
@@ -556,7 +557,7 @@ export async function syncCatalogToSupabase(
     });
     if (sErr) throw sErr;
 
-    if (settings.progressiveDiscountConfig || settings.complementaryAddons) {
+    if (settings.progressiveDiscountConfig || settings.complementaryAddons || settings.vipDiscountPercent !== undefined) {
       await client.from('store_settings').upsert({
         id: 'promotions_config',
         store_name: 'PROMOTIONS_CONFIG',
@@ -566,6 +567,7 @@ export async function syncCatalogToSupabase(
         legal_notice: JSON.stringify({
           progressiveDiscountConfig: settings.progressiveDiscountConfig,
           complementaryAddons: settings.complementaryAddons,
+          vipDiscountPercent: settings.vipDiscountPercent,
         }),
         updated_at: new Date().toISOString(),
       });
@@ -595,7 +597,8 @@ export async function syncCatalogToSupabase(
  */
 export async function savePromotionsConfigToSupabase(
   progressiveDiscountConfig?: ProgressiveDiscountConfig,
-  complementaryAddons?: ComplementaryAddonItem[]
+  complementaryAddons?: ComplementaryAddonItem[],
+  vipDiscountPercent?: number
 ): Promise<{ success: boolean; error?: string }> {
   const client = getSupabaseClient();
   if (!client) {
@@ -612,6 +615,7 @@ export async function savePromotionsConfigToSupabase(
       legal_notice: JSON.stringify({
         progressiveDiscountConfig,
         complementaryAddons,
+        vipDiscountPercent,
       }),
       updated_at: new Date().toISOString(),
     };
@@ -1333,6 +1337,7 @@ export function buildOrderDeliveryInfoPayload(order: CustomerOrderHistoryItem, c
   return {
     deliveryType: order.deliveryType || 'delivery',
     addressSummary: order.addressSummary || null,
+    destinationCity: order.destinationCity || null,
     deliveryFee: Number(order.deliveryFee) || 0,
     customerId: order.customerId || customerId || null,
     customerName: order.customerName || null,
@@ -1407,6 +1412,7 @@ export function mapSupabaseRowToCustomerOrder(row: Record<string, any>): Custome
         : 0,
     deliveryType: (info.deliveryType || row.delivery_type) === 'pickup' ? 'pickup' : 'delivery',
     addressSummary: info.addressSummary || row.address_summary || undefined,
+    destinationCity: info.destinationCity || undefined,
     customerNotes: info.customerNotes || row.customer_notes || undefined,
     status: safeStatus,
     cancelReason: info.cancelReason || row.cancel_reason || undefined,
@@ -1677,7 +1683,8 @@ async function ensureCustomerProfileForOrder(
  */
 export async function saveCustomerOrderToSupabase(
   order: CustomerOrderHistoryItem,
-  customerId: string
+  customerId: string,
+  options: { createOnly?: boolean } = {}
 ): Promise<boolean> {
   const client = getSupabaseClient();
   const fallbackGuestId = order.customerPhone
@@ -1718,6 +1725,11 @@ export async function saveCustomerOrderToSupabase(
   }
 
   try {
+    if (options.createOnly && authUserId !== ownerId) {
+      lastSupabaseOrderDiagnostic = { category: 'permission_denied', message: 'Entre na sua conta para enviar o pedido.' };
+      return false;
+    }
+
     // 1. Assegura que o customer_profile exista no banco para satisfazer a Foreign Key (customer_orders_customer_id_fkey)
     await ensureCustomerProfileForOrder(client, ownerId, enrichedOrder);
 
@@ -1726,6 +1738,11 @@ export async function saveCustomerOrderToSupabase(
       .select('*')
       .eq('id', order.id)
       .maybeSingle();
+
+    if (options.createOnly && existing) {
+      return existing.customer_id === ownerId
+        && (existing.order_code || existing.reference_id || existing.id) === (order.referenceId || order.id);
+    }
 
     const targetTable = selectErr && isMissingTableError(selectErr) ? 'orders' : 'customer_orders';
 
@@ -2475,7 +2492,10 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
     const diag = getLastSupabaseOrderDiagnostic();
     report.rlsWriteTest.insertAllowed = insertOk;
 
-    if (!insertOk) {
+    if (!insertOk && diag?.code === 'PWA01') {
+      report.rlsWriteTest.attempted = false;
+      recommendations.push('A validação de checkout protege a tabela e recusou a sonda vazia.');
+    } else if (!insertOk) {
       report.rlsWriteTest.errorCode = diag?.code || diag?.category || 'INSERT_FAILED';
       report.rlsWriteTest.errorMessage =
         diag?.message || 'A política RLS ou constraint impediu o INSERT na tabela de pedidos.';

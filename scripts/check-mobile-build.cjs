@@ -26,4 +26,11 @@ for (const name of ['ProductDetailModal', 'CheckoutDrawer', 'AuthModal', 'Custom
   assert(!initial.has(key), `${name} must load on demand`);
   assert(!sw.includes(manifest[key].file), `${name} must not be precached`);
 }
+const adminKey = Object.keys(manifest).find(key => key.endsWith('/AdminPanel.tsx'));
+const excelKey = Object.keys(manifest).find(key => /\/xlsx\.[cm]?js$/.test(key) || manifest[key].name === 'xlsx');
+assert(excelKey, 'Excel should load as a separate module');
+assert(!(manifest[adminKey].imports || []).includes(excelKey), 'Excel must load only when exporting');
+assert(!initial.has(excelKey), 'Excel must be deferred for mobile');
+assert(!sw.includes(manifest[excelKey].file), 'Excel must not be precached');
+console.log('PASS: Excel loaded only on demand.');
 console.log(`PASS: ${files.length} initial JS files, ${gzipBytes} bytes gzip; five screens deferred and excluded from precache.`);

@@ -38,7 +38,7 @@ export function calculateCheckoutTotals(input: {
 }): CheckoutTotals {
   const cents = (value: unknown) => {
     const number = Number(value);
-    return Number.isFinite(number) ? Math.round(Math.max(0, number) * 100) : 0;
+    return Number.isFinite(number) ? Math.round(Math.max(0, number) * 100 + Number.EPSILON * Math.abs(number) * 100) : 0;
   };
   const items = cents(input.itemsSubtotal), addons = cents(input.addonAmount);
   const discount = Math.min(items + addons, cents(input.discountAmount));
@@ -62,10 +62,10 @@ export function calculateCheckoutTotals(input: {
     && input.config.tier2FreeShipping === true && input.totalPodUnits >= minimum;
   const couponFree = isCouponEligibleForCart(input.coupon, input.cart || [], items / 100)
     && input.coupon.discountType === 'free_shipping';
-  const freeShippingApplied = !input.isPickup && !shippingNeedsQuote && (promotionFree || couponFree);
   const quotedFee = perKm && zone && Number.isFinite(rate) && rate > 0
     ? Math.max(cents(input.config.deliveryMinimumFee ?? 0), cents(Number(zone.distanceKm) * rate))
     : cents(input.config.baseDeliveryFee ?? 0);
+  const freeShippingApplied = !input.isPickup && !shippingNeedsQuote && (promotionFree || (couponFree && quotedFee > 0));
   const fee = input.isPickup || freeShippingApplied || shippingNeedsQuote ? 0 : quotedFee;
   return {
     itemsSubtotal: items / 100, addonAmount: addons / 100, discountAmount: discount / 100,
