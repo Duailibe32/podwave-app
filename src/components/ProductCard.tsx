@@ -1,8 +1,7 @@
 import React, { useState } from 'react';
 import { ProductModel, FlavorVariant } from '../types/catalog';
 import { useCatalog } from '../context/CatalogContext';
-import { Zap, Plus, Check, CheckCircle2 } from 'lucide-react';
-import { calculateVariantAvailability } from '../utils/availability';
+import { Zap, Plus, Check, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react';
 import { productCardImage } from '../utils/productImage';
 import { flavorColor, lastUnitsLabel } from '../utils/flavorPresentation';
 import { useCartFeedback } from '../hooks/useCartFeedback';
@@ -20,9 +19,13 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
   const [selectedId, setSelectedId] = useState<string>();
   const [loadedImage, setLoadedImage] = useState<string>();
   const [failedImage, setFailedImage] = useState<string>();
-  const { added, confirm } = useCartFeedback();
   const selected = product.flavors.find(flavor => flavor.id === selectedId);
   const leadFlavor = selected || product.flavors.find(flavor => flavor.inStock && flavor.demoQuantity !== 0) || product.flavors[0];
+  const { added, confirm } = useCartFeedback(leadFlavor?.id);
+  const flavorCount = product.flavors.length;
+  const flavorIndex = product.flavors.findIndex(flavor => flavor.id === leadFlavor?.id);
+  const selectedUnavailable = Boolean(leadFlavor && (!leadFlavor.inStock || leadFlavor.demoQuantity === 0));
+  const canAdd = Boolean(leadFlavor && !selectedUnavailable && (selected || flavorCount === 1));
   const lastUnits = lastUnitsLabel(leadFlavor);
   const isImageReady = loadedImage === cardImage.src;
   const imageFailed = failedImage === cardImage.src;
@@ -37,12 +40,12 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
     setSelectedId(flavor.id);
   };
 
-  // Check if all flavors of this product are sold out
-  const isAllFlavorsSoldOut = product.flavors.length > 0 && product.flavors.every((f) => {
-    const threshold = f.lowQuantityThreshold ?? product.lowQuantityThreshold ?? 3;
-    const avail = calculateVariantAvailability(f.demoQuantity, threshold);
-    return avail.status === 'esgotado' || f.demoQuantity === 0 || f.inStock === false;
-  });
+  const stepFlavor = (event: React.MouseEvent, direction: number) => {
+    const index = (flavorIndex + direction + flavorCount) % flavorCount;
+    handleFlavorClick(event, product.flavors[index]);
+  };
+
+  const actionLabel = canAdd ? 'Adicionar' : selectedUnavailable || !flavorCount ? 'Ver detalhes' : 'Ver sabores';
 
   // Format puff count: e.g. 15000 -> "15.000", or extract numbers from puffsLabel
   const rawPuffsNumber = product.puffs > 0 ? product.puffs.toLocaleString('pt-BR') : product.puffsLabel.replace(/[^0-9.]/g, '');
@@ -138,7 +141,27 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
         </h3>
 
         {product.flavors.length > 0 ? (
-          <div className="flavor-chip-list" role="group" aria-label="Sabores">
+          <>
+            <div className="flavor-mobile-picker sm:hidden" role="group" aria-label={'Sabores de ' + product.modelName}>
+              {flavorCount > 1 && (
+                <div className="flavor-mobile-stepper">
+                  <button type="button" aria-label="Sabor anterior" onClick={event => stepFlavor(event, -1)}>
+                    <ChevronLeft size={18} aria-hidden="true" />
+                  </button>
+                  <span aria-hidden="true">{flavorIndex + 1}/{flavorCount}</span>
+                  <button type="button" aria-label="Próximo sabor" onClick={event => stepFlavor(event, 1)}>
+                    <ChevronRight size={18} aria-hidden="true" />
+                  </button>
+                </div>
+              )}
+              <button type="button" className="flavor-mobile-name"
+                onClick={event => { event.stopPropagation(); handleCardClick(); }}>
+                <span className="flavor-mobile-emoji" aria-hidden="true">{leadFlavor?.iconEmoji}</span>
+                <span aria-live="polite">{leadFlavor?.name}</span>
+                <small>{flavorCount === 1 ? 'Ver ficha' : 'Ver opções'}</small>
+              </button>
+            </div>
+            <div className="flavor-chip-list" role="group" aria-label="Sabores">
             {product.flavors.map(flavor => (
               <button key={flavor.id} type="button" className="flavor-chip"
                 aria-pressed={leadFlavor?.id === flavor.id}
@@ -149,29 +172,30 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
                 {(!flavor.inStock || flavor.demoQuantity === 0) && <span className="sr-only"> (esgotado)</span>}
               </button>
             ))}
-          </div>
+            </div>
+          </>
         ) : <span className="text-[10px] text-gray-400">Sabores sob consulta</span>}
         {lastUnits && <span className="flavor-last-units" title={leadFlavor?.name}>{lastUnits}</span>}
       </div>
 
       {/* BOTTOM ZONE: Availability + Price and Round Gradient '+' Button */}
-      <div className="mt-3.5 pt-2.5 border-t border-[#1E2348] flex items-center justify-between gap-2 w-full">
+      <div className="flavor-card-actions mt-3.5 pt-2.5 border-t border-[#1E2348] flex items-center justify-between gap-2 w-full">
         {/* Left Side: Availability dot + Price */}
         <div className="text-left overflow-hidden min-w-0 space-y-0.5">
           <div className="flex items-center gap-1.5">
             <span
               className={`w-2 h-2 rounded-full inline-block shrink-0 ${
-                isAllFlavorsSoldOut
+                selectedUnavailable
                   ? 'bg-rose-500 shadow-[0_0_6px_#EF4444]'
                   : 'bg-[#10B981] shadow-[0_0_6px_#10B981]'
               }`}
             />
             <span
               className={`text-[10px] sm:text-xs font-semibold truncate ${
-                isAllFlavorsSoldOut ? 'text-rose-400 font-bold' : 'text-[#8E95B8]'
+                selectedUnavailable ? 'text-rose-400 font-bold' : 'text-[#8E95B8]'
               }`}
             >
-              {isAllFlavorsSoldOut ? 'Esgotado' : 'Disponível'}
+              {selectedUnavailable ? 'Sabor esgotado' : leadFlavor ? 'Disponível' : 'Sob consulta'}
             </span>
           </div>
           <p className="font-heading text-base md:text-lg font-black text-white tracking-tight leading-tight truncate">
@@ -185,22 +209,19 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, priority = fa
           type="button"
           onClick={(event) => {
             event.stopPropagation();
-            if (!leadFlavor || !leadFlavor.inStock || leadFlavor.demoQuantity === 0
-              || (!selected && product.flavors.length !== 1)) {
+            if (!leadFlavor || !canAdd) {
               handleCardClick();
               return;
             }
             if (addToCart(product, leadFlavor)) confirm(event.currentTarget, leadFlavor.iconEmoji);
           }}
-          className={`min-w-11 min-h-11 w-11 h-11 rounded-full flex items-center justify-center text-white transition-all duration-200 cursor-pointer shrink-0 ${
-            isAllFlavorsSoldOut
-              ? 'bg-[#181C38] border border-rose-500/40 text-rose-400 shadow-none hover:bg-rose-950/40'
-              : 'bg-gradient-to-br from-[#00DFFF] via-[#7C3AED] to-[#A855F7] shadow-[0_0_15px_rgba(0,223,255,0.4)] hover:shadow-[0_0_22px_rgba(168,85,247,0.6)] hover:scale-105 active:scale-95'
-          }`}
-          title={isAllFlavorsSoldOut ? 'Produto esgotado - ver detalhes' : 'Ver detalhes ou adicionar ao carrinho'}
-          aria-label={added ? 'Adicionado à sacola' : leadFlavor?.inStock && leadFlavor.demoQuantity !== 0 && (selected || product.flavors.length === 1) ? 'Adicionar ' + leadFlavor.name + ' à sacola' : 'Abrir detalhes de ' + product.modelName}
+          className="flavor-card-action min-h-11 rounded-xl sm:w-11 sm:rounded-full flex items-center justify-center gap-1 font-bold text-xs text-white bg-[#5535a4] transition-colors cursor-pointer hover:bg-[#6845bf] active:bg-[#412783] shrink-0"
+          aria-label={canAdd ? 'Adicionar ' + leadFlavor?.name + ' à sacola' : actionLabel + ' de ' + product.modelName}
         >
-          {added ? <Check className="w-5 h-5 stroke-[2.8]" /> : <Plus className="w-4 h-4 sm:w-5 sm:h-5 stroke-[2.8]" />}
+          {added ? <Check className="size-4 shrink-0" aria-hidden="true" />
+            : canAdd ? <Plus className="size-4 shrink-0" aria-hidden="true" />
+            : <ChevronRight className="size-4 shrink-0" aria-hidden="true" />}
+          <span className="sm:sr-only" aria-live="polite">{added ? 'Adicionado' : actionLabel}</span>
         </button>
       </div>
     </div>

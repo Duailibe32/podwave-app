@@ -400,3 +400,84 @@ html.light :is(button, a, input, select, textarea, summary):focus-visible {
   .flavor-last-units, .product-photo::before { animation: none !important; }
   .loyalty-foil[data-tilt] { transform: none; }
 }
+
+/* Flavor controls in the two-column mobile catalog and its product sheet. */
+.flavor-detail-option {
+  border-color: #494271;
+  background: #151936;
+  color: #f1efff;
+  cursor: pointer;
+  transition: border-color 160ms ease, background-color 160ms ease;
+}
+.flavor-detail-option[aria-pressed="true"] {
+  border-color: var(--chip-color);
+  background: color-mix(in srgb, var(--chip-color) 19%, #151936);
+}
+.flavor-detail-option[aria-pressed="true"] svg { color: var(--chip-color); }
+.product-detail-panel { max-height: 92vh; max-height: 92dvh; }
+.product-detail-scroll { overscroll-behavior: contain; }
+.product-detail-actions { padding: .75rem 1rem; }
+
+@media (width < 640px) {
+  .flavor-chip-list { display: none; }
+  .flavor-mobile-picker {
+    min-width: 0;
+    border: 1px solid #464273;
+    border-radius: .85rem;
+    background: #141833;
+  }
+  .flavor-product-card[data-flavor-selected] .flavor-mobile-picker {
+    border-color: color-mix(in srgb, var(--flavor-color) 60%, #464273);
+  }
+  .flavor-mobile-stepper {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    min-width: 0;
+    color: #dce5ff;
+    font-size: .65rem;
+    font-weight: 750;
+    font-variant-numeric: tabular-nums;
+  }
+  .flavor-mobile-stepper button {
+    display: grid;
+    flex: 0 0 44px;
+    min-height: 44px;
+    place-items: center;
+    border-radius: .7rem;
+    color: #d3cbff;
+    cursor: pointer;
+  }
+  .flavor-mobile-stepper button:active { background: #302957; }
+  .flavor-mobile-name {
+    width: 100%;
+    min-height: 44px;
+    display: grid;
+    align-content: center;
+    justify-items: center;
+    gap: .12rem;
+    padding: .2rem .25rem .5rem;
+    color: #f2eeff;
+    font-size: .73rem;
+    line-height: 1.15;
+    font-weight: 750;
+    overflow-wrap: anywhere;
+  }
+  .flavor-mobile-name .flavor-mobile-emoji { font-size: 1.15rem; }
+  .flavor-mobile-name small { color: #c3b5fb; font-size: .62rem; }
+  .flavor-card-actions { display: grid; grid-template-columns: minmax(0, 1fr); }
+  .flavor-card-action { width: 100%; }
+  .product-detail-overlay {
+    align-items: flex-end;
+    padding: max(.5rem, env(safe-area-inset-top)) 0 0;
+  }
+  .product-detail-panel { max-height: min(94dvh, calc(100dvh - env(safe-area-inset-top))); }
+  .product-detail-scroll { padding-top: .85rem; }
+  .product-detail-photo { aspect-ratio: auto; height: clamp(6.5rem, 23dvh, 9rem); }
+  .product-detail-actions { padding: .6rem .8rem max(.6rem, env(safe-area-inset-bottom)); }
+  .product-detail-add { flex: 0 0 100%; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .flavor-detail-option { transition: none; }
+}
