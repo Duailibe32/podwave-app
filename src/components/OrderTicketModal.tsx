@@ -1,4 +1,5 @@
 import React, { useEffect, useRef, useState } from 'react';
+import confetti from 'canvas-confetti';
 import { Bell, Check, CircleAlert, Copy, Download, Gift, MapPin, MessageCircle, Package, ReceiptText, Share2, Truck, X, Zap } from 'lucide-react';
 import { useCatalog } from '../context/CatalogContext';
 import { useOrderNotifications } from '../context/OrderNotificationsContext';
@@ -11,16 +12,50 @@ import { buildWhatsAppUrl } from '../utils/whatsappShare';
 import { downloadOrderTicket } from '../utils/downloadOrderTicket';
 import './OrderTicketModal.css';
 
+const CONFETTI_SEEN_STORAGE_KEY = 'podwave_ticket_confetti_seen_v1';
+const seenConfettiMemory = new Set<string>();
+
+function hasSeenTicketConfetti(orderId: string): boolean {
+  if (seenConfettiMemory.has(orderId)) return true;
+  if (typeof window === 'undefined') return false;
+  try {
+    const raw = localStorage.getItem(CONFETTI_SEEN_STORAGE_KEY);
+    if (!raw) return false;
+    const parsed = JSON.parse(raw);
+    return Array.isArray(parsed) && parsed.includes(orderId);
+  } catch {
+    return false;
+  }
+}
+
+function markTicketConfettiSeen(orderId: string): void {
+  seenConfettiMemory.add(orderId);
+  if (typeof window === 'undefined') return;
+  try {
+    const raw = localStorage.getItem(CONFETTI_SEEN_STORAGE_KEY);
+    const parsed = raw ? JSON.parse(raw) : [];
+    const list = Array.isArray(parsed) ? parsed.filter((id): id is string => typeof id === 'string') : [];
+    if (!list.includes(orderId)) {
+      const next = [...list, orderId].slice(-100);
+      localStorage.setItem(CONFETTI_SEEN_STORAGE_KEY, JSON.stringify(next));
+    }
+  } catch {
+    // ignore storage quota or privacy restrictions
+  }
+}
+
 export function OrderTicketModal() {
   const { activeOrderTicket: selected, closeOrderTicket, currentUser, settings, supabaseClient } = useCatalog();
   const alerts = useOrderNotifications();
   const dialog = useRef<HTMLDialogElement>(null);
+  const confettiCanvas = useRef<HTMLCanvasElement>(null);
   const [verified, setVerified] = useState<CustomerOrderHistoryItem | null>(null);
   const [connection, setConnection] = useState<'checking' | 'live' | 'offline'>('checking');
   const [feedback, setFeedback] = useState('');
   const [manualCopy, setManualCopy] = useState('');
   const [downloading, setDownloading] = useState(false);
   const orderId = selected?.id;
+  const orderStatus = selected?.status;
   const customerId = currentUser?.id;
 
   useEffect(() => {
@@ -28,6 +63,64 @@ export function OrderTicketModal() {
     if (orderId && element && !element.open) element.showModal();
     return () => { if (element?.open) element.close(); };
   }, [orderId]);
+
+  // Dispara confetes neon na primeira vez que o cliente abre o comprovante do pedido
+  useEffect(() => {
+    if (!orderId || orderStatus === 'cancelado') return;
+    if (hasSeenTicketConfetti(orderId)) return;
+    markTicketConfettiSeen(orderId);
+
+    if (
+      typeof window === 'undefined' ||
+      window.matchMedia?.('(prefers-reduced-motion: reduce)').matches
+    ) {
+      return;
+    }
+
+    const canvas = confettiCanvas.current;
+    if (!canvas) return;
+
+    let secondBurstTimer: number | undefined;
+    try {
+      const fire = confetti.create(canvas, { resize: true, useWorker: false });
+      const brandColors = ['#00DFFF', '#8423DA', '#E53CF3', '#10B981', '#FBBF24'];
+
+      void fire({
+        particleCount: 65,
+        spread: 75,
+        startVelocity: 32,
+        origin: { x: 0.5, y: 0.25 },
+        colors: brandColors,
+        disableForReducedMotion: true,
+      });
+
+      secondBurstTimer = window.setTimeout(() => {
+        void fire({
+          particleCount: 30,
+          angle: 60,
+          spread: 55,
+          origin: { x: 0.15, y: 0.45 },
+          colors: brandColors,
+          disableForReducedMotion: true,
+        });
+        void fire({
+          particleCount: 30,
+          angle: 120,
+          spread: 55,
+          origin: { x: 0.85, y: 0.45 },
+          colors: brandColors,
+          disableForReducedMotion: true,
+        });
+      }, 180);
+
+      return () => {
+        if (secondBurstTimer) window.clearTimeout(secondBurstTimer);
+        fire.reset();
+      };
+    } catch {
+      return undefined;
+    }
+  }, [orderId, orderStatus]);
 
   useEffect(() => {
     setFeedback('');
@@ -129,6 +222,7 @@ export function OrderTicketModal() {
     <dialog ref={dialog} aria-labelledby="ticket-dialog-title" className="order-ticket-dialog"
       onCancel={event => { event.preventDefault(); closeOrderTicket(); }}
       onClick={event => { if (event.target === event.currentTarget) closeOrderTicket(); }}>
+      <canvas ref={confettiCanvas} className="order-ticket-confetti" aria-hidden="true" />
       <div className="order-ticket-shell">
         <article className="order-ticket">
           <header className="order-ticket-head">

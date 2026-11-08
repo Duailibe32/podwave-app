@@ -21,7 +21,7 @@ import {
 } from 'lucide-react';
 
 interface PWAInstallButtonProps {
-  variant?: 'header' | 'floating' | 'banner' | 'drawer' | 'smart-banner';
+  variant?: 'header' | 'floating' | 'banner' | 'drawer' | 'smart-banner' | 'footer-tooltip';
 }
 
 const SMART_BANNER_DISMISSED_KEY = 'podwave_pwa_banner_dismissed_v2';
@@ -176,9 +176,9 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
         </button>
       )}
 
-      {/* 5. Smart Banner Variant (Bottom Install Bar for Mobile & Desktop) */}
+      {/* 5. Smart Banner Variant (Bottom Tooltip & Install Bar for Mobile & Desktop) */}
       {variant === 'smart-banner' && (
-        <div className="pwa-install-float fixed bottom-4 left-3 right-20 sm:left-6 sm:right-auto sm:max-w-md z-40 animate-in slide-in-from-bottom-4 duration-300">
+        <div className="pwa-install-float fixed bottom-20 left-3 right-20 sm:bottom-4 sm:left-6 sm:right-auto sm:max-w-md z-40 animate-in fade-in slide-in-from-bottom-4 duration-500">
           <div className="relative w-full rounded-2xl bg-gradient-to-r from-[#0F1329]/95 via-[#131836]/95 to-[#0D1022]/95 border border-[#00DFFF]/45 p-3 sm:p-3.5 shadow-[0_8px_32px_rgba(0,223,255,0.22)] backdrop-blur-xl flex items-center justify-between gap-2.5">
             <div className="flex items-center gap-2.5 min-w-0">
               <div className="w-10 h-10 rounded-xl bg-gradient-to-tr from-[#8423DA] to-[#00DFFF] p-0.5 shrink-0 shadow-md">
@@ -193,12 +193,12 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
               <div className="min-w-0">
                 <div className="flex items-center gap-1.5">
                   <p className="font-heading font-black text-xs text-white truncate">
-                    App PodWave Oficial
+                    Adicionar à Tela de Início
                   </p>
                   <Sparkles className="w-3 h-3 text-[#00DFFF] shrink-0" />
                 </div>
-                <p className="text-[10px] text-[#B8B9CC] truncate">
-                  Adicione à tela de início para acesso em 1 toque
+                <p className="text-[10px] text-[#C4C6DC] leading-snug line-clamp-2">
+                  Melhora a velocidade e a experiência de compra em 1 toque
                 </p>
               </div>
             </div>
@@ -219,6 +219,59 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
                 className="p-1.5 rounded-lg text-gray-400 hover:text-white hover:bg-white/10 transition cursor-pointer"
                 aria-label="Fechar aviso de instalação"
                 title="Fechar"
+              >
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* 6. Footer Tooltip / Highlight Variant (Smoothly appears in page footer when PWA is not installed) */}
+      {variant === 'footer-tooltip' && !isInstalled && !bannerDismissed && (
+        <div
+          role="region"
+          aria-label="Dica de instalação do aplicativo"
+          className="relative overflow-hidden rounded-2xl bg-gradient-to-r from-[#101530] via-[#151B3D] to-[#0E132B] border border-[#00DFFF]/40 p-4 sm:p-5 shadow-[0_0_30px_rgba(0,223,255,0.14)] transition-all duration-500 animate-in fade-in slide-in-from-bottom-3"
+        >
+          <div className="pointer-events-none absolute -top-12 -right-12 w-36 h-36 rounded-full bg-[#00DFFF]/10 blur-2xl" />
+          <div className="relative flex flex-col sm:flex-row sm:items-center justify-between gap-4">
+            <div className="flex items-start sm:items-center gap-3.5 min-w-0">
+              <div className="w-11 h-11 rounded-2xl bg-gradient-to-br from-[#8423DA] to-[#00DFFF] p-0.5 shrink-0 shadow-lg shadow-[#00DFFF]/20">
+                <div className="w-full h-full rounded-[14px] bg-[#080811] flex items-center justify-center">
+                  <Zap className="w-5 h-5 text-[#00DFFF] fill-[#00DFFF]" />
+                </div>
+              </div>
+              <div className="space-y-1 min-w-0">
+                <div className="inline-flex items-center gap-1.5 px-2.5 py-0.5 rounded-full bg-[#00DFFF]/15 border border-[#00DFFF]/35 text-[#00DFFF] text-[10px] font-black uppercase tracking-wider">
+                  <Sparkles className="w-3 h-3" />
+                  <span>Dica de Performance &bull; App Oficial</span>
+                </div>
+                <p className="font-heading text-xs sm:text-sm font-extrabold text-white leading-snug">
+                  Adicionar à tela de início melhora a velocidade e experiência de compra!
+                </p>
+                <p className="text-[11px] sm:text-xs text-[#B8B9CC] leading-relaxed">
+                  Tenha carregamento instantâneo, navegação mais fluida no catálogo e acompanhamento do seu pedido em tempo real direto na tela inicial do seu celular.
+                </p>
+              </div>
+            </div>
+
+            <div className="flex items-center gap-2 shrink-0 self-end sm:self-center w-full sm:w-auto justify-end">
+              <button
+                type="button"
+                onClick={isInstallable ? handlePrimaryInstallAction : handleOpenModal}
+                disabled={isInstalling}
+                className="flex-1 sm:flex-initial px-4 py-2.5 rounded-xl bg-gradient-to-r from-[#00DFFF] via-[#007BFF] to-[#8423DA] text-white font-heading font-black text-xs shadow-[0_0_20px_rgba(0,223,255,0.3)] hover:brightness-110 active:scale-95 transition cursor-pointer flex items-center justify-center gap-2"
+              >
+                <PlusSquare className="w-4 h-4 stroke-[2.5]" />
+                <span>{isInstalling ? 'Abrindo...' : 'Adicionar à Tela de Início'}</span>
+              </button>
+              <button
+                type="button"
+                onClick={handleDismissSmartBanner}
+                className="p-2 rounded-xl bg-white/5 hover:bg-white/10 text-gray-400 hover:text-white transition cursor-pointer"
+                aria-label="Ocultar dica de instalação"
+                title="Ocultar dica"
               >
                 <X className="w-4 h-4" />
               </button>

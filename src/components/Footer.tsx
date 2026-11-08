@@ -11,6 +11,7 @@ import {
   Sparkles
 } from 'lucide-react';
 import { buildWhatsAppUrl } from '../utils/whatsappShare';
+import { PWAInstallButton } from './PWAInstallButton';
 
 export const Footer: React.FC = () => {
   const { settings } = useCatalog();
@@ -23,6 +24,9 @@ export const Footer: React.FC = () => {
   return (
     <footer className="border-t border-[#8423DA]/25 bg-[#05060D] text-[#A5A5B8] pt-14 pb-10">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-12">
+        {/* Destaque suave de instalação PWA no rodapé caso ainda não esteja instalado */}
+        <PWAInstallButton variant="footer-tooltip" />
+
         {/* Top Section: Brand + Social CTAs */}
         <div className="flex flex-col md:flex-row items-center justify-between gap-6 pb-10 border-b border-[#8423DA]/20">
           {/* Brand Identity */}
