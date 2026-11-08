@@ -1,14 +1,14 @@
 import { useEffect, useRef, useState } from 'react';
 
-export function useCartFeedback() {
-  const [added, setAdded] = useState(false);
+export function useCartFeedback(flavorId?: string) {
+  const [addedFlavor, setAddedFlavor] = useState<string>();
   const timer = useRef<ReturnType<typeof setTimeout> | undefined>(undefined);
   useEffect(() => () => clearTimeout(timer.current), []);
 
   const confirm = (source: HTMLElement, emoji: string) => {
-    setAdded(true);
+    setAddedFlavor(flavorId);
     clearTimeout(timer.current);
-    timer.current = setTimeout(() => setAdded(false), 1000);
+    timer.current = setTimeout(() => setAddedFlavor(undefined), 1000);
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches || !source.animate) return;
 
     const target = Array.from(document.querySelectorAll<HTMLElement>('[data-cart-target]'))
@@ -43,5 +43,5 @@ export function useCartFeedback() {
     }, () => spark.remove());
   };
 
-  return { added, confirm };
+  return { added: Boolean(flavorId && addedFlavor === flavorId), confirm };
 }
