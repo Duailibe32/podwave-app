@@ -62,6 +62,7 @@ import { MyBusinessModule } from './MyBusinessModule';
 import { OrdersCenterTab } from './OrdersCenterTab';
 import { ImageStorageSettingsSection } from './ImageStorageSettingsSection';
 import { WebPushSettingsSection } from './WebPushSettingsSection';
+import { ResaleSettings } from './ResaleSettings';
 import { CombosAndAddonsTab } from './CombosAndAddonsTab';
 import { calculateVariantAvailability, calculateVariantsSummary, isNeedsAttention, DEFAULT_LOW_QUANTITY_THRESHOLD } from '../../utils/availability';
 
@@ -1501,6 +1502,7 @@ export const AdminPanel: React.FC = () => {
         {/* ===================== TAB 2: MODELOS ===================== */}
         {activeTab === 'modelos' && (
           <div className="space-y-6 animate-in fade-in duration-200">
+            <ResaleSettings section="prices" />
             <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4">
               <div>
                 <h2 className="font-heading text-xl font-bold text-white light:text-slate-900">
@@ -2604,6 +2606,7 @@ export const AdminPanel: React.FC = () => {
         {activeTab === 'supabase' && <SupabaseTab />}
 
         {/* ===================== TAB: GESTÃO DE USUÁRIOS, ADMINS & VIPS ===================== */}
+        {activeTab === 'usuarios' && <ResaleSettings section="accounts" />}
         {activeTab === 'usuarios' && (
           <UserManagementTab
             initialCustomerId={focusedCustomerIdInUsersTab}
@@ -3838,4 +3841,3 @@ export const AdminPanel: React.FC = () => {
     </div>
   );
 };
-
