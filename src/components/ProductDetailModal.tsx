@@ -15,9 +15,11 @@ export const ProductDetailModal: React.FC = () => {
     setActiveSelectedFlavor,
     addToCart,
     setIsCartOpen,
+    resalePrices,
   } = useCatalog();
 
   const activeModalProduct = models?.find(product => product.id === openedProduct?.id) || openedProduct;
+  const modelResalePrices = resalePrices.filter(price => price.model_id === activeModalProduct?.id);
   const activeSelectedFlavor = activeModalProduct?.flavors.find(flavor => flavor.id === selectedFlavor?.id);
   const closeButtonRef = useRef<HTMLButtonElement>(null);
   const isOpen = Boolean(activeModalProduct);
@@ -351,6 +353,15 @@ export const ProductDetailModal: React.FC = () => {
           <div className="min-w-0 flex-1" aria-live="polite">
             <p className="text-xs font-bold [overflow-wrap:anywhere]">{currentFlavor?.iconEmoji} {currentFlavor?.name || 'Sabores sob consulta'}</p>
             <p className="mt-0.5 text-sm font-black">R$ {activeModalProduct.startingPrice.toFixed(2).replace('.', ',')}</p>
+            {modelResalePrices.length > 0 && (
+              <ul aria-label="Preços de revenda" className="mt-1 text-xs text-cyan-300 light:text-cyan-800">
+                {modelResalePrices.map(price => (
+                  <li key={price.min_quantity}>
+                    {price.min_quantity}+ un. · {Math.min(Number(price.unit_price), activeModalProduct.startingPrice).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' })}/un.
+                  </li>
+                ))}
+              </ul>
+            )}
           </div>
           <button type="button" onClick={() => { setActiveModalProduct(null); setIsCartOpen(true); }}
             className="min-h-11 rounded-xl border border-violet-400/30 px-3 text-xs font-bold">
