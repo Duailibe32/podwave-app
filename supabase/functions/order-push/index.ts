@@ -48,15 +48,30 @@ async function sendAdminTest(request: Request) {
   try { target = new URL(path || '/', storeOrigin); } catch { return reply({ error: 'Destino inválido.' }, 400); }
   if (target.origin !== storeOrigin) return reply({ error: 'Use um endereço do PodWave.' }, 400);
 
-  const { data: devices, error } = await db.from('order_push_devices')
-    .select('endpoint,p256dh,auth_secret').eq('customer_id', user.id).eq('notify_admin', true).limit(10);
-  if (error) return reply({ error: 'Não foi possível consultar seus aparelhos.' }, 502);
   const payload = JSON.stringify({
     title, body, url: target.pathname + target.search + target.hash, type: 'podwave-admin-test',
     tag: 'podwave-admin-test-' + crypto.randomUUID(), actions: [],
     vibrate: input.vibrate === true ? [200, 100, 200] : [],
     requireInteraction: input.requireInteraction === true,
   });
+  if (input.campaignAudience !== undefined) {
+    if (!['store', 'promotion'].includes(input.campaignAudience) ||
+      typeof input.campaignId !== 'string' || !/^[0-9a-f-]{36}$/i.test(input.campaignId)) {
+      return reply({ error: 'Confira o público do comunicado.' }, 400);
+    }
+    const { data: queued, error: queueError } = await db.rpc('podwave_queue_store_campaign', {
+      p_actor: user.id, p_id: input.campaignId, p_audience: input.campaignAudience,
+      p_payload: { ...JSON.parse(payload), type: 'podwave-store-campaign', tag: 'podwave-campaign-' + input.campaignId },
+    });
+    if (queueError) return reply({
+      error: queueError.message.startsWith('Aguarde um minuto')
+        ? queueError.message : 'Não foi possível agendar o comunicado.',
+    }, 409);
+    return reply({ queued });
+  }
+  const { data: devices, error } = await db.from('order_push_devices')
+    .select('endpoint,p256dh,auth_secret').eq('customer_id', user.id).eq('notify_admin', true).limit(10);
+  if (error) return reply({ error: 'Não foi possível consultar seus aparelhos.' }, 502);
   const results = await Promise.allSettled(devices.map(async device => {
     if (!isPushEndpoint(device.endpoint)) throw new Error('Invalid push endpoint');
     const { data: eligible, error: eligibilityError } = await db.rpc('podwave_can_deliver_admin_order_push', {
@@ -98,6 +113,20 @@ Deno.serve(async request => {
       const finish = () => db.from('order_push_queue').delete().eq('id', job.id).eq('attempts', job.attempts);
       try {
         if (!isPushEndpoint(job.endpoint)) {
+          await finish();
+          return;
+        }
+        if (job.status === 'store_campaign') {
+          const { data: payload, error: payloadError } = await db.rpc('podwave_store_campaign_payload', {
+            p_id: job.order_id, p_endpoint: job.endpoint, p_owner: job.customer_id,
+          });
+          if (payloadError) return;
+          if (payload) {
+            await webpush.sendNotification({
+              endpoint: job.endpoint, keys: { p256dh: job.p256dh, auth: job.auth_secret },
+            }, JSON.stringify(payload), { vapidDetails: { subject, publicKey, privateKey }, TTL: 600, timeout: 5000 });
+            delivered++;
+          }
           await finish();
           return;
         }
