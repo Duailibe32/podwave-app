@@ -4,6 +4,7 @@ import { formatCep, formatBrazilianPhone } from "../../utils/customerInputs";
 import { useCepLookup } from "../../hooks/useCepLookup";
 import { CustomerAddress, PasskeyItem } from '../../types/catalog';
 import { OrderNotificationSettings } from '../../context/OrderNotificationsContext';
+import { StorePushPreferences } from './StorePushPreferences';
 import { OrderStatusTimeline } from '../OrderStatusTimeline';
 import {
   getUserLoyaltyCard,
@@ -955,6 +956,7 @@ type="text"
               </div>
 
               <OrderNotificationSettings />
+              <StorePushPreferences />
               <p className="text-xs text-gray-400">Repetir Pedido adiciona à sacola pelos preços atuais, sem substituir os itens existentes. Revise acessórios, cupom e frete na finalização.</p>
               {reorderError && <div id="reorder-error" tabIndex={-1} role="alert" className="p-3 rounded-xl bg-amber-400/10 border border-amber-400/30 text-xs text-amber-200 space-y-1"><p className="font-bold">Nenhum item pôde ser adicionado.</p>{reorderError.map((message, index) => <p key={index}>{message}</p>)}</div>}
 
@@ -1435,4 +1437,3 @@ type="text"
     </div>
   );
 };
-
