@@ -4,7 +4,7 @@ import { selectProductDiscount } from '../utils/productDiscount';
 import { calculateFlashSaleDiscount } from '../utils/flashSale';
 import { useFlashSaleBoundary } from '../hooks/useFlashSaleBoundary';
 import { calculateCheckoutTotals, isCouponEligibleForCart, type CheckoutSummary } from '../utils/checkoutTotals';
-import React, { createContext, useContext, useState, useEffect, useRef } from 'react';
+import React, { createContext, useContext, useState, useEffect, useRef, useCallback, useMemo } from 'react';
 import { SupabaseClient } from '@supabase/supabase-js';
 import { toast } from './ToastContext';
 import {
@@ -147,6 +147,12 @@ export const isSupabaseEnvConfigured = Boolean(
 );
 
 export const supabaseClient = getSupabaseClient();
+
+interface ResalePrice {
+  model_id: string;
+  min_quantity: number;
+  unit_price: number;
+}
 
 const STORAGE_KEY = 'podwave_catalog_state_v4';
 const CART_STORAGE_KEY = 'podwave_cart_state_v2';
@@ -320,6 +326,8 @@ interface CatalogContextType {
 
   // Cart & Drawers
   cart: CartItem[];
+  resalePrices: ResalePrice[];
+  reloadResalePrices: () => Promise<void>;
   addToCart: (product: ProductModel, flavor: FlavorVariant, quantity?: number) => boolean;
   repeatOrder: (items: CartItem[]) => ReorderFeedback;
   reorderFeedback: ReorderFeedback | null;
@@ -2701,7 +2709,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   }, [activeModalProduct]);
 
   // ================= CART STATE =================
-  const [cart, setCart] = useState<CartItem[]>(() => {
+  const [storedCart, setCart] = useState<CartItem[]>(() => {
     try {
       const stored = localStorage.getItem(CART_STORAGE_KEY);
       if (stored) {
@@ -2713,6 +2721,28 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     return [];
   });
 
+  const [resaleCatalog, setResaleCatalog] = useState<{ userId: string; prices: ResalePrice[] }>();
+  const reloadResalePrices = useCallback(async () => {
+    if (!currentUserId || !activeSupabaseClient) return;
+    const { data, error } = await activeSupabaseClient.rpc('podwave_reseller_catalog');
+    if (authenticatedIdentityRef.current?.id === currentUserId) {
+      setResaleCatalog({ userId: currentUserId, prices: !error && Array.isArray(data) ? data : [] });
+    }
+  }, [activeSupabaseClient, currentUserId]);
+  useEffect(() => { void reloadResalePrices(); }, [reloadResalePrices]);
+  const resalePrices = resaleCatalog && resaleCatalog.userId === currentUserId ? resaleCatalog.prices : [];
+  const cart = useMemo(() => {
+    const quantities = new Map<string, number>();
+    for (const item of storedCart) {
+      quantities.set(item.modelId, (quantities.get(item.modelId) ?? 0) + item.quantity);
+    }
+    return storedCart.map(item => {
+      const tier = resalePrices.filter(row => row.model_id === item.modelId &&
+        row.min_quantity <= (quantities.get(item.modelId) ?? 0)).at(-1);
+      return tier ? { ...item, price: Math.min(item.price, Number(tier.unit_price)) } : item;
+    });
+  }, [storedCart, resalePrices]);
+
   const [isCartOpen, setIsCartOpen] = useState(false);
   const [isCheckoutOpen, setIsCheckoutOpen] = useState(false);
   const [isUsbCableAdded, setIsUsbCableAdded] = useState(false);
@@ -2723,15 +2753,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   // Save cart to localStorage
   useEffect(() => {
     try {
-      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(cart));
+      localStorage.setItem(CART_STORAGE_KEY, JSON.stringify(storedCart));
     } catch (e) {
       console.warn('Failed to save cart to localStorage', e);
     }
-  }, [cart]);
+  }, [storedCart]);
 
   const [reorderFeedback, setReorderFeedback] = useState<ReorderFeedback | null>(null);
   const repeatOrder = (items: CartItem[]): ReorderFeedback => {
-    const result = prepareReorder(items, models, cart);
+    const result = prepareReorder(items, models, storedCart);
     setReorderFeedback({ addedUnits: result.addedUnits, warnings: result.warnings });
     if (result.addedUnits > 0) {
       setCart(result.cart);
@@ -5000,6 +5030,8 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         activeSelectedFlavor,
         setActiveSelectedFlavor,
         cart,
+        resalePrices,
+        reloadResalePrices,
         addToCart,
         repeatOrder,
         reorderFeedback,
@@ -5102,4 +5134,3 @@ export const useCatalog = () => {
   }
   return context;
 };
-
