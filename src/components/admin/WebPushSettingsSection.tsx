@@ -1,4 +1,5 @@
 import React, { useState, useEffect } from 'react';
+import { getSupabaseClient } from '../../services/supabase';
 import {
   Bell,
   BellRing,
@@ -71,6 +72,7 @@ export const WebPushSettingsSection: React.FC<{
 
   // Feedback de ações
   const [isSending, setIsSending] = useState(false);
+  const [isSendingRemote, setIsSendingRemote] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [copiedSub, setCopiedSub] = useState(false);
 
@@ -157,6 +159,30 @@ export const WebPushSettingsSection: React.FC<{
   };
 
   // Disparar notificação de teste diretamente via Service Worker (Web Push API)
+  const handleSendRemoteTest = async () => {
+    setFeedback(null);
+    setIsSendingRemote(true);
+    try {
+      const client = getSupabaseClient();
+      if (!client) throw new Error('O Supabase não está configurado.');
+      const { data, error } = await client.functions.invoke<{ registered: number; accepted: number }>(
+        'order-push', { body: { title, body, url, vibrate, requireInteraction } },
+      );
+      if (error) {
+        const response = error.context;
+        const result = response instanceof Response ? await response.json().catch(() => null) : null;
+        throw new Error(result?.error || 'Falha no envio remoto. Confira sua sessão no painel.');
+      }
+      if (!data?.registered) throw new Error('Ative Alertas de novos pedidos no celular usando esta conta.');
+      if (!data.accepted) throw new Error('O serviço de push recusou o teste. Reative os alertas no celular e tente novamente.');
+      setFeedback({ type: 'success', message: `Teste aceito pelo serviço de push para ${data.accepted} de ${data.registered} aparelhos cadastrados. Confira as notificações.` });
+    } catch (error) {
+      setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Falha no envio remoto.' });
+    } finally {
+      setIsSendingRemote(false);
+    }
+  };
+
   const handleSendTestNotification = async () => {
     setIsSending(true);
     setFeedback(null);
@@ -645,10 +671,21 @@ export const WebPushSettingsSection: React.FC<{
               ) : (
                 <>
                   <Send className="w-4 h-4" />
-                  <span>Enviar Notificação de Teste Imediata</span>
+                  <span>Testar neste aparelho</span>
                 </>
               )}
             </button>
+            <button
+              type="button"
+              onClick={handleSendRemoteTest}
+              disabled={isSendingRemote || !title.trim() || !body.trim()}
+              className="mt-3 w-full rounded-xl border border-cyan-400/50 px-4 py-3 font-bold text-cyan-400 disabled:opacity-50"
+            >
+              {isSendingRemote ? 'Enviando teste remoto…' : 'Enviar aos meus aparelhos'}
+            </button>
+            <p className="mt-2 text-xs text-slate-400">
+              No celular, ative Alertas de novos pedidos com a mesma conta administrativa.
+            </p>
           </div>
         </div>
 
