@@ -128,6 +128,28 @@ async function main() {
     assert.equal(await scoped(null),true,'Global alerts can be restored');
     await db.exec("RESET ROLE; UPDATE customer_orders SET status='entregue' WHERE id='flash'");
     assert.equal((await db.query("SELECT count(*)::int AS count FROM order_push_queue WHERE order_id='flash'")).rows[0].count,1);
+    await db.exec(`
+      INSERT INTO customer_profiles (id, role) VALUES ('operator', 'admin');
+      CREATE FUNCTION public.is_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER
+      AS $$ SELECT EXISTS (SELECT 1 FROM public.customer_profiles WHERE id=auth.uid() AND role IN ('admin','owner')) $$;
+    `);
+    await db.exec(fs.readFileSync('supabase/proposals/20261114_admin_order_push.sql','utf8'));
+    const adminEndpoint = 'https://fcm.googleapis.com/fcm/send/admin';
+    const subscribeAdmin = () => db.query(
+      'SELECT public.podwave_register_admin_order_push($1,$2,$3,NULL,true,false) AS ok',
+      [adminEndpoint,'a'.repeat(87),'b'.repeat(22)]
+    );
+    await db.exec("SET ROLE authenticated");
+    assert.equal((await subscribeAdmin()).rows[0].ok,false);
+    await db.exec("SET request.test_uid='operator'");
+    assert.equal((await subscribeAdmin()).rows[0].ok,true);
+    await db.exec("SET request.test_uid='client'");
+    await insert({id:'admin-alert-test'});
+    await db.exec("RESET ROLE");
+    assert.deepEqual((await db.query("SELECT customer_id FROM order_push_queue WHERE status='admin_new_order'")).rows, [{customer_id:'operator'}]);
+    await db.exec("UPDATE customer_profiles SET role='customer' WHERE id='operator'; SET ROLE service_role");
+    assert.equal((await db.query("SELECT public.podwave_can_deliver_admin_order_push($1,'operator') AS ok",[adminEndpoint])).rows[0].ok,false);
+    await db.exec("RESET ROLE");
     console.log('PASS: push device ownership, approved endpoints, restricted queue and job leasing.');
     console.log('PASS: checkout rejects manipulated prices, mismatched flavors and stock; applies exclusive VIP/flash, freight and atomic coupon limits.');
   } finally {

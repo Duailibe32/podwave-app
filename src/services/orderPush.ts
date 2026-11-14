@@ -22,7 +22,7 @@ export async function removeOrderPush(client?: SupabaseClient | null, ownerId?: 
         if (!removed && !client) return;
       }
       const notices = await reg?.getNotifications() || [];
-      notices.filter(notice => notice.data?.type === 'podwave-order').forEach(notice => notice.close());
+      notices.filter(notice => ['podwave-order', 'podwave-admin-order'].includes(notice.data?.type)).forEach(notice => notice.close());
       localStorage.removeItem(OWNER_KEY);
     } catch {
       // Expired subscriptions are also removed by the server.
@@ -30,7 +30,7 @@ export async function removeOrderPush(client?: SupabaseClient | null, ownerId?: 
   });
 }
 
-export async function registerOrderPush(client: SupabaseClient, ownerId: string, stillActive: () => boolean, orderIds?: string[]) {
+export async function registerOrderPush(client: SupabaseClient, ownerId: string, stillActive: () => boolean, orderIds?: string[], preferences = { admin: false, customer: true }) {
   const key = import.meta.env.VITE_ORDER_PUSH_PUBLIC_KEY?.trim();
   if (!key || !('serviceWorker' in navigator)) return false;
   return lockDevice(async () => {
@@ -51,14 +51,19 @@ export async function registerOrderPush(client: SupabaseClient, ownerId: string,
       localStorage.setItem(OWNER_KEY, ownerId);
       const keys = sub.toJSON().keys || {};
       const device = { p_endpoint: sub.endpoint, p_p256dh: keys.p256dh, p_auth: keys.auth };
-      let { data, error } = await client.rpc('podwave_register_order_push_scope', {
-        ...device, p_order_ids: orderIds ?? null,
+      let { data, error } = await client.rpc('podwave_register_admin_order_push', {
+        ...device, p_order_ids: orderIds ?? null, p_admin: preferences.admin, p_customer: preferences.customer,
       }).abortSignal(AbortSignal.timeout(5000));
-      if (!orderIds && (error?.code === 'PGRST202' || error?.code === '42883')) {
+      if (!preferences.admin && (error?.code === 'PGRST202' || error?.code === '42883')) {
+        ({ data, error } = await client.rpc('podwave_register_order_push_scope', {
+          ...device, p_order_ids: orderIds ?? null,
+        }).abortSignal(AbortSignal.timeout(5000)));
+      }
+      if (!preferences.admin && !orderIds && (error?.code === 'PGRST202' || error?.code === '42883')) {
         ({ data, error } = await client.rpc('podwave_register_order_push', device)
           .abortSignal(AbortSignal.timeout(5000)));
       }
-      if (!stillActive()) { await sub.unsubscribe(); return false; }
+      if (!stillActive()) return false;
       return !error && data === true;
     } catch {
       return false;

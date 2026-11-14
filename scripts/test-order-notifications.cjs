@@ -40,7 +40,7 @@ function setup({ userId = 'user-a', optedIn = true, orderIds } = {}) {
   const fakeReact = {
     createContext: () => ({Provider:'provider'}),
     createElement: (tag, props) => props,
-    useState: () => [[optedIn ? 'user-a' : undefined, false, 'granted', '', false, orderIds && { userId, ids: orderIds }][stateIndex++], () => {}],
+    useState: () => [[optedIn ? 'user-a' : undefined, undefined, false, 'granted', '', false, orderIds && { userId, ids: orderIds }][stateIndex++], () => {}],
     useRef: value => ({current:value}),
     useCallback: fn => fn,
     useEffect: fn => effects.push(fn),
