@@ -73,6 +73,8 @@ export const WebPushSettingsSection: React.FC<{
   // Feedback de ações
   const [isSending, setIsSending] = useState(false);
   const [isSendingRemote, setIsSendingRemote] = useState(false);
+  const [campaignAudience, setCampaignAudience] = useState<'store' | 'promotion'>('store');
+  const [isQueuing, setIsQueuing] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
   const [copiedSub, setCopiedSub] = useState(false);
 
@@ -159,6 +161,35 @@ export const WebPushSettingsSection: React.FC<{
   };
 
   // Disparar notificação de teste diretamente via Service Worker (Web Push API)
+  const handleQueueCampaign = async () => {
+    const audience = campaignAudience === 'store' ? 'comunicados da loja' : 'promoções';
+    if (!window.confirm(`Agendar “${title.trim()}” para todos os aparelhos inscritos em ${audience}?`)) return;
+    const client = getSupabaseClient();
+    if (!client) {
+      setFeedback({ type: 'error', message: 'O Supabase não está configurado.' });
+      return;
+    }
+    setIsQueuing(true);
+    setFeedback(null);
+    try {
+      const { data, error } = await client.functions.invoke<{ queued: number }>('order-push', {
+        body: { title, body, url, vibrate, requireInteraction, campaignAudience, campaignId: crypto.randomUUID() },
+      });
+      if (error) {
+        const details = error.context instanceof Response ? await error.context.json().catch(() => null) : null;
+        throw new Error(details?.error || 'Falha ao agendar o comunicado.');
+      }
+      if (typeof data?.queued !== 'number') throw new Error('O servidor ainda precisa da atualização de envio em massa.');
+      setFeedback({ type: data.queued ? 'success' : 'info', message: data.queued
+        ? `Comunicado agendado para ${data.queued} aparelhos. O envio será processado em lotes.`
+        : 'Nenhum aparelho inscrito para esse tipo de aviso.' });
+    } catch (error) {
+      setFeedback({ type: 'error', message: error instanceof Error ? error.message : 'Falha ao agendar o comunicado.' });
+    } finally {
+      setIsQueuing(false);
+    }
+  };
+
   const handleSendRemoteTest = async () => {
     setFeedback(null);
     setIsSendingRemote(true);
@@ -686,6 +717,20 @@ export const WebPushSettingsSection: React.FC<{
             <p className="mt-2 text-xs text-slate-400">
               No celular, ative Alertas de novos pedidos com a mesma conta administrativa.
             </p>
+            <div className="mt-4 space-y-2 border-t border-white/10 pt-4">
+              <label className="block text-xs font-bold" htmlFor="push-campaign-audience">Público do comunicado</label>
+              <select id="push-campaign-audience" value={campaignAudience} disabled={isQueuing}
+                onChange={event => setCampaignAudience(event.target.value === 'promotion' ? 'promotion' : 'store')}
+                className="min-h-11 w-full rounded-lg border border-cyan-400/30 bg-[#141838] px-3 text-white">
+                <option value="store">Inscritos em comunicados da loja</option>
+                <option value="promotion">Inscritos em promoções</option>
+              </select>
+              <button type="button" onClick={() => void handleQueueCampaign()}
+                disabled={isQueuing || !title.trim() || !body.trim()}
+                className="min-h-11 w-full rounded-xl bg-cyan-400 px-4 py-2 font-bold text-slate-950 disabled:opacity-50">
+                {isQueuing ? 'Agendando…' : 'Enviar aos clientes inscritos'}
+              </button>
+            </div>
           </div>
         </div>
 
