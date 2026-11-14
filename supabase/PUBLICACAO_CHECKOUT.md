@@ -19,3 +19,10 @@ A configuração a seguir é opcional. O checkout e os alertas com a loja aberta
 
 - [Agendamento de Edge Functions e uso do Vault no Supabase](https://supabase.com/docs/guides/functions/schedule-functions)
 - [Geração de chaves VAPID](https://github.com/web-push-libs/web-push#usage)
+
+## Alertas administrativos de novos pedidos
+
+1. Aplique [20261114_admin_order_push.sql](proposals/20261114_admin_order_push.sql) depois dos dois scripts de Web Push acima.
+2. Publique novamente a função `order-push` para que ela trate os alertas administrativos. O agendamento já configurado atende os dois tipos de alerta.
+3. Entre como administrador e ative **Alertas de novos pedidos** nas configurações do painel, em cada aparelho que deve receber avisos.
+4. Em ambiente de teste, confirme um pedido no checkout. Com a loja aberta e conectada ao Realtime, a notificação chega no INSERT. Com a loja fechada, aguarde a próxima execução do agendamento. Toque na notificação e confira a abertura da Central de Pedidos.

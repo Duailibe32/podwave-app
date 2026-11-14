@@ -1,3 +1,4 @@
+import { useOrderNotifications } from '../../context/OrderNotificationsContext';
 import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
 import {
@@ -105,7 +106,8 @@ export const AdminPanel: React.FC = () => {
     allCatalogOrders,
   } = useCatalog();
 
-  const [activeTab, setActiveTab] = useState<AdminTab>('dashboard');
+  const { adminEnabled, activateAdmin, deactivateAdmin, busy: pushBusy, hasPushSubscription, message: pushMessage } = useOrderNotifications();
+  const [activeTab, setActiveTab] = useState<AdminTab>(() => new URLSearchParams(window.location.search).get('tab') === 'pedidos' ? 'pedidos' : 'dashboard');
   const [focusedCustomerIdInUsersTab, setFocusedCustomerIdInUsersTab] = useState<string | null>(null);
   const [successMessage, setSuccessMessage] = useState<string | null>(null);
 
@@ -2580,6 +2582,18 @@ export const AdminPanel: React.FC = () => {
             <ImageStorageSettingsSection onNotify={showToast} />
 
             {/* SEÇÃO: CONFIGURAÇÃO & TESTE DE NOTIFICAÇÕES WEB PUSH (SERVICE WORKER) */}
+            <section className="rounded-2xl border border-cyan-400/25 bg-[#141838] p-4 space-y-2">
+              <h3 className="font-bold text-white">Alertas de novos pedidos</h3>
+              <p className="text-sm text-slate-200">{adminEnabled && hasPushSubscription
+                ? 'Este aparelho está inscrito para receber alertas.'
+                : 'Ative neste aparelho. Com a loja fechada, o envio depende da configuração Web Push do Supabase.'}</p>
+              <button type="button" disabled={pushBusy}
+                onClick={adminEnabled ? deactivateAdmin : () => void activateAdmin()}
+                className="min-h-11 rounded-xl bg-cyan-300 px-4 font-bold text-slate-950">
+                {adminEnabled ? 'Desativar alertas de novos pedidos' : 'Ativar alertas de novos pedidos'}
+              </button>
+              {pushMessage && <p role="status" className="text-sm text-slate-200">{pushMessage}</p>}
+            </section>
             <WebPushSettingsSection onNotify={showToast} />
 
             <OwnerAdvancedSettings />

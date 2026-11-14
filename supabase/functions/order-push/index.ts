@@ -30,14 +30,21 @@ Deno.serve(async request => {
           await finish();
           return;
         }
-        const { data: device, error: lookupError } = await db.from('order_push_devices')
-          .select('endpoint').eq('endpoint', job.endpoint).eq('customer_id', job.customer_id).maybeSingle();
+        const adminOrder = job.status === 'admin_new_order';
+        const { data: device, error: lookupError } = adminOrder
+          ? await db.rpc('podwave_can_deliver_admin_order_push', { p_endpoint: job.endpoint, p_owner: job.customer_id })
+          : await db.from('order_push_devices')
+            .select('endpoint').eq('endpoint', job.endpoint).eq('customer_id', job.customer_id).maybeSingle();
         if (lookupError) return; // Keep the lease and retry after expiry.
         if (!device) { await finish(); return; }
         // Keep lock-screen content generic even during account switching.
         await webpush.sendNotification({
           endpoint: job.endpoint, keys: { p256dh: job.p256dh, auth: job.auth_secret },
-        }, JSON.stringify({
+        }, JSON.stringify(adminOrder ? {
+          title: 'PodWave · Novo pedido', body: 'Abra a Central de Pedidos para conferir.',
+          type: 'podwave-admin-order', url: '/admin?tab=pedidos', actions: [],
+          tag: 'podwave-admin-order-' + job.order_id,
+        } : {
           title: 'PodWave — Atualização de pedido', body: 'Abra Meus Pedidos para conferir.',
           orderId: job.order_id, status: job.status, ownerId: job.customer_id,
         }), { vapidDetails: { subject, publicKey, privateKey }, TTL: 120, timeout: 5000 });

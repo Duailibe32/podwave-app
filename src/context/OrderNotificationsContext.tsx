@@ -109,6 +109,9 @@ function writeStoredNotifiedMap(userId: string, map: Record<string, string>) {
 
 interface OrderNotificationsContextValue {
   enabled: boolean;
+  adminEnabled: boolean;
+  activateAdmin: () => Promise<void>;
+  deactivateAdmin: () => void;
   busy: boolean;
   permission: NotificationPermission | 'unsupported';
   message: string;
@@ -121,6 +124,9 @@ interface OrderNotificationsContextValue {
 
 const Context = createContext<OrderNotificationsContextValue>({
   enabled: false,
+  adminEnabled: false,
+  activateAdmin: async () => {},
+  deactivateAdmin: () => {},
   busy: false,
   permission: getCurrentPermission(),
   message: '',
@@ -136,7 +142,7 @@ export function useOrderNotifications() {
 }
 
 export function OrderNotificationsProvider({ children }: { children: React.ReactNode }) {
-  const { currentUser, allCatalogOrders, supabaseClient, openProfileModal } = useCatalog();
+  const { currentUser, isAdmin, allCatalogOrders, supabaseClient, openProfileModal } = useCatalog();
   const { info: notifyInfo, success: notifySuccess } = useToast();
   const userId = currentUser?.id;
 
@@ -144,6 +150,8 @@ export function OrderNotificationsProvider({ children }: { children: React.React
   const enabled = Boolean(userId && enabledUser === userId);
   const activeUserRef = useRef(userId);
   activeUserRef.current = userId;
+  const [adminDeviceUser, setAdminDeviceUser] = useState<string>();
+  const adminEnabled = Boolean(isAdmin && userId && adminDeviceUser === userId);
   const [busy, setBusy] = useState(false);
   const [permissionState, setPermission] = useState<NotificationPermission | 'unsupported'>(
     getCurrentPermission
@@ -177,6 +185,15 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     setMessage('');
   }, [userId]);
 
+  useEffect(() => {
+    try {
+      setAdminDeviceUser(isAdmin && userId && localStorage.getItem('podwave_admin_push:' + userId) === 'on'
+        ? userId : undefined);
+    } catch {
+      setAdminDeviceUser(undefined);
+    }
+  }, [isAdmin, userId]);
+
   // Atualiza estado de permissão quando a janela ganha foco
   useEffect(() => {
     const update = () => {
@@ -196,7 +213,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
   }, [userId]);
 
   useEffect(() => {
-    if (!userId || !enabled || permissionState !== 'granted') return;
+    if (!userId || (!enabled && !adminEnabled) || permissionState !== 'granted') return;
     const client = supabaseClient || getSupabaseClient();
     if (!client || !('serviceWorker' in navigator)) return;
     let active = true;
@@ -205,7 +222,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       if (registering) return;
       registering = true;
       try {
-        const registered = await registerOrderPush(client, userId, () => active && activeUserRef.current === userId, orderIds);
+        const registered = await registerOrderPush(client, userId, () => active && activeUserRef.current === userId, orderIds, { admin: adminEnabled, customer: enabled });
         if (active) setHasPushSubscription(registered);
       } finally {
         registering = false;
@@ -217,7 +234,74 @@ export function OrderNotificationsProvider({ children }: { children: React.React
       active = false;
       navigator.serviceWorker.removeEventListener('controllerchange', connect);
     };
-  }, [enabled, userId, permissionState, supabaseClient, orderIds]);
+  }, [enabled, adminEnabled, userId, permissionState, supabaseClient, orderIds]);
+
+  const activateAdmin = async () => {
+    if (!isAdmin || !userId || busy) return;
+    setMessage('');
+    if (!isNotificationSupported()) {
+      setMessage('Este navegador não oferece notificações. No iPhone, abra o app pela tela de início.');
+      return;
+    }
+    setBusy(true);
+    try {
+      const permission = await Notification.requestPermission();
+      if (activeUserRef.current !== userId) return;
+      setPermission(permission);
+      if (permission !== 'granted') {
+        setMessage('Permita notificações nas configurações do navegador.');
+        return;
+      }
+      localStorage.setItem('podwave_admin_push:' + userId, 'on');
+      setAdminDeviceUser(userId);
+    } catch {
+      setMessage('Não foi possível ativar os alertas neste aparelho.');
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const deactivateAdmin = () => {
+    if (!userId) return;
+    try { localStorage.removeItem('podwave_admin_push:' + userId); } catch { /* Device storage unavailable. */ }
+    setAdminDeviceUser(undefined);
+    setHasPushSubscription(false);
+    if (!enabled) void removeOrderPush(supabaseClient || getSupabaseClient(), userId);
+  };
+
+  useEffect(() => {
+    if (!adminEnabled || !userId || permissionState !== 'granted') return;
+    const client = supabaseClient || getSupabaseClient();
+    if (!client) return;
+    let active = true;
+    const seen = new Set<string>();
+    const channel = client.channel('admin-new-orders:' + userId)
+      .on('postgres_changes', { event: 'INSERT', schema: 'public', table: 'customer_orders' }, ({ new: row }) => {
+        const id = String(row.id || '');
+        if (!active || activeUserRef.current !== userId || !id || id.startsWith('diag-rls-probe-') || row.status !== 'recebido' || seen.has(id)) return;
+        seen.add(id);
+        if (seen.size > 200) seen.delete(seen.values().next().value!);
+        notifyInfo('Novo pedido recebido', 'Abra a Central de Pedidos para conferir.');
+        const show = async () => {
+          const reg = await navigator.serviceWorker?.getRegistration();
+          if (!active || activeUserRef.current !== userId || Notification.permission !== 'granted') return;
+          const tag = 'podwave-admin-order-' + id;
+          if (reg?.active) {
+            if ((await reg.getNotifications({ tag })).length || !active) return;
+            await reg.showNotification('PodWave · Novo pedido', {
+              body: 'Abra a Central de Pedidos para conferir.',
+              tag, icon: '/pwa-192x192.png', data: { type: 'podwave-admin-order', url: '/admin?tab=pedidos' },
+            });
+          } else {
+            const notice = new Notification('PodWave · Novo pedido', { body: 'Abra a Central de Pedidos para conferir.', tag });
+            notice.onclick = () => { window.location.assign('/admin?tab=pedidos'); };
+          }
+        };
+        const tag = 'podwave-admin-order-' + id;
+        void (navigator.locks ? navigator.locks.request(tag, show) : show()).catch(() => {});
+      }).subscribe();
+    return () => { active = false; void client.removeChannel(channel); };
+  }, [adminEnabled, userId, permissionState, supabaseClient, notifyInfo]);
 
   // Dispara a notificação nativa via Service Worker (Push API) ou Notification API fallback
   const dispatchBrowserOrderNotification = useCallback(
@@ -361,7 +445,7 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     setEnabledUser(undefined);
     setScope(undefined);
     setHasPushSubscription(false);
-    void removeOrderPush(supabaseClient || getSupabaseClient(), userId);
+    if (!adminEnabled) void removeOrderPush(supabaseClient || getSupabaseClient(), userId);
     setMessage('Alertas de pedido desativados neste dispositivo.');
     notifyInfo('Alertas Push de status do pedido foram desativados.');
   };
@@ -637,6 +721,9 @@ export function OrderNotificationsProvider({ children }: { children: React.React
     <Context.Provider
       value={{
         enabled,
+        adminEnabled,
+        activateAdmin,
+        deactivateAdmin,
         busy,
         permission: permissionState,
         message,
