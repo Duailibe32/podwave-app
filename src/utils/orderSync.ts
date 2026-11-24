@@ -31,30 +31,50 @@ export function reconcileOrderSnapshot(
   return Array.from(rows.values()).sort((a,b) => Date.parse(b.createdAt) - Date.parse(a.createdAt));
 }
 
-/** Keep excluded browser records available for manual review, outside active order lists. */
-export function archiveUnconfirmedOrderCache(local: CustomerOrderHistoryItem[], current: CustomerOrderHistoryItem[]): void {
-  if (typeof localStorage === 'undefined') return;
-  const ids = new Set(current.map(order => order.id));
-  const excluded = local.filter(order => !ids.has(order.id) && !isPendingOrderDraft(order));
-  if (!excluded.length) return;
+// Shared caches predate project scoping and belong to the original production storefront.
+const legacyProject = 'https://hccrgzjkbmgutpazlljb.supabase.co';
+const draftsKey = (project: string, customer: string) =>
+  'podwave_drafts_v1:' + encodeURIComponent(project.replace(/\/+$/, '')) + ':' + encodeURIComponent(customer);
+
+function readRows(key: string): CustomerOrderHistoryItem[] {
+  const rows = JSON.parse(localStorage.getItem(key) || '[]');
+  return Array.isArray(rows) ? rows : [];
+}
+
+export function migrateLegacyOrderCache(): void {
   try {
-    const key = 'podwave_order_cache_review_v1';
-    const parsed = JSON.parse(localStorage.getItem(key) || '[]');
-    const previous: CustomerOrderHistoryItem[] = Array.isArray(parsed) ? parsed : [];
-    const archived = new Map(previous.map(order => [order.id, order]));
-    for (const order of excluded) archived.set(order.id, order);
-    localStorage.setItem(key, JSON.stringify(Array.from(archived.values())));
+    for (const source of ['podwave_shared_catalog_orders_v2', 'podwave_order_cache_review_v1']) {
+      if (localStorage.getItem(source) === null) continue;
+      const groups = new Map<string, CustomerOrderHistoryItem[]>();
+      for (const row of readRows(source)) {
+        if (!row?.customerId || !row.id || !isPendingOrderDraft(row)) continue;
+        const key = draftsKey(legacyProject, row.customerId);
+        const group = groups.get(key) ?? readRows(key);
+        if (!group.some(existing => existing.id === row.id)) group.push(row);
+        groups.set(key, group);
+      }
+      for (const [key, rows] of groups) localStorage.setItem(key, JSON.stringify(rows));
+      localStorage.removeItem(source);
+    }
   } catch {
-    // Keep the original shared cache when archival cannot be confirmed.
-    throw new Error('Não foi possível preservar o histórico local para conferência.');
+    // Leave the source available for another migration attempt if storage is full.
   }
 }
 
-export function markOrderCacheSynced(id: string): void {
-  if (typeof localStorage === 'undefined') return;
+export function readOrderDrafts(project?: string, customer?: string): CustomerOrderHistoryItem[] {
+  if (!project || !customer) return [];
   try {
-    const key = 'podwave_shared_catalog_orders_v2';
-    const rows = JSON.parse(localStorage.getItem(key) || '[]');
-    if (Array.isArray(rows)) localStorage.setItem(key, JSON.stringify(rows.map(order => order.id === id ? {...order, _syncStatus: 'synced'} : order)));
-  } catch { /* A confirmed server result remains authoritative if local storage is unavailable. */ }
+    return readRows(draftsKey(project, customer)).filter(row => row && isPendingOrderDraft(row, customer));
+  } catch { return []; }
+}
+
+export function removeOrderDraft(id: string, project: string, customer: string): void {
+  const key = draftsKey(project, customer);
+  const rows = readOrderDrafts(project, customer);
+  if (!rows.some(row => row.id === id)) return;
+  const remaining = rows.filter(row => row.id !== id);
+  try {
+    if (remaining.length) localStorage.setItem(key, JSON.stringify(remaining));
+    else localStorage.removeItem(key);
+  } catch { /* The authenticated server snapshot still takes precedence. */ }
 }

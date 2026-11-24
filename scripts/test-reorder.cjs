@@ -32,7 +32,7 @@ const callback=source.slice(source.indexOf('  const repeatOrder ='),source.index
 let nextCart, feedback, open=false;
 const compiled=transformSync(callback+'\nmodule.exports=repeatOrder;',{loader:'ts',format:'cjs'}).code;
 const callbackModule={exports:{}};
-vm.runInNewContext(compiled,{module:callbackModule,exports:callbackModule.exports,prepareReorder,models:[model],cart:[unrelated],setCart:value=>{nextCart=value},setReorderFeedback:value=>{feedback=value},setIsCartOpen:value=>{open=value}});
+vm.runInNewContext(compiled,{module:callbackModule,exports:callbackModule.exports,prepareReorder,models:[model],storedCart:[unrelated],setCart:value=>{nextCart=value},setReorderFeedback:value=>{feedback=value},setIsCartOpen:value=>{open=value}});
 assert.equal(callbackModule.exports([old]).addedUnits,2);assert.equal(open,true);assert.equal(nextCart.length,2);assert.equal(feedback.addedUnits,2);
 nextCart=undefined;open=false;callbackModule.exports([{...old,modelId:'gone'}]);assert.equal(open,false);assert.equal(nextCart,undefined);assert.equal(feedback.warnings.length,1);
 assert(!/submitOrder|recordCustomerOrder|supabase|saveCustomer|updateSettings/.test(callback),'Reorder must only change the local cart');

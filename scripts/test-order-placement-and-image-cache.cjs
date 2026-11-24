@@ -4,12 +4,12 @@ console.log('--- TEST: Persistência de Pedidos & Limpeza de Cache de Imagens --
 
 // 1. CatalogContext Order Flow
 const catCode = fs.readFileSync('src/context/CatalogContext.tsx', 'utf8');
-const hasSharedOrders = catCode.includes('podwave_shared_catalog_orders_v2');
+const hasSharedOrders = !catCode.includes('podwave_shared_catalog_orders_v2');
 const hasConfirmedOrderRecord = catCode.includes('saveCustomerOrderToSupabase(orderItem, customerId, { createOnly: true })');
-const hasAutoRecovery = catCode.includes('loadSharedCatalogOrders');
+const hasAutoRecovery = catCode.includes('readOrderDrafts');
 
 if (hasSharedOrders && hasConfirmedOrderRecord && hasAutoRecovery) {
-  console.log('✓ 1. Gravação autenticada e cache de pedidos confirmados.');
+  console.log('✓ 1. Gravação autenticada e remoção de cache compartilhado.');
 } else {
   console.error('❌ Falha na gravação confirmada de pedidos');
   process.exit(1);

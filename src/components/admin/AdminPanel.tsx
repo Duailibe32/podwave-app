@@ -1,3 +1,4 @@
+import { acceptedImageTypes, readCatalogImage } from '../../utils/imageUpload';
 import { useOrderNotifications } from '../../context/OrderNotificationsContext';
 import React, { useState } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
@@ -391,53 +392,27 @@ export const AdminPanel: React.FC = () => {
   ];
 
   // Client-side image compression to prevent localStorage overflow
-  const compressImage = (
+  const compressImage = async (
     file: File,
     maxWidth = settings.imageStorageConfig?.maxImageDimension || 480,
     maxHeight = settings.imageStorageConfig?.maxImageDimension || 480,
     quality = settings.imageStorageConfig?.compressionQuality || 0.85
   ): Promise<string> => {
-    return new Promise((resolve) => {
-      const reader = new FileReader();
-      reader.onload = (readerEvent) => {
-        const image = new Image();
-        image.onload = () => {
-          let width = image.width;
-          let height = image.height;
-          if (width > height) {
-            if (width > maxWidth) {
-              height = Math.round((height * maxWidth) / width);
-              width = maxWidth;
-            }
-          } else {
-            if (height > maxHeight) {
-              width = Math.round((width * maxHeight) / height);
-              height = maxHeight;
-            }
-          }
-          const canvas = document.createElement('canvas');
-          canvas.width = Math.max(1, width);
-          canvas.height = Math.max(1, height);
-          const ctx = canvas.getContext('2d');
-          if (ctx) {
-            ctx.imageSmoothingEnabled = true;
-            ctx.imageSmoothingQuality = 'high';
-            ctx.drawImage(image, 0, 0, width, height);
-            let compressed = canvas.toDataURL('image/webp', quality);
-            if (!compressed.startsWith('data:image/webp')) {
-              compressed = canvas.toDataURL('image/jpeg', quality);
-            }
-            resolve(compressed);
-          } else {
-            resolve(readerEvent.target?.result as string);
-          }
-        };
-        image.onerror = () => resolve(readerEvent.target?.result as string);
-        image.src = readerEvent.target?.result as string;
-      };
-      reader.onerror = () => resolve('');
-      reader.readAsDataURL(file);
-    });
+    try {
+      const { image } = await readCatalogImage(file);
+      const scale = Math.min(1, maxWidth / image.naturalWidth, maxHeight / image.naturalHeight);
+      const canvas = document.createElement('canvas');
+      canvas.width = Math.max(1, Math.round(image.naturalWidth * scale));
+      canvas.height = Math.max(1, Math.round(image.naturalHeight * scale));
+      const ctx = canvas.getContext('2d');
+      if (!ctx) throw new Error('Falha ao preparar a imagem.');
+      ctx.drawImage(image, 0, 0, canvas.width, canvas.height);
+      const result = canvas.toDataURL('image/webp', quality);
+      return result.startsWith('data:image/webp') ? result : canvas.toDataURL('image/jpeg', quality);
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Falha ao carregar a imagem.');
+      return '';
+    }
   };
 
   // --- BRAND MANAGEMENT MODAL STATE (Name & Photo Editing) ---
@@ -1798,7 +1773,7 @@ export const AdminPanel: React.FC = () => {
                           <ImageIcon className="w-4 h-4" />
                           <input
                             type="file"
-                            accept="image/*"
+                            accept={acceptedImageTypes}
                             onChange={(e) => handleInlineBrandPhotoUpload(brand.id, e)}
                             className="hidden"
                           />
@@ -2994,7 +2969,7 @@ export const AdminPanel: React.FC = () => {
                       <span>Escolher Foto do Computador / Celular</span>
                       <input
                         type="file"
-                        accept="image/*"
+                        accept={acceptedImageTypes}
                         onChange={handleBrandLogoFileUpload}
                         className="hidden"
                       />
@@ -3265,7 +3240,7 @@ export const AdminPanel: React.FC = () => {
                       <span>Upload de Foto do Computador / Celular</span>
                       <input
                         type="file"
-                        accept="image/*"
+                        accept={acceptedImageTypes}
                         onChange={handleModelImageFileUpload}
                         className="hidden"
                       />
@@ -3788,7 +3763,7 @@ export const AdminPanel: React.FC = () => {
                     <span>Upload do Arquivo</span>
                     <input
                       type="file"
-                      accept="image/*"
+                      accept={acceptedImageTypes}
                       onChange={handleFlavorImageFileUpload}
                       className="hidden"
                     />
