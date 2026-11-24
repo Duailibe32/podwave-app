@@ -7,8 +7,6 @@ import {
   CheckCircle2,
   AlertTriangle,
   XCircle,
-  Copy,
-  Check,
   RefreshCw,
   ExternalLink,
   ShieldCheck,
@@ -57,7 +55,7 @@ export const WebPushSettingsSection: React.FC<{
       return '';
     }
   });
-  const [subscriptionJson, setSubscriptionJson] = useState<string | null>(null);
+  const [hasSubscription, setHasSubscription] = useState(false);
   const [isSubscribing, setIsSubscribing] = useState(false);
 
   // Histórico de envios de teste
@@ -76,7 +74,6 @@ export const WebPushSettingsSection: React.FC<{
   const [campaignAudience, setCampaignAudience] = useState<'store' | 'promotion'>('store');
   const [isQueuing, setIsQueuing] = useState(false);
   const [feedback, setFeedback] = useState<{ type: 'success' | 'error' | 'info'; message: string } | null>(null);
-  const [copiedSub, setCopiedSub] = useState(false);
 
   // Verifica o suporte e o status atual do Service Worker e Permissões
   useEffect(() => {
@@ -101,7 +98,7 @@ export const WebPushSettingsSection: React.FC<{
           if ('pushManager' in reg) {
             reg.pushManager.getSubscription().then((sub) => {
               if (sub) {
-                setSubscriptionJson(JSON.stringify(sub, null, 2));
+                setHasSubscription(true);
               }
             });
           }
@@ -345,11 +342,10 @@ export const WebPushSettingsSection: React.FC<{
         sub = await reg.pushManager.subscribe(subOptions);
       }
 
-      const jsonStr = JSON.stringify(sub, null, 2);
-      setSubscriptionJson(jsonStr);
+      setHasSubscription(Boolean(sub));
       setFeedback({
         type: 'success',
-        message: 'Inscrição PushSubscription obtida com sucesso! Você pode copiá-la para disparos remotos.',
+        message: 'Inscrição push ativa neste navegador.',
       });
     } catch (err) {
       setFeedback({
@@ -359,14 +355,6 @@ export const WebPushSettingsSection: React.FC<{
     } finally {
       setIsSubscribing(false);
     }
-  };
-
-  const handleCopySubscription = () => {
-    if (!subscriptionJson) return;
-    navigator.clipboard.writeText(subscriptionJson);
-    setCopiedSub(true);
-    setTimeout(() => setCopiedSub(false), 2000);
-    if (onNotify) onNotify('JSON da inscrição Web Push copiado!');
   };
 
   return (
@@ -812,33 +800,7 @@ export const WebPushSettingsSection: React.FC<{
         </div>
       </div>
 
-      {/* CARD 3: INSCRIÇÃO PUSHMANAGER (JSON EXPORTÁVEL) */}
-      {subscriptionJson && (
-        <div className="p-5 rounded-2xl bg-[#141838] light:bg-slate-100 border border-[#00DFFF]/30 space-y-3">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <KeyRound className="w-4 h-4 text-[#00DFFF]" />
-              <h4 className="font-heading font-bold text-white light:text-slate-900 text-xs">
-                Inscrição Web Push Ativa (PushSubscription JSON)
-              </h4>
-            </div>
-            <button
-              type="button"
-              onClick={handleCopySubscription}
-              className="px-3 py-1.5 rounded-xl bg-[#00DFFF]/20 hover:bg-[#00DFFF]/30 border border-[#00DFFF]/40 text-[#00DFFF] font-bold text-[11px] flex items-center gap-1.5 cursor-pointer transition-all"
-            >
-              {copiedSub ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-              <span>{copiedSub ? 'Copiado!' : 'Copiar Inscrição'}</span>
-            </button>
-          </div>
-          <p className="text-[11px] text-[#A5A5B8]">
-            Copie os dados criptográficos de endpoint e chaves p256dh/auth para disparar notificações a partir de servidores Node.js, Python ou ferramentas de teste como WebPush CLI.
-          </p>
-          <pre className="p-3 rounded-xl bg-[#080811] text-emerald-400 font-mono text-[10px] overflow-x-auto max-h-40 border border-white/5">
-            {subscriptionJson}
-          </pre>
-        </div>
-      )}
+      {hasSubscription && <p role="status">Inscrição push ativa neste navegador.</p>}
 
       {/* CARD 4: HISTÓRICO DE DISPAROS DE TESTE */}
       <div className="p-5 rounded-2xl bg-[#141838] light:bg-slate-100 border border-[#8423DA]/25 space-y-3">

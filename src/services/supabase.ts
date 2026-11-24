@@ -172,7 +172,7 @@ export async function testSupabaseConnection(): Promise<SupabaseTestResult> {
       return {
         success: false,
         tablesExist: false,
-        message: `Erro do Supabase: ${error.message} (Código: ${error.code})`,
+        message: 'A consulta falhou. Confira a conexão e as permissões do projeto.',
       };
     }
 
@@ -2326,8 +2326,6 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
 
   console.log('👤 [2/5] Sessão Supabase Auth:', {
     authenticated: report.authenticated,
-    authUserId: report.authUserId,
-    authUserEmail: report.authUserEmail,
     jwtRole: report.jwtRole,
   });
 
@@ -2556,7 +2554,7 @@ export async function diagnoseSupabaseOrdersConnectionAndRLS(options?: {
   return report;
 }
 
-if (typeof window !== 'undefined') {
+if (import.meta.env?.DEV && typeof window !== 'undefined') {
   (window as any).diagnoseSupabaseOrders = diagnoseSupabaseOrdersConnectionAndRLS;
 }
 
@@ -4130,19 +4128,6 @@ export async function executeConfirmedSupabaseDelete(
     return { success: false, affectedCount: 0, error: errorMsg };
   }
 
-  // 1. Inspeciona a sessão do Supabase Auth para contexto de auditoria e RLS
-  let authUserId: string | null = null;
-  let authUserEmail: string | null = null;
-  try {
-    const { data: sessionData } = await client.auth.getSession();
-    authUserId = sessionData?.session?.user?.id || null;
-    authUserEmail = sessionData?.session?.user?.email || null;
-  } catch (authErr) {
-    console.warn(`[Supabase Delete Diagnostics] [${table}] Aviso ao verificar sessão:`, authErr);
-  }
-
-  console.info(`[Supabase Delete Diagnostics] [START] Excluindo em "${table}" (${idColumn}='${id}'). Operador Auth UID: ${authUserId || 'Nenhum (Anônimo/Sem sessão)'} (${authUserEmail || 'Sem email'})`);
-
   try {
     // PostgREST exige .select() para retornar as linhas excluídas.
     // Sem .select(), um bloqueio de RLS (USING = false) retorna HTTP 200 com array vazio silenciosamente!
@@ -4153,45 +4138,19 @@ export async function executeConfirmedSupabaseDelete(
       .select(idColumn);
 
     if (error) {
-      console.error(`[Supabase Delete Diagnostics] [PG ERROR] Erro retornado pelo PostgreSQL ao excluir de "${table}":`, {
-        table,
-        id,
-        idColumn,
-        code: error.code,
-        message: error.message,
-        details: error.details,
-        hint: error.hint,
-        authenticatedUserId: authUserId,
-        authenticatedUserEmail: authUserEmail,
-      });
-
-      let friendlyMessage = error.message;
-      if (error.code === '42501') {
-        friendlyMessage = `Permissão negada pelo banco (RLS 42501). A tabela "${table}" exige cargo de Administrador/Proprietário em customer_profiles.`;
-      } else if (error.code === '23503') {
-        friendlyMessage = `Violação de chave estrangeira (23503). O registro em "${table}" possui vínculos ativos em outras tabelas.`;
-      }
-
+      const friendlyMessage = error.code === '42501' ? 'Sua conta não tem permissão para excluir este registro.'
+        : error.code === '23503' ? 'Este registro ainda está em uso.'
+        : 'O banco não confirmou a exclusão.';
       return {
         success: false,
         affectedCount: 0,
         error: friendlyMessage,
         code: error.code,
-        details: error.details,
-        hint: error.hint,
       };
     }
 
     const affected = Array.isArray(data) ? data.length : 0;
     if (affected === 0) {
-      console.warn(`[Supabase Delete Diagnostics] [RLS BLOCKED / 0 ROWS] Nenhuma linha foi afetada ao excluir de "${table}" (${idColumn}='${id}').`, {
-        motivo: 'A política RLS (Row Level Security) bloqueou a operação (o usuário não atendeu is_admin()) OU o registro já foi removido/não existe no Supabase.',
-        table,
-        id,
-        authUserId,
-        authUserEmail,
-      });
-
       return {
         success: false,
         affectedCount: 0,
@@ -4200,18 +4159,15 @@ export async function executeConfirmedSupabaseDelete(
       };
     }
 
-    console.info(`[Supabase Delete Diagnostics] [CONFIRMED] Sucesso: ${affected} linha(s) excluída(s) de "${table}" (${idColumn}='${id}') por UID ${authUserId}.`);
     return {
       success: true,
       affectedCount: affected,
     };
-  } catch (err) {
-    const msg = err instanceof Error ? err.message : String(err);
-    console.error(`[Supabase Delete Diagnostics] [EXCEPTION] Falha de conexão ou execução ao excluir de "${table}":`, err);
+  } catch {
     return {
       success: false,
       affectedCount: 0,
-      error: `Falha de conexão com o banco de dados: ${msg}`,
+      error: 'Falha de conexão. Confira o registro antes de tentar novamente.',
     };
   }
 }

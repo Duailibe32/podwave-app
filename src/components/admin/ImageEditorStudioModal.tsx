@@ -1,3 +1,4 @@
+import { acceptedImageTypes, readCatalogImage } from '../../utils/imageUpload';
 import React, { useState, useEffect, useRef } from 'react';
 import {
   Sparkles,
@@ -274,18 +275,16 @@ export const ImageEditorStudioModal: React.FC<ImageEditorStudioModalProps> = ({
     setSharpnessGlow(profile.glow);
   };
 
-  // Upload image handler
-  const handleUploadSource = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleUploadSource = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
-
-    const reader = new FileReader();
-    reader.onload = () => {
-      if (typeof reader.result === 'string') {
-        setSourceImage(reader.result);
-      }
-    };
-    reader.readAsDataURL(file);
+    try {
+      const { url } = await readCatalogImage(file);
+      setSourceImage(url);
+      setInfoMessage(null);
+    } catch (error) {
+      setInfoMessage(error instanceof Error ? error.message : 'Falha ao carregar a imagem.');
+    }
   };
 
   // Render Studio Engine Image on Canvas (supports 20 distinct profiles)
@@ -771,7 +770,7 @@ export const ImageEditorStudioModal: React.FC<ImageEditorStudioModalProps> = ({
               <label className="px-3 py-1.5 rounded-xl bg-[#141838] hover:bg-[#8423DA] text-gray-300 hover:text-white border border-[#8423DA]/40 text-[11px] font-semibold cursor-pointer transition flex items-center gap-1 shrink-0">
                 <Upload className="w-3 h-3 text-[#00DFFF]" />
                 <span>Trocar</span>
-                <input type="file" accept="image/*" onChange={handleUploadSource} className="hidden" />
+                <input type="file" accept={acceptedImageTypes} onChange={handleUploadSource} className="hidden" />
               </label>
             </div>
 

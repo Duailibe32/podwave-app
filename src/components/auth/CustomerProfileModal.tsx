@@ -14,7 +14,7 @@ import { DigitalLoyaltyCard } from '../ui/DigitalLoyaltyCard';
 import {
   fetchCustomerOrdersFromSupabase,
   saveCustomerOrderToSupabase,
-  getLastSupabaseOrderDiagnostic,
+  getSupabaseCredentials,
 } from '../../services/supabase';
 import {
   X,
@@ -49,7 +49,7 @@ import {
   KeyRound,
   Check,
 } from 'lucide-react';
-import { isPendingOrderDraft, markOrderCacheSynced, reconcileOrderSnapshot } from '../../utils/orderSync';
+import { isPendingOrderDraft, readOrderDrafts, removeOrderDraft, reconcileOrderSnapshot } from '../../utils/orderSync';
 import { PasskeyBiometricLoading } from './PasskeyBiometricLoading';
 
 export const CustomerProfileModal: React.FC = () => {
@@ -126,17 +126,7 @@ export const CustomerProfileModal: React.FC = () => {
       }
     };
 
-    if (typeof window !== 'undefined') {
-      try {
-        const raw = localStorage.getItem('podwave_shared_catalog_orders_v2');
-        if (raw) {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) parsed.forEach(addIfMatch);
-        }
-      } catch {
-        // ignore storage parse error
-      }
-    }
+    for (const draft of readOrderDrafts(getSupabaseCredentials().url, currentUser.id)) addIfMatch(draft);
 
     for (const o of currentUser.orderHistory || []) addIfMatch(o);
     for (const o of allCatalogOrders || []) addIfMatch(o);
@@ -193,15 +183,16 @@ export const CustomerProfileModal: React.FC = () => {
 
   const retryPendingOrder = async (order: NonNullable<NonNullable<typeof currentUser>['orderHistory']>[number]) => {
     if (!currentUser || retryingOrderId || !isPendingOrderDraft(order, currentUser.id)) return;
+    const project = getSupabaseCredentials().url;
     setRetryingOrderId(order.id);
     try {
       const saved = await saveCustomerOrderToSupabase(order, currentUser.id, { createOnly: true });
       if (saved) {
-        markOrderCacheSynced(order.id);
+        removeOrderDraft(order.id, project, currentUser.id);
         setRemoteOrders(previous => reconcileOrderSnapshot([...previous, {...order, _syncStatus: 'synced'}], [], currentUser.id));
         await loadAuthenticatedOrders();
       } else {
-        setCustomerOrdersError(getLastSupabaseOrderDiagnostic()?.message || 'O servidor não confirmou o envio. Atualize o histórico antes de tentar novamente.');
+        setCustomerOrdersError('O servidor não confirmou o envio. Atualize o histórico antes de tentar novamente.');
       }
     } finally { setRetryingOrderId(null); }
   };

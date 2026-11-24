@@ -42,7 +42,7 @@ import { formatAttendanceRecord, generateReferenceId, getBrasiliaDateTime } from
 import { openWhatsAppShare } from '../utils/whatsappShare';
 import { calculateVariantAvailability } from '../utils/availability';
 import { cartStockError } from '../utils/stock';
-import { archiveUnconfirmedOrderCache, isPendingOrderDraft, reconcileOrderSnapshot } from '../utils/orderSync';
+import { migrateLegacyOrderCache, readOrderDrafts, reconcileOrderSnapshot } from '../utils/orderSync';
 import {
   applyLoyaltyMutation,
   getUserLoyaltyCard,
@@ -707,14 +707,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const currentCard = getUserLoyaltyCard(baseUser, defaultGoal, defaultReward);
     const authorLabel = currentUser?.fullName || currentUser?.email || 'Administrador';
 
-    console.log('[Loyalty Context] Executando mutação de fidelidade:', {
-      userId,
-      userName: baseUser.fullName,
-      mutationType: mutation.type,
-      currentStamps: currentCard.stamps,
-      goal: currentCard.goal,
-    });
-
     const nextCard = applyLoyaltyMutation(currentCard, {
       ...mutation,
       author: authorLabel,
@@ -1170,75 +1162,24 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
   };
 
   // CENTRAL DE PEDIDOS — ESTADO & AÇÕES ADMINISTRATIVAS (COMPARTILHADO & RESILIENTE)
-  const SHARED_CATALOG_ORDERS_KEY = 'podwave_shared_catalog_orders_v2';
-
-  const loadSharedCatalogOrders = (): CustomerOrderHistoryItem[] => {
-    if (typeof window === 'undefined') return [];
-    try {
-      const orders: CustomerOrderHistoryItem[] = [];
-      const seenIds = new Set<string>();
-
-      const addUniqueOrder = (item: any) => {
-        if (!item || typeof item !== 'object') return;
-        const id = item.id || (item.referenceId ? `ord-${item.referenceId}` : '');
-        if (!id || seenIds.has(id)) return;
-        seenIds.add(id);
-        orders.push({
-          ...item,
-          id,
-          referenceId: item.referenceId || id,
-          items: Array.isArray(item.items) ? item.items : [],
-          subtotal: Number(item.subtotal) || 0,
-          discount: Number(item.discount) || 0,
-          total: Number(item.total) || 0,
-          paymentMethod: item.paymentMethod || 'A combinar',
-          deliveryType: item.deliveryType === 'pickup' ? 'pickup' : 'delivery',
-          status: item.status || 'recebido',
-          createdAt: item.createdAt || new Date().toISOString(),
-        });
-      };
-
-      // 1. Chave compartilhada principal
-      const raw = localStorage.getItem(SHARED_CATALOG_ORDERS_KEY);
-      if (raw) {
-        try {
-          const parsed = JSON.parse(raw);
-          if (Array.isArray(parsed)) parsed.forEach(addUniqueOrder);
-        } catch {}
-      }
-
-      // Legacy storage keys remain available for manual review; reads must not resurrect old orders.
-
-      return orders.sort(
-        (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
-      );
-    } catch {
-      return [];
-    }
-  };
-
-  const persistSharedCatalogOrders = (orders: CustomerOrderHistoryItem[]) => {
-    if (typeof window === 'undefined') return;
-    try {
-      const deletedIds = getDeletedOrderIds();
-      archiveUnconfirmedOrderCache(loadSharedCatalogOrders().filter(order => !deletedIds.has(order.id)), orders);
-      localStorage.setItem(SHARED_CATALOG_ORDERS_KEY, JSON.stringify(orders.slice(0, 500)));
-    } catch {
-      // ignore quota errors
-    }
-  };
-
-  const [allCatalogOrders, setAllCatalogOrders] = useState<CustomerOrderHistoryItem[]>(() =>
-    loadSharedCatalogOrders().filter(order => order._syncStatus === 'synced' || isPendingOrderDraft(order))
-  );
+  const orderScope = JSON.stringify([supabaseCreds.url, currentUser?.id, isAdmin]);
+  const [orderSnapshot, setOrderSnapshot] = useState<{ scope: string; rows: CustomerOrderHistoryItem[] }>({
+    scope: orderScope, rows: [],
+  });
+  const allCatalogOrders = React.useMemo(() => orderSnapshot.scope === orderScope ? orderSnapshot.rows : [],
+    [orderScope, orderSnapshot]);
+  const setAllCatalogOrders = React.useCallback((update: React.SetStateAction<CustomerOrderHistoryItem[]>) => {
+    setOrderSnapshot(previous => {
+      const identity = authenticatedIdentityRef.current;
+      if (getSupabaseCredentials().url !== supabaseCreds.url || identity?.id !== currentUser?.id ||
+        (identity?.role === 'admin' || identity?.role === 'owner') !== isAdmin) return previous;
+      const rows = previous.scope === orderScope ? previous.rows : [];
+      return { scope: orderScope, rows: typeof update === 'function' ? update(rows) : update };
+    });
+  }, [orderScope, currentUser?.id, isAdmin, supabaseCreds.url]);
+  useEffect(() => { migrateLegacyOrderCache(); }, []);
   const [isLoadingCatalogOrders, setIsLoadingCatalogOrders] = useState<boolean>(false);
   const [catalogOrdersError, setCatalogOrdersError] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (allCatalogOrders.length > 0) {
-      persistSharedCatalogOrders(allCatalogOrders);
-    }
-  }, [allCatalogOrders]);
 
   const enrichOrderWithProfile = React.useCallback(
     (order: CustomerOrderHistoryItem, profilesList: UserProfile[]): CustomerOrderHistoryItem => {
@@ -1293,7 +1234,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     const requestedProject = getSupabaseCredentials().url;
     const deletedIds = getDeletedOrderIds();
     if (!isAdmin) {
-      setAllCatalogOrders(loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id) && (o._syncStatus === 'synced' || isPendingOrderDraft(o))));
+      setAllCatalogOrders(readOrderDrafts(supabaseCreds.url, currentUser?.id).filter(o => !deletedIds.has(o.id)));
       setCatalogOrdersError(null);
       return;
     }
@@ -1314,20 +1255,18 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         setCatalogOrdersError(ordersResult.error);
         return;
       }
-      const localOrders = loadSharedCatalogOrders().filter(order => !deletedIds.has(order.id));
       const remoteOrders = ordersResult.orders.filter(order => !deletedIds.has(order.id))
         .map(order => enrichOrderWithProfile(order, profilesToUse));
-      const sorted = reconcileOrderSnapshot(remoteOrders, localOrders);
-      archiveUnconfirmedOrderCache(localOrders, sorted);
+      const sorted = reconcileOrderSnapshot(remoteOrders, []);
+
       setAllCatalogOrders(sorted);
-      persistSharedCatalogOrders(sorted);
     } catch {
       // Keep the last known list. A failed read never recreates orders or runs cleanup.
       setCatalogOrdersError('Não foi possível consultar os pedidos remotos. A lista anterior foi mantida.');
     } finally {
       setIsLoadingCatalogOrders(false);
     }
-  }, [isAdmin, allUsers, enrichOrderWithProfile]);
+  }, [isAdmin, allUsers, enrichOrderWithProfile, setAllCatalogOrders, supabaseCreds.url, currentUser?.id]);
 
   // Customer UUID is authoritative; guest records and phone suffixes are not account ownership.
   const doesOrderBelongToUser = React.useCallback(
@@ -1349,7 +1288,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         const remote = await fetchCustomerOrdersFromSupabase(requestedId);
         if (cancelled || remote === null) return;
         const deletedIds = getDeletedOrderIds();
-        const local = loadSharedCatalogOrders().filter(order => !deletedIds.has(order.id) && order.customerId === requestedId);
+        const local = readOrderDrafts(supabaseCreds.url, requestedId).filter(order => !deletedIds.has(order.id));
         const orders = reconcileOrderSnapshot(remote.filter(order => !deletedIds.has(order.id)), local, requestedId);
         setCurrentUser(previous => previous?.id === requestedId ? {...previous, orderHistory: orders} : previous);
       } finally {
@@ -1370,7 +1309,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       void fetchAllCatalogOrders();
     } else {
       const deletedIds = getDeletedOrderIds();
-      setAllCatalogOrders(loadSharedCatalogOrders().filter((o) => !deletedIds.has(o.id) && (o._syncStatus === 'synced' || isPendingOrderDraft(o))));
+      setAllCatalogOrders(readOrderDrafts(supabaseCreds.url, currentUser?.id).filter(o => !deletedIds.has(o.id)));
       setCatalogOrdersError(null);
     }
   }, [isAdmin, supabaseStatus, fetchAllCatalogOrders]);
@@ -1385,13 +1324,13 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       : `orders-customer:${currentUserId}`;
 
     const handleRealtimeOrderPayload = (payload: any) => {
+      if (authenticatedIdentityRef.current?.id !== currentUserId) return;
       if (payload.eventType === 'DELETE' && payload.old && typeof payload.old === 'object') {
         const deletedId = String((payload.old as Record<string, unknown>).id || '');
         if (deletedId) {
           markOrderDeletedLocally(deletedId);
           setAllCatalogOrders((prev) => {
             const next = prev.filter((o) => o.id !== deletedId);
-            persistSharedCatalogOrders(next);
             return next;
           });
           if (currentUserId) {
@@ -1414,7 +1353,7 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         typeof payload.new === 'object'
       ) {
         const mapped = mapSupabaseRowToCustomerOrder(payload.new as Record<string, unknown>);
-        if (mapped && !getDeletedOrderIds().has(mapped.id)) {
+        if (mapped && (isAdmin || mapped.customerId === currentUserId) && !getDeletedOrderIds().has(mapped.id)) {
           setAllCatalogOrders((prev) => {
             const enriched = enrichOrderWithProfile(mapped, allUsers);
             const exists = prev.some(
@@ -1430,7 +1369,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
             const sorted = [...next].sort(
               (a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime()
             );
-            persistSharedCatalogOrders(sorted);
             return sorted;
           });
 
@@ -1621,11 +1559,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
       orderItem,
       ...orders.filter(order => order.id !== orderItem.id && order.referenceId !== orderItem.referenceId),
     ];
-    try {
-      persistSharedCatalogOrders(addToHistory(loadSharedCatalogOrders()));
-    } catch (error) {
-      console.warn('[Catalog] Cache do pedido confirmado:', error);
-    }
     if (authenticatedIdentityRef.current?.id === customerId) {
       setAllCatalogOrders(addToHistory);
       setCurrentUser(previous => previous?.id === customerId
@@ -1722,7 +1655,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
-        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -1881,7 +1813,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === orderId ? updatedOrder : o));
-        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -2096,7 +2027,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === order.id ? updatedOrder : o));
-        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -2206,7 +2136,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.map((o) => (o.id === order.id ? updatedOrder : o));
-        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -2266,7 +2195,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
       setAllCatalogOrders((prev) => {
         const next = prev.filter((o) => o.id !== orderId);
-        persistSharedCatalogOrders(next);
         return next;
       });
 
@@ -2313,7 +2241,6 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
         }
         setAllCatalogOrders((prev) => {
           const next = prev.filter((o) => !purgedSet.has(o.id));
-          persistSharedCatalogOrders(next);
           return next;
         });
         addActivityLog({

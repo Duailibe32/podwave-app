@@ -6,7 +6,7 @@ function compile(source,globals={},name){
  return module.exports;
 }
 const storage=new Map();
-const localStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value)};
+const localStorage={getItem:key=>storage.get(key)||null,setItem:(key,value)=>storage.set(key,value),removeItem:key=>storage.delete(key)};
 const sync=compile(fs.readFileSync('src/utils/orderSync.ts','utf8'),{localStorage});
 const draft={id:'new',referenceId:'NEW',customerId:'me',createdAt:'2026-11-02T12:00:00Z',status:'recebido',version:1,paymentStatus:'pendente',amountPaid:0,_syncStatus:'pending_sync',items:[]};
 const ghosts=Array.from({length:5},(_,i)=>({...draft,id:'ghost-'+i,referenceId:'OLD-'+i,_syncStatus:undefined}));
@@ -21,8 +21,17 @@ const remote={...draft,version:2,status:'confirmado',_syncStatus:undefined};
 const snapshot=sync.reconcileOrderSnapshot([remote],[{...draft,version:9,_syncStatus:'synced'}],'me');
 assert.equal(snapshot[0].version,2,'Server owns state even when browser version is higher');
 assert.equal(snapshot[0]._syncStatus,'synced');
-sync.archiveUnconfirmedOrderCache(ghosts,[]);
-assert.equal(JSON.parse(storage.get('podwave_order_cache_review_v1')).length,5,'Excluded cache remains available for review');
+const project='https://hccrgzjkbmgutpazlljb.supabase.co';
+storage.set('podwave_shared_catalog_orders_v2', JSON.stringify([...ghosts, draft, {...draft, customerId:'other', id:'another'}]));
+storage.set('podwave_order_cache_review_v1', JSON.stringify(ghosts));
+sync.migrateLegacyOrderCache();
+assert.equal(storage.has('podwave_shared_catalog_orders_v2'),false);
+assert.equal(storage.has('podwave_order_cache_review_v1'),false);
+assert.equal(sync.readOrderDrafts(project,'me').length,1);
+assert.equal(sync.readOrderDrafts('another-project','me').length,0);
+assert.equal(sync.readOrderDrafts(project,'other')[0].id,'another');
+sync.removeOrderDraft(draft.id,project,'me');
+assert.equal(sync.readOrderDrafts(project,'me').length,0);
 const service=fs.readFileSync('src/services/supabase.ts','utf8');
 const reader=service.match(/^export async function fetchCustomerOrdersFromSupabase\([\s\S]*?^}/m)[0];
 const mapRow=service.match(/^export function mapSupabaseRowToCustomerOrder\([\s\S]*?^}/m)[0];
@@ -64,7 +73,7 @@ async function readHistory(primary,fallback){
    currentUser:{id:'me'},retryingOrderId:null,setRetryingOrderId:()=>{},
    isPendingOrderDraft:sync.isPendingOrderDraft,
    saveCustomerOrderToSupabase:async order=>{writes.push(order);return scenario==='saved'},
-   markOrderCacheSynced:id=>marked.push(id),setRemoteOrders:fn=>fn([]),
+   getSupabaseCredentials:()=>({url:project}),removeOrderDraft:id=>marked.push(id),setRemoteOrders:fn=>fn([]),
    reconcileOrderSnapshot:sync.reconcileOrderSnapshot,loadAuthenticatedOrders:async()=>{},
    setCustomerOrdersError:error=>errors.push(error),getLastSupabaseOrderDiagnostic:()=>({message:'Denied'}),
   },'retryPendingOrder');
@@ -75,15 +84,15 @@ async function readHistory(primary,fallback){
  }
  const context=fs.readFileSync('src/context/CatalogContext.tsx','utf8');
  const adminBody=context.match(/const fetchAllCatalogOrders = React.useCallback\(async \(\) => \{([\s\S]*?)\n  }, \[isAdmin/)[1];
- const listed=[],persisted=[];
+ const listed=[];
  const admin=compile('async function load(){'+adminBody+'\n}',{
   authenticatedIdentityRef:{current:{id:'me',role:'owner'}},getSupabaseCredentials:()=>({url:'test'}),getDeletedOrderIds:()=>new Set(),
   isAdmin:true,allUsers:[{id:'me'}],setIsLoadingCatalogOrders:()=>{},setCatalogOrdersError:()=>{},
-  fetchAllCustomerOrdersFromSupabase:async()=>({orders:[]}),loadSharedCatalogOrders:()=>ghosts,
-  reconcileOrderSnapshot:sync.reconcileOrderSnapshot,archiveUnconfirmedOrderCache:sync.archiveUnconfirmedOrderCache,
-  enrichOrderWithProfile:order=>order,setAllCatalogOrders:rows=>listed.push(rows),persistSharedCatalogOrders:rows=>persisted.push(rows),
+  fetchAllCustomerOrdersFromSupabase:async()=>({orders:[]}),
+  reconcileOrderSnapshot:sync.reconcileOrderSnapshot,
+  enrichOrderWithProfile:order=>order,setAllCatalogOrders:rows=>listed.push(rows),
   saveCustomerOrderToSupabase:()=>assert.fail('Admin reads must not recreate orders'),cleanupExpiredCancelledOrdersInSupabase:()=>assert.fail('Admin reads must not delete orders'),
  },'load');
- await admin();assert.equal(listed[0].length,0);assert.equal(persisted[0].length,0);
- console.log('PASS: five ghost cache records excluded and preserved for review; pending drafts retained; UUID ownership; authoritative empty history; failed-read preservation; legacy fallback only on missing table; customer/admin read handlers never insert or clean up. Local mocks only.');
+ await admin();assert.equal(listed[0].length,0);assert.ok(!context.includes("persistSharedCatalogOrders"));
+ console.log('PASS: five ghost cache records purged from shared storage; pending drafts retained; UUID ownership; authoritative empty history; failed-read preservation; legacy fallback only on missing table; customer/admin read handlers never insert or clean up. Local mocks only.');
 })().catch(e=>{console.error(e);process.exitCode=1});

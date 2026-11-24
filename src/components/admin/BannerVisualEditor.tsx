@@ -1,3 +1,4 @@
+import { acceptedImageTypes, readCatalogImage } from '../../utils/imageUpload';
 import React, { useState, useRef } from 'react';
 import { useCatalog } from '../../context/CatalogContext';
 import { BannerSlide } from '../../types/catalog';
@@ -67,21 +68,15 @@ export const BannerVisualEditor: React.FC = () => {
     setTimeout(() => setSuccessToast(null), 3000);
   };
 
-  // Handle local image upload via FileReader
-  const handleFileUpload = (e: React.ChangeEvent<HTMLInputElement>) => {
+  const handleFileUpload = async (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
-    if (file) {
-      if (file.size > 8 * 1024 * 1024) {
-        alert('A imagem deve ter no máximo 8MB.');
-        return;
-      }
-      const reader = new FileReader();
-      reader.onload = (uploadEvent) => {
-        const base64 = uploadEvent.target?.result as string;
-        setForm((prev) => ({ ...prev, imageUrl: base64 }));
-        showToast('Imagem carregada com sucesso!');
-      };
-      reader.readAsDataURL(file);
+    if (!file) return;
+    try {
+      const { url } = await readCatalogImage(file);
+      setForm(prev => ({ ...prev, imageUrl: url }));
+      showToast('Imagem carregada com sucesso!');
+    } catch (error) {
+      showToast(error instanceof Error ? error.message : 'Falha ao carregar a imagem.');
     }
   };
 
@@ -232,7 +227,7 @@ export const BannerVisualEditor: React.FC = () => {
               <input
                 ref={fileInputRef}
                 type="file"
-                accept="image/*"
+                accept={acceptedImageTypes}
                 onChange={handleFileUpload}
                 className="hidden"
               />

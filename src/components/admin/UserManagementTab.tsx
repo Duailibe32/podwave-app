@@ -171,13 +171,6 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
 
   const handleQuickAddStamp = async (user: UserProfile) => {
     const card = getUserLoyaltyCard(user, defaultGoal, defaultReward);
-    console.log('[Painel Admin] Clique em +1 Selo Fidelidade:', {
-      userId: user.id,
-      name: user.fullName,
-      currentStamps: card.stamps,
-      goal: card.goal,
-    });
-
     if (card.stamps >= card.goal) {
       openLoyaltyModal(user);
       return;
@@ -191,7 +184,6 @@ export const UserManagementTab: React.FC<UserManagementTabProps> = ({
         note: 'Selo adicionado manualmente pelo painel',
       });
 
-      console.log('[Painel Admin] Resultado do incremento de selo:', { userId: user.id, success: ok });
 
       if (ok) {
         const nextStamps = Math.min(card.goal, card.stamps + 1);
