@@ -122,6 +122,7 @@ import {
   deleteBrandFromSupabase,
   deleteCouponFromSupabase,
   deleteBannerFromSupabase,
+  lookupCouponByCode,
 } from '../services/supabase';
 import {
   acquireOrderActionLock,
@@ -352,7 +353,7 @@ interface CatalogContextType {
   flashSaleDiscountAmount: number;
   isProgressiveFreeShipping: boolean;
   appliedCoupon: Coupon | null;
-  applyCoupon: (codeOrCoupon: string | Coupon) => { success: boolean; message: string };
+  applyCoupon: (codeOrCoupon: string | Coupon) => Promise<{ success: boolean; message: string }>;
   removeCoupon: () => void;
   discountAmount: number;
   cartTotal: number;
@@ -2557,7 +2558,9 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
 
   // Coupons state (persisted)
   const [coupons, setCoupons] = useState<Coupon[]>(() => {
-    let list: Coupon[] = AVAILABLE_COUPONS;
+    // Com o Supabase configurado, os cupons de demonstração não valem: a lista
+    // remota só chega para administradores e o cliente consulta código a código.
+    let list: Coupon[] = isSupabaseEnvConfigured ? [] : AVAILABLE_COUPONS;
     try {
       const stored = localStorage.getItem(STORAGE_KEY);
       if (stored) {
@@ -2900,11 +2903,15 @@ export const CatalogProvider: React.FC<{ children: React.ReactNode }> = ({ child
     : 0;
 
   // Coupon application logic with specific model restriction and maximum uses limit
-  const applyCoupon = (codeOrCoupon: string | Coupon) => {
+  const applyCoupon = async (codeOrCoupon: string | Coupon) => {
     let coupon: Coupon | undefined;
     if (typeof codeOrCoupon === 'string') {
       const trimmed = codeOrCoupon.trim().toUpperCase();
       coupon = coupons.find((c) => c.code.toUpperCase() === trimmed);
+      if (!coupon && supabaseClient) {
+        // Visitantes não recebem a lista de cupons; o banco confere só o código digitado.
+        coupon = (await lookupCouponByCode(trimmed)) ?? undefined;
+      }
       if (!coupon) {
         return { success: false, message: `Cupom "${trimmed}" não encontrado ou expirado.` };
       }

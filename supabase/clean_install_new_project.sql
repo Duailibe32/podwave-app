@@ -636,7 +636,21 @@ DROP POLICY IF EXISTS "Public Read Coupons" ON public.coupons;
 DROP POLICY IF EXISTS "Admin Insert Coupons" ON public.coupons;
 DROP POLICY IF EXISTS "Admin Update Coupons" ON public.coupons;
 DROP POLICY IF EXISTS "Admin Delete Coupons" ON public.coupons;
-CREATE POLICY "Public Read Coupons" ON public.coupons FOR SELECT USING (is_active = true OR app_security.is_admin());
+DROP POLICY IF EXISTS "Admin Read Coupons" ON public.coupons;
+-- Visitantes não leem a lista de cupons; consultam um código por vez com podwave_lookup_coupon.
+CREATE POLICY "Admin Read Coupons" ON public.coupons FOR SELECT TO authenticated USING (app_security.is_admin());
+
+CREATE OR REPLACE FUNCTION public.podwave_lookup_coupon(p_code text)
+RETURNS SETOF public.coupons
+LANGUAGE sql STABLE SECURITY DEFINER SET search_path = pg_catalog, public AS $$
+  SELECT c.* FROM public.coupons c
+  WHERE length(trim(coalesce(p_code, ''))) BETWEEN 1 AND 64
+    AND upper(c.code) = upper(trim(p_code))
+    AND coalesce((to_jsonb(c) ->> 'active')::boolean, (to_jsonb(c) ->> 'is_active')::boolean, true)
+  ORDER BY c.id LIMIT 1;
+$$;
+REVOKE ALL ON FUNCTION public.podwave_lookup_coupon(text) FROM PUBLIC;
+GRANT EXECUTE ON FUNCTION public.podwave_lookup_coupon(text) TO anon, authenticated, service_role;
 CREATE POLICY "Admin Insert Coupons" ON public.coupons FOR INSERT TO authenticated WITH CHECK (app_security.is_admin());
 CREATE POLICY "Admin Update Coupons" ON public.coupons FOR UPDATE TO authenticated USING (app_security.is_admin()) WITH CHECK (app_security.is_admin());
 CREATE POLICY "Admin Delete Coupons" ON public.coupons FOR DELETE TO authenticated USING (app_security.is_admin());

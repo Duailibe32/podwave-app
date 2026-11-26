@@ -26,3 +26,11 @@ A configuração a seguir é opcional. O checkout e os alertas com a loja aberta
 2. Publique novamente a função `order-push` para que ela trate os alertas administrativos. O agendamento já configurado atende os dois tipos de alerta.
 3. Entre como administrador e ative **Alertas de novos pedidos** nas configurações do painel, em cada aparelho que deve receber avisos.
 4. Em ambiente de teste, confirme um pedido no checkout. Com a loja aberta e conectada ao Realtime, a notificação chega no INSERT. Com a loja fechada, aguarde a próxima execução do agendamento. Toque na notificação e confira a abertura da Central de Pedidos.
+
+## Cupons privados
+
+Até esta versão, todo visitante baixava a lista de cupons ativos junto com o catálogo e podia ver códigos enviados a clientes específicos.
+
+1. Publique primeiro o frontend desta versão. Ele funciona com o banco antigo e com o novo.
+2. Aplique [20261126_private_coupon_lookup.sql](proposals/20261126_private_coupon_lookup.sql) no SQL Editor. Só administradores passam a ler a tabela `coupons`. O cliente consulta o código digitado com `podwave_lookup_coupon`.
+3. Confira no navegador anônimo: a sacola aceita um cupom válido e recusa um código inexistente. No painel, a lista de cupons continua completa.
