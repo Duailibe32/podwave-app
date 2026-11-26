@@ -267,19 +267,14 @@ export const BrandScroller: React.FC = () => {
   return (
     <section id="marcas" tabIndex={-1} className="py-8 bg-[#080811] border-b border-[#8423DA]/20 scroll-mt-20 focus:outline-none">
       <div className="max-w-7xl mx-auto px-4 sm:px-6 lg:px-8 space-y-4">
-        {/* Header matching image_5a419201.png ("9. Página de marcas - Organização visual por fabricante") */}
         <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
           <div className="flex items-center gap-3">
-            {/* Number 9 Purple Badge */}
-            <div className="w-8 h-8 sm:w-9 sm:h-9 rounded-full bg-gradient-to-br from-[#8423DA] to-[#A855F7] text-white font-black text-sm sm:text-base flex items-center justify-center shadow-[0_0_15px_rgba(132,35,218,0.6)] shrink-0">
-              9
-            </div>
             <div>
               <h2 className="font-heading text-lg sm:text-xl font-black text-white tracking-tight leading-tight">
-                Página de marcas
+                Marcas
               </h2>
               <p className="text-xs text-[#A5A5B8]">
-                Organização visual por fabricante &bull; Clique para filtrar e rolar aos modelos
+                Toque em uma marca para ver os modelos dela
               </p>
             </div>
           </div>

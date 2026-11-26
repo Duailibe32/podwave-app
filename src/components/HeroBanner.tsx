@@ -113,7 +113,8 @@ export const HeroBanner: React.FC = () => {
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-[#11152A]/90 border border-[#8423DA]/50 shadow-md">
                 <Zap className="w-3.5 h-3.5 text-[#00DFFF] fill-[#00DFFF] animate-pulse" />
                 <span className="text-xs font-bold uppercase tracking-wider text-[#00DFFF]">
-                  {currentBanner.badge || '⚡ PODWAVE OFICIAL'}
+                  {/* O ícone de raio já aparece ao lado; evita o raio duplicado vindo do texto do banner. */}
+                  {(currentBanner.badge || 'PODWAVE OFICIAL').replace(/^\s*⚡\uFE0F?\s*/u, '')}
                 </span>
               </div>
               <div className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full bg-emerald-500/15 border border-emerald-500/40 text-emerald-400 text-xs font-bold">
@@ -274,9 +275,6 @@ export const HeroBanner: React.FC = () => {
                       Sinta a Nova Onda &bull; PodWave
                     </span>
                   </div>
-                  <span className="px-2 py-0.5 rounded-full bg-[#00DFFF]/20 text-[#00DFFF] font-bold border border-[#00DFFF]/40 text-[10px]">
-                    CARROSSEL ATIVO (6s)
-                  </span>
                 </div>
               </div>
 
