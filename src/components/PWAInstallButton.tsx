@@ -1,4 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
+import { useCatalog } from '../context/CatalogContext';
 import { createPortal } from 'react-dom';
 import { usePWAInstall } from '../hooks/usePWAInstall';
 import { useBodyScrollLock } from '../hooks/useBodyScrollLock';
@@ -43,6 +44,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
     }
   });
   const instructionsRef = useRef<HTMLDivElement | null>(null);
+  const { currentUser } = useCatalog();
+  const hasOrdered = (currentUser?.orderHistory?.length ?? 0) > 0;
 
   // Sync activeTab with detected platform on mount or change
   useEffect(() => {
@@ -113,8 +116,8 @@ export const PWAInstallButton: React.FC<PWAInstallButtonProps> = ({ variant = 'h
     }
   };
 
-  // Hide smart banner if already installed as standalone PWA or dismissed
-  if (variant === 'smart-banner' && (isInstalled || bannerDismissed)) {
+  // O aviso flutuante só aparece para quem já fez pedido: antes disso ele cobria a vitrine.
+  if (variant === 'smart-banner' && (isInstalled || bannerDismissed || !hasOrdered)) {
     return null;
   }
 

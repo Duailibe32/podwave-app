@@ -264,8 +264,7 @@ export const Header: React.FC = () => {
               </button>
             )}
 
-            {/* PWA Install Button */}
-            <PWAInstallButton variant="header" />
+            {/* O convite para instalar fica no menu e no rodapé; o aviso flutuante aparece depois do primeiro pedido. */}
 
             {/* Admin Switcher Button (ACESSO PARA ADMINISTRADORES E PROPRIETÁRIO) */}
             {isAdmin && (
