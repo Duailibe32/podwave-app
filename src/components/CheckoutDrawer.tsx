@@ -135,7 +135,7 @@ export const CheckoutDrawer: React.FC = () => {
   const [couponCode, setCouponCode] = useState('');
   const [couponFeedback, setCouponFeedback] = useState<{ success: boolean; message: string } | null>(null);
 
-  const handleApplyCoupon = (codeToApply?: string) => {
+  const handleApplyCoupon = async (codeToApply?: string) => {
     const rawCode = codeToApply || couponCode;
     const trimmed = rawCode.trim().toUpperCase();
 
@@ -148,7 +148,7 @@ export const CheckoutDrawer: React.FC = () => {
     }
 
     // Call unified context validation (which verifies active status, specific model, and usage limit!)
-    const result = applyCoupon(trimmed);
+    const result = await applyCoupon(trimmed);
     setCouponFeedback(result);
 
     if (result.success) {

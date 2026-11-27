@@ -331,19 +331,7 @@ export async function fetchCatalogFromSupabase(): Promise<SupabaseCatalogResult 
       themeGradient: bn.theme_gradient || 'neon',
     }));
 
-    const mappedCoupons: Coupon[] = (couponsData || []).map((c) => ({
-      id: c.id,
-      code: c.code,
-      discountType: c.discount_type,
-      value: Number(c.value),
-      description: c.description || '',
-      applicableModelId: c.applicable_model_id || 'all',
-      applicableModelName: c.applicable_model_name || undefined,
-      maxUses: c.max_uses || undefined,
-      usedCount: c.used_count || 0,
-      minOrderValue: Number(c.min_order_value) || 0,
-      active: c.active,
-    }));
+    const mappedCoupons: Coupon[] = (couponsData || []).map(mapCouponRow);
 
     const settingsRows = Array.isArray(settingsRes.data)
       ? settingsRes.data
@@ -410,6 +398,45 @@ export async function fetchCatalogFromSupabase(): Promise<SupabaseCatalogResult 
       return { data: null, tablesExist: false };
     }
     console.warn('[Supabase] Aviso ao buscar dados remotos:', err instanceof Error ? err.message : String(err));
+    return null;
+  }
+}
+
+function mapCouponRow(c: any): Coupon {
+  return {
+    id: c.id,
+    code: c.code,
+    discountType: c.discount_type,
+    value: Number(c.value),
+    description: c.description || '',
+    applicableModelId: c.applicable_model_id || 'all',
+    applicableModelName: c.applicable_model_name || undefined,
+    maxUses: c.max_uses || undefined,
+    usedCount: c.used_count || 0,
+    minOrderValue: Number(c.min_order_value) || 0,
+    active: c.active ?? c.is_active,
+  };
+}
+
+/**
+ * Consulta um único cupom pelo código, sem expor a lista de cupons ao visitante.
+ * Retorna null quando o código não existe, está inativo ou a função ainda não foi
+ * criada no banco (supabase/proposals/20261126_private_coupon_lookup.sql).
+ */
+export async function lookupCouponByCode(code: string): Promise<Coupon | null> {
+  const client = getSupabaseClient();
+  const trimmed = code.trim();
+  if (!client || !trimmed || trimmed.length > 64) return null;
+  try {
+    const { data, error } = await client.rpc('podwave_lookup_coupon', { p_code: trimmed });
+    if (error) {
+      console.warn('[Supabase] Consulta de cupom indisponível:', error.message);
+      return null;
+    }
+    const row = Array.isArray(data) ? data[0] : data;
+    return row ? mapCouponRow(row) : null;
+  } catch (err) {
+    console.warn('[Supabase] Falha ao consultar cupom:', err instanceof Error ? err.message : String(err));
     return null;
   }
 }
