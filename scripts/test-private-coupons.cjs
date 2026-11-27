@@ -6,13 +6,13 @@ const proposal = fs.readFileSync('supabase/proposals/20261126_private_coupon_loo
 
 // Instala a proposta sobre um banco que usa a coluna indicada (produção usa "active",
 // as migrações antigas usam "is_active") e confere o que cada perfil enxerga.
-async function checkSchema(activeColumn) {
+async function checkSchema(activeColumn, adminSchema) {
   const db = new PGlite();
   try {
     await db.exec(`
       CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
-      CREATE SCHEMA app_security; GRANT USAGE ON SCHEMA app_security TO anon, authenticated;
-      CREATE FUNCTION app_security.is_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS
+      CREATE SCHEMA IF NOT EXISTS ${adminSchema}; GRANT USAGE ON SCHEMA ${adminSchema} TO anon, authenticated;
+      CREATE FUNCTION ${adminSchema}.is_admin() RETURNS boolean LANGUAGE sql STABLE SECURITY DEFINER AS
         'SELECT current_setting(''request.test_role'', true) = ''admin''';
       CREATE TABLE public.coupons (id text PRIMARY KEY, code text, discount_type text, value numeric,
         ${activeColumn} boolean DEFAULT true, used_count integer DEFAULT 0, max_uses integer);
@@ -20,7 +20,7 @@ async function checkSchema(activeColumn) {
         ('2','ANTIGO','fixed',5,false,0,NULL), ('3','frete','free_shipping',0,true,0,NULL);
       ALTER TABLE coupons ENABLE ROW LEVEL SECURITY;
       GRANT SELECT ON coupons TO anon, authenticated;
-      CREATE POLICY "Public Read Coupons" ON public.coupons FOR SELECT USING (${activeColumn} = true OR app_security.is_admin());
+      CREATE POLICY "Public Read Coupons" ON public.coupons FOR SELECT USING (${activeColumn} = true OR ${adminSchema}.is_admin());
     `);
     const as = async (role, sql, appRole = '') => {
       await db.exec(`SET request.test_role = '${appRole}'; SET ROLE ${role};`);
@@ -54,8 +54,16 @@ async function checkSchema(activeColumn) {
 }
 
 async function main() {
-  await checkSchema('active');
-  await checkSchema('is_active');
+  // Produção: coluna "active" e public.is_admin(). Instalação nova: "is_active" e app_security.is_admin().
+  await checkSchema('active', 'public');
+  await checkSchema('is_active', 'app_security');
+
+  const missing = new PGlite();
+  try {
+    await missing.exec(`CREATE ROLE anon; CREATE ROLE authenticated; CREATE ROLE service_role;
+      CREATE TABLE public.coupons (id text PRIMARY KEY, code text, active boolean);`);
+    await assert.rejects(missing.exec(proposal), /Nenhuma função is_admin\(\) encontrada/);
+  } finally { await missing.close(); }
 
   const context = fs.readFileSync('src/context/CatalogContext.tsx', 'utf8');
   const service = fs.readFileSync('src/services/supabase.ts', 'utf8');
@@ -66,7 +74,7 @@ async function main() {
   for (const file of ['src/components/CartDrawer.tsx', 'src/components/CheckoutDrawer.tsx']) {
     assert.match(fs.readFileSync(file, 'utf8'), /await applyCoupon\(/, `${file} must await applyCoupon`);
   }
-  console.log('PASS: coupons hidden from anon and customers on both column layouts; admins keep the list; single-code lookup is exact, active-only and bounded; storefront awaits the lookup. Local PGlite only.');
+  console.log('PASS: coupons hidden from anon and customers on both column and admin-function layouts; aborts without is_admin; admins keep the list; single-code lookup is exact, active-only and bounded; storefront awaits the lookup. Local PGlite only.');
 }
 
 main().catch((error) => { console.error(error); process.exit(1); });
