@@ -5,7 +5,8 @@
 -- Qualquer visitante via todos os códigos, inclusive os enviados a um único cliente.
 --
 -- Depois:
---   * Só administradores leem a tabela public.coupons.
+--   * Só administradores leem a tabela public.coupons (via public.is_admin() ou
+--     app_security.is_admin(), a que existir no banco).
 --   * O cliente consulta um código por vez com public.podwave_lookup_coupon(p_code),
 --     que devolve no máximo uma linha e nada quando o código não existe.
 --   * O SELECT continua concedido (sem REVOKE) para que a leitura da vitrine
@@ -17,18 +18,26 @@
 -- banco antigo e com o novo) e depois aplique este arquivo no SQL Editor.
 BEGIN;
 
+-- O banco original usa public.is_admin(); instalações novas usam app_security.is_admin().
 DO $$
+DECLARE
+  admin_check text;
 BEGIN
-  IF to_regprocedure('app_security.is_admin()') IS NULL THEN
-    RAISE EXCEPTION 'app_security.is_admin() não encontrado. Aplique o hardening de segurança antes.';
+  IF to_regprocedure('public.is_admin()') IS NOT NULL THEN
+    admin_check := 'public.is_admin()';
+  ELSIF to_regprocedure('app_security.is_admin()') IS NOT NULL THEN
+    admin_check := 'app_security.is_admin()';
+  ELSE
+    RAISE EXCEPTION 'Nenhuma função is_admin() encontrada (public ou app_security). Nada foi alterado.';
   END IF;
-END $$;
 
-DROP POLICY IF EXISTS "Public Read Coupons" ON public.coupons;
-DROP POLICY IF EXISTS "Admin Read Coupons" ON public.coupons;
-CREATE POLICY "Admin Read Coupons" ON public.coupons
-  FOR SELECT TO authenticated
-  USING (app_security.is_admin());
+  DROP POLICY IF EXISTS "Public Read Coupons" ON public.coupons;
+  DROP POLICY IF EXISTS "Admin Read Coupons" ON public.coupons;
+  EXECUTE format(
+    'CREATE POLICY "Admin Read Coupons" ON public.coupons FOR SELECT TO authenticated USING (%s)',
+    admin_check
+  );
+END $$;
 
 CREATE OR REPLACE FUNCTION public.podwave_lookup_coupon(p_code text)
 RETURNS SETOF public.coupons
@@ -59,7 +68,10 @@ BEGIN
       AND policyname <> 'Admin Read Coupons'
       AND (roles && ARRAY['public', 'anon']::name[] OR qual IS NULL OR qual NOT LIKE '%is_admin%')
   ) THEN
-    RAISE EXCEPTION 'Ainda existe política de leitura pública em public.coupons. Revise antes de continuar.';
+    RAISE EXCEPTION 'Ainda existe política de leitura pública em public.coupons: %. Nada foi alterado.',
+      (SELECT string_agg(policyname, ', ') FROM pg_policies
+       WHERE schemaname = 'public' AND tablename = 'coupons' AND cmd IN ('SELECT', 'ALL')
+         AND policyname <> 'Admin Read Coupons');
   END IF;
 END $$;
 
