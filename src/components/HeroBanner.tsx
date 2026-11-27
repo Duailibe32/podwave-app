@@ -2,7 +2,6 @@ import React, { useState, useEffect, useRef } from 'react';
 import { useCatalog } from '../context/CatalogContext';
 import { Zap, Search, ChevronRight, Layers, Sparkles, ChevronLeft, ShieldCheck, Truck, ShoppingBag, ArrowRight, Gift } from 'lucide-react';
 import { scrollToSectionById } from '../utils/anchorNavigation';
-import { FeaturedProducts } from './FeaturedProducts';
 
 export const HeroBanner: React.FC = () => {
   const { searchQuery, setSearchQuery, setSelectedPuffRange, banners } = useCatalog();
@@ -97,7 +96,7 @@ export const HeroBanner: React.FC = () => {
       onMouseLeave={() => setIsPaused(false)}
       onTouchStart={handleTouchStart}
       onTouchEnd={handleTouchEnd}
-      className="relative overflow-hidden pt-5 pb-10 sm:pt-8 sm:pb-14 lg:pt-14 lg:pb-20 border-b border-[#8423DA]/20 bg-gradient-to-b from-[#080811] via-[#0D1022] to-[#080811]"
+      className="relative overflow-hidden pt-8 pb-14 lg:pt-14 lg:pb-20 border-b border-[#8423DA]/20 bg-gradient-to-b from-[#080811] via-[#0D1022] to-[#080811]"
     >
       {/* Ambient Neon Glow Spheres */}
       <div className={`absolute top-1/4 left-1/2 -translate-x-1/2 -translate-y-1/2 w-[550px] h-[350px] bg-gradient-to-r ${getThemeBg(currentBanner.themeGradient)} rounded-full blur-[130px] pointer-events-none transition-all duration-700`} />
@@ -134,9 +133,6 @@ export const HeroBanner: React.FC = () => {
               {currentBanner.subtitle}
             </p>
 
-            {/* Produtos já na primeira tela do celular, antes dos botões */}
-            <FeaturedProducts />
-
             {/* CTAs Row */}
             <div className="flex flex-wrap items-center justify-center lg:justify-start gap-3 pt-1">
               <button
@@ -157,8 +153,8 @@ export const HeroBanner: React.FC = () => {
               </button>
             </div>
 
-            {/* No celular estes selos repetem a faixa de cima e o botão do cartão fidelidade. */}
-            <div className="hidden sm:grid grid-cols-3 gap-2 pt-2">
+            {/* Value Props Pills matching image_2de191e7.png */}
+            <div className="grid grid-cols-1 sm:grid-cols-3 gap-2 pt-2">
               <div className="flex items-center gap-2 p-2.5 rounded-xl bg-[#0D1022]/90 border border-[#8423DA]/20 text-left">
                 <ShieldCheck className="w-4 h-4 text-[#00DFFF] shrink-0" />
                 <div>
@@ -237,8 +233,7 @@ export const HeroBanner: React.FC = () => {
           </div>
 
           {/* Right Column: Hero Visual Showcase with 3D device artwork */}
-          {/* No celular o quadro do banner empurrava os produtos para baixo da dobra. */}
-          <div className="hidden lg:flex lg:col-span-5 flex-col justify-center items-center relative">
+          <div className="lg:col-span-5 flex flex-col justify-center items-center relative">
             <div className="relative w-full max-w-lg">
               {/* Outer Glowing Neon Aura */}
               <div className="absolute inset-0 bg-gradient-to-tr from-[#00DFFF]/30 via-[#8423DA]/30 to-[#E53CF3]/30 rounded-3xl blur-2xl transform scale-105" />
